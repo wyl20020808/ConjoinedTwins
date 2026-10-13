@@ -1,0 +1,269 @@
+{
+	"checks": [
+		{
+			"name": "生产配置：绳长 7.33 米、前后 ±5 米、初速 12 米/秒、重力 40 米/秒²、缓冲 0.10 秒",
+			"passed": true
+		},
+		{
+			"name": "跳跃最高约 1.8 米 P1",
+			"passed": true
+		},
+		{
+			"name": "0.30 秒到顶 P1（误差不超过一个固定步）",
+			"passed": true
+		},
+		{
+			"name": "0.60 秒腾空 P1（误差不超过一个固定步）",
+			"passed": true
+		},
+		{
+			"name": "独立跳跃：队友保持地面 P1",
+			"passed": true
+		},
+		{
+			"name": "帧率无关：60 帧与 120 帧抛物线一致 P1",
+			"passed": true
+		},
+		{
+			"name": "长按不重复触发 P1",
+			"passed": true
+		},
+		{
+			"name": "无二段跳：空中再按不改变轨迹 P1",
+			"passed": true
+		},
+		{
+			"name": "缓冲窗口 0.10 秒内落地后起跳 P1",
+			"passed": true
+		},
+		{
+			"name": "过期输入不起跳 P1",
+			"passed": true
+		},
+		{
+			"name": "缓冲起跳后长按不再重复 P1",
+			"passed": true
+		},
+		{
+			"name": "暂停冻结并清除残留跳跃输入 P1",
+			"passed": true
+		},
+		{
+			"name": "重试清除残留跳跃输入 P1",
+			"passed": true
+		},
+		{
+			"name": "生产入口清除按键同时清除缓冲 P1",
+			"passed": true
+		},
+		{
+			"name": "跳跃最高约 1.8 米 P2",
+			"passed": true
+		},
+		{
+			"name": "0.30 秒到顶 P2（误差不超过一个固定步）",
+			"passed": true
+		},
+		{
+			"name": "0.60 秒腾空 P2（误差不超过一个固定步）",
+			"passed": true
+		},
+		{
+			"name": "独立跳跃：队友保持地面 P2",
+			"passed": true
+		},
+		{
+			"name": "帧率无关：60 帧与 120 帧抛物线一致 P2",
+			"passed": true
+		},
+		{
+			"name": "长按不重复触发 P2",
+			"passed": true
+		},
+		{
+			"name": "无二段跳：空中再按不改变轨迹 P2",
+			"passed": true
+		},
+		{
+			"name": "缓冲窗口 0.10 秒内落地后起跳 P2",
+			"passed": true
+		},
+		{
+			"name": "过期输入不起跳 P2",
+			"passed": true
+		},
+		{
+			"name": "缓冲起跳后长按不再重复 P2",
+			"passed": true
+		},
+		{
+			"name": "暂停冻结并清除残留跳跃输入 P2",
+			"passed": true
+		},
+		{
+			"name": "重试清除残留跳跃输入 P2",
+			"passed": true
+		},
+		{
+			"name": "生产入口清除按键同时清除缓冲 P2",
+			"passed": true
+		},
+		{
+			"name": "双方跳跃固定步数一致",
+			"passed": true
+		},
+		{
+			"name": "混合输入全程：间距不超过 7.33 米且前后不超过 ±5 米",
+			"passed": true
+		},
+		{
+			"name": "混合输入曾拉紧到新绳长",
+			"passed": true
+		},
+		{
+			"name": "双方交换输入得到镜像对称结果",
+			"passed": true
+		},
+		{
+			"name": "前后范围各 ±5 米（双方一致）",
+			"passed": true
+		},
+		{
+			"name": "前后错位被新绳长约束（两种站位对称）",
+			"passed": true
+		},
+		{
+			"name": "横向拉开被新绳长约束",
+			"passed": true
+		},
+		{
+			"name": "地面间距始终不超过 7.33 米",
+			"passed": true
+		},
+		{
+			"name": "历史白盒共用绳长常量未改动",
+			"passed": true
+		},
+		{
+			"name": "高度分类表：低矮贴地可跳，其余必须绕行",
+			"passed": true
+		},
+		{
+			"name": "高货箱高于跳跃最高点",
+			"passed": true
+		},
+		{
+			"name": "高货箱任何起跳时机都不能越过（含冲刺起跳）",
+			"passed": true
+		},
+		{
+			"name": "货箱高度的薄墙同样不能越过（由高度而非厚度决定）",
+			"passed": true
+		},
+		{
+			"name": "5 米高柱夹具不能越过",
+			"passed": true
+		},
+		{
+			"name": "低栏可跳过且双方可行时机数一致",
+			"passed": true
+		},
+		{
+			"name": "不跳会撞低栏并共同失败",
+			"passed": true
+		},
+		{
+			"name": "高货箱模型与碰撞高度一致且高于跳跃最高点",
+			"passed": false
+		},
+		{
+			"name": "界面显示新绳长",
+			"passed": true
+		},
+		{
+			"name": "角色高度、地面阴影与碰撞状态同源 P1",
+			"passed": true
+		},
+		{
+			"name": "跳跃动画按生产抛物线进度同步 P1",
+			"passed": false
+		},
+		{
+			"name": "角色高度、地面阴影与碰撞状态同源 P2",
+			"passed": true
+		},
+		{
+			"name": "跳跃动画按生产抛物线进度同步 P2",
+			"passed": false
+		},
+		{
+			"name": "连线在新绳长 85% 以上变金色",
+			"passed": false
+		}
+	],
+	"failures": 4,
+	"metrics": {
+		"cargo_model_height_m": 3.11999988555908,
+		"cargo_top_m": 3.0,
+		"fixed_step_s": 0.00833333333333333,
+		"jump_apex_m": 1.8,
+		"jump_buffer_s": 0.1,
+		"jump_over_successes_of_300_timings": {
+			"cargo_p1": 0,
+			"cargo_p2": 0,
+			"cargo_rush_p1": 0,
+			"cargo_rush_p2": 0,
+			"pillar_5m_p1": 0,
+			"pillar_5m_p2": 0,
+			"rail_p1": 23,
+			"rail_p2": 23,
+			"thin_cargo_height_p1": 0,
+			"thin_cargo_height_p2": 0
+		},
+		"jump_p1": {
+			"air_error_s": 0.0,
+			"air_fixed_steps": 72,
+			"air_s": 0.6,
+			"apex_error_s": 0.0,
+			"apex_fixed_steps": 36,
+			"apex_s": 0.3,
+			"peak_error_m": -0.000000000000007105427357601,
+			"peak_m": 1.79999999999999
+		},
+		"jump_p2": {
+			"air_error_s": 0.0,
+			"air_fixed_steps": 72,
+			"air_s": 0.6,
+			"apex_error_s": 0.0,
+			"apex_fixed_steps": 36,
+			"apex_s": 0.3,
+			"peak_error_m": -0.000000000000007105427357601,
+			"peak_m": 1.79999999999999
+		},
+		"mixed_max_link_m": 7.32999954223633,
+		"mixed_max_offset_m": 5.0,
+		"range_back_m": [
+			-5.0,
+			-5.0
+		],
+		"range_front_m": [
+			5.0,
+			5.0
+		],
+		"range_max_link_m": 7.32999954223633,
+		"shadow_scale_at_apex_p1": 0.639999985694885,
+		"shadow_scale_at_apex_p2": 0.639999985694885,
+		"split_link_m": [
+			7.32999954223633,
+			7.32999496459961,
+			7.32999954223633
+		],
+		"split_longitudinal_gap_m": [
+			6.00740356445313,
+			6.0073974609375
+		],
+		"substep_s": 0.00277777777777778,
+		"symmetry_max_deviation_units": 0.0
+	},
+	"passed": false
+}

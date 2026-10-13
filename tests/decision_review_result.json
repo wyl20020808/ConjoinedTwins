@@ -1,0 +1,6 @@
+{
+	"checks": 20,
+	"failures": [],
+	"scope": "真正 headless 的生产输入处理、合成视口事件和菜单回调；不使用桌面输入，不代表视觉验收",
+	"status": "PASS"
+}

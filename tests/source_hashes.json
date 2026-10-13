@@ -1,0 +1,21 @@
+{
+	".gitignore": "531d0d253cec1addb97b2cb2d144b6589ff934513eb9c9b8cf882cb49e4c0c32",
+	"README.md": "cadf557387c0405add9de54950c839e16d1beddaa22f7d6e559b28aadcf79eaa",
+	"docs/DECISION_REVIEW.md": "043c1e597a1b640ce7529c380121381e7600656b13bea109eb3f6123695999ad",
+	"docs/INITIAL_DEVELOPMENT_PLAN.md": "5859667423cb4b1e9524e0691bcafb056a8230c9e8d02af543f1fb00168a86af",
+	"docs/PLAYTEST_CHECKLIST.md": "bf59601b5950a6f5bf830cd6ade6736f183823f117caaaeb1e9a6c505c4c4605",
+	"docs/TEST_REPORT.md": "f08c7e64b5032f1969213ca23f343020fdf1f6ec45d55b5747ae2125f6f271ca",
+	"project.godot": "83eeae4c2ac5637edf4a01cf625987fd65f375bf975552efa9eded7ca8b466d9",
+	"scenes/main.tscn": "475a2e116614eeeb96799c94ff9ec7fdb753614f548411e0f27b635aae3110c2",
+	"scripts/game.gd": "8c9c69fabb6aaebd0286c95cdf070eba55c56c4679337783931b81baffc1d925",
+	"scripts/levels.gd": "502d9d4f95a439af2a1c432ce91d88ed66882dc5835694011bcbfad768e480e3",
+	"scripts/link_motion.gd": "6e1a63e4abb6eb94d8d80b1c4391fde3d0dffa61f111d1adbaf38fdafd4f5eda",
+	"scripts/mechanisms.gd": "196511a1271d4c847033e1edd4ab2f11f4ca1b4354dccaa0cb794bee2e03565e",
+	"scripts/partner_ai.gd": "524f0247cd41e828912033be3bdb19448d73aafac2665c66a233fd77ac26a15b",
+	"scripts/twin.gd": "852626f033d3ea01317a06e79d016c3d48fa04472e4991b2939a08b1e3c44cb5",
+	"tests/decision_review.gd": "9b0b866f070133b76cb461759233efe174d660fd34d4b7056cb27a347ce1ad80",
+	"tests/evidence.gd": "07fab960f786260de0e3f6ffe2e9914bd6abf31eea47a96b653b92c2a9e53f86",
+	"tests/headless.gd": "9c4ba3d3756f27e7b13deef61151b96063c4f5b8d11a2c65876c944bae32c5b8",
+	"启动白盒.cmd": "a36306e0156a0a1f6d8942f4283fb51b43c7908ef1fb3af3db1857a22c5ac8f2",
+	"验证白盒.cmd": "82c832b422165fe60c70e72e3cc6a72b6af23708833bc0ab329341aed736097c"
+}

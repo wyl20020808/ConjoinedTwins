@@ -1,0 +1,8 @@
+{
+	"checks": 65,
+	"failures": [],
+	"frames": 6012,
+	"maximum_distance": 220.000030517578,
+	"maximum_step": 6.0,
+	"status": "PASS"
+}

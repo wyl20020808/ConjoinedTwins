@@ -1,0 +1,262 @@
+{
+	"checks": [
+		{
+			"name": "生产默认普通、三种难度可选",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 简单11",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 简单11",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 简单11",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 简单11",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 简单42",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 简单42",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 简单42",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 简单42",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 简单20261012",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 简单20261012",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 简单20261012",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 简单20261012",
+			"passed": true
+		},
+		{
+			"name": "暂停冻结周期生成和推进 简单",
+			"passed": true
+		},
+		{
+			"name": "速度增长不超上限 简单",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 普通11",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 普通11",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 普通11",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 普通11",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 普通42",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 普通42",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 普通42",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 普通42",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 普通20261012",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 普通20261012",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 普通20261012",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 普通20261012",
+			"passed": true
+		},
+		{
+			"name": "暂停冻结周期生成和推进 普通",
+			"passed": true
+		},
+		{
+			"name": "速度增长不超上限 普通",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 困难11",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 困难11",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 困难11",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 困难11",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 困难42",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 困难42",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 困难42",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 困难42",
+			"passed": true
+		},
+		{
+			"name": "联合通路/前后错位/跨段 困难20261012",
+			"passed": true
+		},
+		{
+			"name": "回收与坐标重定位 困难20261012",
+			"passed": true
+		},
+		{
+			"name": "重试种子布局一致 困难20261012",
+			"passed": true
+		},
+		{
+			"name": "相同种子输入完整复现 困难20261012",
+			"passed": true
+		},
+		{
+			"name": "暂停冻结周期生成和推进 困难",
+			"passed": true
+		},
+		{
+			"name": "速度增长不超上限 困难",
+			"passed": true
+		},
+		{
+			"name": "无解联合模板拒绝",
+			"passed": true
+		},
+		{
+			"name": "实际生成拒绝和安全回退证据",
+			"passed": true
+		},
+		{
+			"name": "长距离多次重定位且无固定终点",
+			"passed": true
+		},
+		{
+			"name": "累计距离及局部精度一致",
+			"passed": true
+		},
+		{
+			"name": "全程活动危险和节点数量有界",
+			"passed": true
+		}
+	],
+	"failures": 0,
+	"fallback_evidence": [
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 19
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 25
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 32
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 37
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 38
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 52
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 57
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 62
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 77
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 82
+		},
+		{
+			"fallback": "empty_safe_segment",
+			"reason": "危险轨迹封闭联合地面走廊，跳跃/时序不能作为未验证逃生假设",
+			"segment": 98
+		}
+	],
+	"fallbacks": 11,
+	"final_distance": 52282.1074816427,
+	"hazards": 15,
+	"passed": true,
+	"peak_hazards": 21,
+	"peak_nodes": 2121,
+	"rebases": 10,
+	"road_slots": 63
+}

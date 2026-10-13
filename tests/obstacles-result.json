@@ -1,0 +1,207 @@
+{
+	"checks": [
+		{
+			"name": "生产危险及视图 cargo",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 cargo P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 cargo P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 rail",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 rail P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 rail P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 spikes",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 spikes P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 spikes P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 active_spikes",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 active_spikes P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 active_spikes P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 scanner",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 scanner P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 scanner P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 fly_low",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 fly_low P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 fly_low P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 fly_body",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 fly_body P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 fly_body P2",
+			"passed": true
+		},
+		{
+			"name": "生产危险及视图 fly_tall",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 fly_tall P1",
+			"passed": true
+		},
+		{
+			"name": "双方致命命中 fly_tall P2",
+			"passed": true
+		},
+		{
+			"name": "腾空跨越 rail P1",
+			"passed": true
+		},
+		{
+			"name": "腾空跨越 rail P2",
+			"passed": true
+		},
+		{
+			"name": "腾空跨越 spikes P1",
+			"passed": true
+		},
+		{
+			"name": "腾空跨越 spikes P2",
+			"passed": true
+		},
+		{
+			"name": "腾空跨越 fly_low P1",
+			"passed": true
+		},
+		{
+			"name": "腾空跨越 fly_low P2",
+			"passed": true
+		},
+		{
+			"name": "地刺覆盖起跳或落地位置 4.0",
+			"passed": true
+		},
+		{
+			"name": "地刺覆盖起跳或落地位置 108.0",
+			"passed": true
+		},
+		{
+			"name": "活动地刺预警不致命",
+			"passed": true
+		},
+		{
+			"name": "活动地刺伸出阶段",
+			"passed": true
+		},
+		{
+			"name": "活动地刺完整伸出",
+			"passed": true
+		},
+		{
+			"name": "活动地刺回落阶段",
+			"passed": true
+		},
+		{
+			"name": "活动地刺收回安全",
+			"passed": true
+		},
+		{
+			"name": "生产预警窗口实际可通行",
+			"passed": true
+		},
+		{
+			"name": "扫描束安全时窗通行",
+			"passed": true
+		},
+		{
+			"name": "高速飞行物单子步穿越捕获 P1",
+			"passed": true
+		},
+		{
+			"name": "高速飞行物单子步穿越捕获 P2",
+			"passed": true
+		},
+		{
+			"name": "飞行物前后避让 -1",
+			"passed": true
+		},
+		{
+			"name": "飞行物前后避让 1",
+			"passed": true
+		},
+		{
+			"name": "同一时刻求交避免高度与平面错时误判",
+			"passed": true
+		},
+		{
+			"name": "地刺视觉高度和周期同步 0.5",
+			"passed": true
+		},
+		{
+			"name": "地刺视觉高度和周期同步 1.1",
+			"passed": true
+		},
+		{
+			"name": "地刺视觉高度和周期同步 2.4",
+			"passed": true
+		},
+		{
+			"name": "地刺视觉高度和周期同步 3.0",
+			"passed": true
+		},
+		{
+			"name": "重试恢复周期高度动作输入",
+			"passed": true
+		},
+		{
+			"name": "重试恢复动画连线合法",
+			"passed": true
+		}
+	],
+	"failures": 0,
+	"passed": true,
+	"scope": "生产场景及明确危险夹具，执行者自测"
+}

@@ -1,0 +1,37 @@
+[
+	{
+		"distance": 0.0,
+		"file": "res://docs/screenshots/t03-review-start.png",
+		"hazards": 4,
+		"rebases": 0,
+		"save_error": 0
+	},
+	{
+		"distance": 1636.14416971829,
+		"file": "res://docs/screenshots/t03-review-teaching.png",
+		"hazards": 5,
+		"rebases": 0,
+		"save_error": 0
+	},
+	{
+		"distance": 3644.70263540566,
+		"file": "res://docs/screenshots/t03-review-warning-active.png",
+		"hazards": 12,
+		"rebases": 0,
+		"save_error": 0
+	},
+	{
+		"distance": 7011.09500869344,
+		"file": "res://docs/screenshots/t03-review-rebase.png",
+		"hazards": 18,
+		"rebases": 1,
+		"save_error": 0
+	},
+	{
+		"distance": 8646.65494137846,
+		"file": "res://docs/screenshots/t03-review-pause.png",
+		"hazards": 18,
+		"rebases": 1,
+		"save_error": 0
+	}
+]

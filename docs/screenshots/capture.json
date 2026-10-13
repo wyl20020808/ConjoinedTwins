@@ -1,0 +1,90 @@
+[
+	{
+		"elapsed": 0.0,
+		"file": "res://docs/screenshots/00-start.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 0.0,
+		"save_error": 0,
+		"state": "start"
+	},
+	{
+		"elapsed": 8.34999999999999,
+		"file": "res://docs/screenshots/01-departure.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 1002.0,
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"elapsed": 26.6833333333331,
+		"file": "res://docs/screenshots/02-energy.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 3202.0,
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"elapsed": 26.6833333333331,
+		"file": "res://docs/screenshots/04-pause.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 3202.0,
+		"save_error": 0,
+		"state": "paused"
+	},
+	{
+		"elapsed": 50.0166666666651,
+		"file": "res://docs/screenshots/03-homeward.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 6002.0,
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"elapsed": 71.6833333333306,
+		"file": "res://docs/screenshots/06-finish-approach.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 8602.0,
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"elapsed": 74.999999999997,
+		"file": "res://docs/screenshots/05-finish.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 9000.0,
+		"save_error": 0,
+		"state": "finished"
+	},
+	{
+		"elapsed": 27.8499999999997,
+		"file": "res://docs/screenshots/07-barrier-approach.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 3342.0,
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"elapsed": 28.5666666666663,
+		"file": "res://docs/screenshots/08-barrier-failure.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 3427.99975585938,
+		"save_error": 0,
+		"state": "failed"
+	},
+	{
+		"elapsed": 28.5666666666663,
+		"file": "res://docs/screenshots/08-barrier-contact-detail.png",
+		"menu_hidden_for_contact_review": true,
+		"progress": 3427.99975585938,
+		"save_error": 0,
+		"state": "failed"
+	},
+	{
+		"elapsed": 0.0,
+		"file": "res://docs/screenshots/09-common-retry.png",
+		"menu_hidden_for_contact_review": false,
+		"progress": 0.0,
+		"save_error": 0,
+		"state": "running"
+	}
+]

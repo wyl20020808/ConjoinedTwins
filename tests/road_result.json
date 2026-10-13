@@ -1,0 +1,151 @@
+{
+	"checks": [
+		{
+			"name": "生产入口开始页，不自动启动",
+			"pass": true
+		},
+		{
+			"name": "双方自动推进",
+			"pass": true
+		},
+		{
+			"name": "暂停冻结位置与计时",
+			"pass": true
+		},
+		{
+			"name": "模式切换无瞬移",
+			"pass": true
+		},
+		{
+			"name": "反向输入达到连线极限仍受约束",
+			"pass": true
+		},
+		{
+			"name": "本地双人方向分别生效且保留切换位置",
+			"pass": true
+		},
+		{
+			"name": "双方受道路边界约束",
+			"pass": true
+		},
+		{
+			"name": "正常横向输入与生产离线 AI 完成三段道路",
+			"pass": true
+		},
+		{
+			"name": "无失败通关用时 60—90 秒",
+			"pass": true
+		},
+		{
+			"name": "双方共同终点",
+			"pass": true
+		},
+		{
+			"name": "通关路线每步检查碰撞与连接合法性",
+			"pass": true
+		},
+		{
+			"name": "生产入口建立双角色且全程镜头变换固定",
+			"pass": true
+		},
+		{
+			"name": "相同输入下 AI 和结局确定性",
+			"pass": true
+		},
+		{
+			"name": "玩家一触碰障碍共同失败",
+			"pass": true
+		},
+		{
+			"name": "碰撞扫掠停在障碍前，无穿透",
+			"pass": true
+		},
+		{
+			"name": "失败后双方共同重试恢复合法出生点",
+			"pass": true
+		},
+		{
+			"name": "玩家二触碰障碍同样共同失败",
+			"pass": true
+		},
+		{
+			"name": "单人先到终点不能提前完成",
+			"pass": true
+		},
+		{
+			"name": "能量屏障可见体积与地面投影覆盖真实碰撞矩形",
+			"pass": true
+		},
+		{
+			"name": "角色1 尚未接触可见屏障前缘时不提前失败",
+			"pass": true
+		},
+		{
+			"name": "角色1 接触可见屏障前缘共同失败",
+			"pass": true
+		},
+		{
+			"name": "角色1 屏障失败后双方合法共同重试",
+			"pass": true
+		},
+		{
+			"name": "角色1 屏障左边界外擦边可通过",
+			"pass": true
+		},
+		{
+			"name": "角色1 屏障左边界内擦碰共同失败",
+			"pass": true
+		},
+		{
+			"name": "角色1 屏障右边界外擦边可通过",
+			"pass": true
+		},
+		{
+			"name": "角色1 屏障右边界内擦碰共同失败",
+			"pass": true
+		},
+		{
+			"name": "角色2 尚未接触可见屏障前缘时不提前失败",
+			"pass": true
+		},
+		{
+			"name": "角色2 接触可见屏障前缘共同失败",
+			"pass": true
+		},
+		{
+			"name": "角色2 屏障失败后双方合法共同重试",
+			"pass": true
+		},
+		{
+			"name": "角色2 屏障左边界外擦边可通过",
+			"pass": true
+		},
+		{
+			"name": "角色2 屏障左边界内擦碰共同失败",
+			"pass": true
+		},
+		{
+			"name": "角色2 屏障右边界外擦边可通过",
+			"pass": true
+		},
+		{
+			"name": "角色2 屏障右边界内擦碰共同失败",
+			"pass": true
+		}
+	],
+	"controller_tests": [],
+	"count": 33,
+	"decision_review": "pending",
+	"failures": 0,
+	"finish_seconds": 74.999999999997,
+	"maximum_route_link": 129.999847412109,
+	"self_test": "pass",
+	"source_sha256": {
+		"project.godot": "6ca66af71ee1c222df00fb86db11b4153a096002bbb3d68128571d47d682023c",
+		"scenes/road_demo.tscn": "c0d951795830ab7562cc113d9462c8abb7fc8a1c5ec7991365fef183a04a7458",
+		"scripts/link_motion.gd": "6e1a63e4abb6eb94d8d80b1c4391fde3d0dffa61f111d1adbaf38fdafd4f5eda",
+		"scripts/road_demo.gd": "63f59ca8d744f61bc3131547238f5d6e496ce40654f1e77953ed816668603370",
+		"scripts/road_run.gd": "cc6e5c83f0f86cc01564b23aea9400a40c63a7446dc3fb2a5948ff0c908dd461"
+	},
+	"user_playtest": "pending"
+}

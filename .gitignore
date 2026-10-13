@@ -1,0 +1,24 @@
+﻿.godot/
+build-tools/cache/
+builds/
+
+# 历史 Run 证据与截图（体积大，保留在本地，不入库）
+build-tools/art-demo/
+build-tools/obstacle-expansion-*/
+build-tools/playfix-*/
+build-tools/random-*/
+build-tools/short-rope-t*/
+__pycache__/
+*.pyc
+
+# 测试运行日志与大体积批量结果
+tests/*.log
+tests/short-rope-t05-batch-*.json
+tests/short-rope-t05-catalog.json
+tests/short-rope-t05-result.json
+
+# 本地工具与系统文件
+.serena/cache/
+.claude/settings.local.json
+Thumbs.db
+.DS_Store

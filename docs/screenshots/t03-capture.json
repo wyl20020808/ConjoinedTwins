@@ -1,0 +1,30 @@
+[
+	{
+		"distance": 0.0,
+		"file": "res://docs/screenshots/t03-start.png",
+		"hazards": 4,
+		"rebases": 0,
+		"save_error": 0
+	},
+	{
+		"distance": 1402.40928832997,
+		"file": "res://docs/screenshots/t03-teaching.png",
+		"hazards": 6,
+		"rebases": 0,
+		"save_error": 0
+	},
+	{
+		"distance": 6009.51000745151,
+		"file": "res://docs/screenshots/t03-rebase.png",
+		"hazards": 10,
+		"rebases": 1,
+		"save_error": 0
+	},
+	{
+		"distance": 7411.41852118153,
+		"file": "res://docs/screenshots/t03-pause.png",
+		"hazards": 12,
+		"rebases": 1,
+		"save_error": 0
+	}
+]

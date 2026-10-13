@@ -1,0 +1,1239 @@
+diff --git a/project.godot b/project.godot
+new file mode 100644
+--- /dev/null
++++ b/project.godot
+@@ -0,0 +1,17 @@
++config_version=5
++
++[application]
++config/name="共生连线 · 白盒"
++run/main_scene="res://scenes/main.tscn"
++
++[display]
++window/size/viewport_width=1100
++window/size/viewport_height=700
++window/stretch/mode="canvas_items"
++
++[rendering]
++renderer/rendering_method="gl_compatibility"
++environment/defaults/default_clear_color=Color(0.055, 0.075, 0.11, 1)
++
++[physics]
++common/physics_ticks_per_second=60
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,1 @@
++.godot/
+diff --git a/scenes/main.tscn b/scenes/main.tscn
+new file mode 100644
+--- /dev/null
++++ b/scenes/main.tscn
+@@ -0,0 +1,6 @@
++[gd_scene load_steps=2 format=3]
++
++[ext_resource type="Script" path="res://scripts/game.gd" id="1"]
++
++[node name="ConjoinedTwins" type="Node2D"]
++script = ExtResource("1")
+diff --git a/scripts/game.gd b/scripts/game.gd
+new file mode 100644
+--- /dev/null
++++ b/scripts/game.gd
+@@ -0,0 +1,242 @@
++extends Node2D
++
++const Motion = preload("res://scripts/link_motion.gd")
++const Levels = preload("res://scripts/levels.gd")
++const Mechanisms = preload("res://scripts/mechanisms.gd")
++const Partner = preload("res://scripts/partner_ai.gd")
++const Twin = preload("res://scripts/twin.gd")
++var a: Node2D
++var b: Node2D
++var ai = Partner.new()
++var mechanisms = Mechanisms.new()
++var level: Dictionary
++var level_index := 0
++var clock := 0.0
++var local_two := false
++var paused := false
++var won := false
++var manual_tick := false
++var checkpoint: Array = []
++var deaths := 0
++var hud: Label
++var menu: PanelContainer
++var menu_title: Label
++var mode_button: Button
++var notice := "右键指挥队友；Q 等待；E 召回"
++var input_clear_frames := 0
++
++func _ready() -> void:
++	y_sort_enabled = true
++	a = Twin.new()
++	b = Twin.new()
++	b.tint = Color(1, 0.65, 0.2)
++	b.number = "2"
++	add_child(a)
++	add_child(b)
++	build_ui()
++	load_level(0)
++
++func build_ui() -> void:
++	var canvas := CanvasLayer.new()
++	add_child(canvas)
++	hud = Label.new()
++	hud.position = Vector2(28, 14)
++	hud.size = Vector2(1044, 115)
++	hud.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
++	hud.add_theme_font_size_override("font_size", 16)
++	canvas.add_child(hud)
++	menu = PanelContainer.new()
++	menu.position = Vector2(280, 160)
++	menu.custom_minimum_size = Vector2(540, 390)
++	canvas.add_child(menu)
++	var column := VBoxContainer.new()
++	column.add_theme_constant_override("separation", 14)
++	menu.add_child(column)
++	menu_title = Label.new()
++	menu_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	menu_title.text = "暂停 / 操作说明"
++	column.add_child(menu_title)
++	var help := Label.new()
++	help.text = "WASD 玩家一 / 方向键 玩家二\n右键：AI 前往并等待（目标为鼠标位置）\nQ：等待 / 跟随    E：召回\nR：检查点重开    Esc：暂停\n能量线可穿墙，角色不可穿墙；最大长度 220\n危险：虚线关闭 / 三角预警 / 斜纹开启\n两名角色都进入出口才会切关"
++	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
++	column.add_child(help)
++	add_button(column, "继续", func(): paused = false; refresh_ui())
++	mode_button = add_button(column, "", func(): set_mode(not local_two))
++	add_button(column, "检查点重开", func(): respawn(); paused = false; refresh_ui())
++	add_button(column, "返回第一关 / 重新游玩", func(): load_level(0); paused = false; refresh_ui())
++	menu.hide()
++
++func add_button(parent: Node, text: String, callback: Callable) -> Button:
++	var button := Button.new()
++	button.text = text
++	button.pressed.connect(callback)
++	parent.add_child(button)
++	return button
++
++func load_level(index: int) -> void:
++	level_index = index
++	level = Levels.create(index)
++	checkpoint = level.spawn.duplicate()
++	clock = 0.0
++	won = false
++	paused = false
++	mechanisms.reset()
++	respawn()
++	notice = level.hint
++	refresh_ui()
++
++func walls() -> Array:
++	var result: Array = level.walls.duplicate()
++	for gate: Dictionary in level.gates:
++		if not gate.open:
++			result.append(gate.rect)
++	return result
++
++func respawn() -> void:
++	a.position = checkpoint[0]
++	b.position = checkpoint[1]
++	ai.reset()
++	mechanisms.charge = 0.0
++	input_clear_frames = 1
++	notice = "共同恢复至检查点"
++	queue_redraw()
++
++func set_mode(two: bool) -> void:
++	local_two = two
++	ai.reset()
++	input_clear_frames = 1
++	notice = "本地双人：方向键控制 2" if two else "单人 + 离线 AI：已恢复跟随"
++	refresh_ui()
++
++func command_target(target: Vector2) -> void:
++	if not local_two and not paused and not won:
++		ai.command(target, b.position, walls())
++
++func _unhandled_input(event: InputEvent) -> void:
++	if event is InputEventKey and event.pressed and not event.echo:
++		match event.keycode:
++			KEY_ESCAPE:
++				paused = not paused
++				input_clear_frames = 1
++				refresh_ui()
++			KEY_R:
++				if not won:
++					respawn()
++			KEY_E:
++				if not paused and not local_two:
++					ai.reset()
++			KEY_Q:
++				if not paused and not local_two:
++					if ai.mode == "wait":
++						ai.reset()
++					else:
++						ai.wait()
++	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
++		# Use this click's viewport coordinate, including canvas transforms, rather than a later cursor poll.
++		command_target(get_global_transform_with_canvas().affine_inverse() * event.position)
++
++func keyboard(keys: Array) -> Vector2:
++	return Vector2(float(Input.is_physical_key_pressed(keys[1])) - float(Input.is_physical_key_pressed(keys[0])), float(Input.is_physical_key_pressed(keys[3])) - float(Input.is_physical_key_pressed(keys[2]))).limit_length()
++
++func _physics_process(delta: float) -> void:
++	if not manual_tick:
++		var first := keyboard([KEY_A, KEY_D, KEY_W, KEY_S])
++		var second := keyboard([KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN])
++		if input_clear_frames > 0:
++			first = Vector2.ZERO
++			second = Vector2.ZERO
++			input_clear_frames -= 1
++		simulate(delta, first, second)
++
++func simulate(delta: float, first: Vector2 = Vector2.ZERO, second: Vector2 = Vector2.ZERO) -> void:
++	if paused or won:
++		return
++	clock += delta
++	var obstacles := walls()
++	var partner_input := second if local_two else ai.direction(b.position, a.position, obstacles, level.hazards, clock, delta)
++	Motion.advance(a, b, first, partner_input, delta, obstacles)
++	var event: String = mechanisms.update(level, a.position, b.position, delta, clock)
++	if mechanisms.checkpoint_active:
++		checkpoint = [Vector2(510, 370), Vector2(560, 420)]
++	match event:
++		"death":
++			deaths += 1
++			respawn()
++			# Give both twins a safe new timing window without moving hazards' geometry.
++			clock = 0.0
++		"exit":
++			if level_index < 2:
++				load_level(level_index + 1)
++			else:
++				won = true
++				paused = true
++	refresh_ui()
++	queue_redraw()
++
++func refresh_ui() -> void:
++	var length := a.position.distance_to(b.position)
++	var tension := "张紧" if length >= 187 else "松弛"
++	var state: String = "本地双人" if local_two else ai.feedback
++	var target_text := " · 目标 (%d,%d)" % [ai.target.x, ai.target.y] if ai.has_target else ""
++	hud.text = "%s    连线 %.1f / 220 · %s    %s%s\n%s\nWASD 移动  右键指令  Q 等待  E 召回  R 重开  Esc 菜单 | %s" % [level.title, length, tension, state, target_text, level.hint, notice]
++	mode_button.text = "切换为单人 + AI" if local_two else "切换为本地双人"
++	menu_title.text = "三关完成！重新游玩或继续观察" if won else "暂停 / 操作说明"
++	menu.visible = paused or won
++
++func text_at(p: Vector2, text: String, color := Color.WHITE, size := 16) -> void:
++	draw_string(ThemeDB.fallback_font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
++
++func _draw() -> void:
++	if level == null or level.is_empty():
++		return
++	draw_rect(Rect2(40, 140, 1020, 520), Color(0.10, 0.14, 0.19))
++	for x in range(60, 1060, 40):
++		draw_line(Vector2(x, 140), Vector2(x, 660), Color(0.15, 0.19, 0.24))
++	for y in range(140, 660, 40):
++		draw_line(Vector2(40, y), Vector2(1060, y), Color(0.15, 0.19, 0.24))
++	for wall: Rect2 in level.walls:
++		draw_rect(wall, Color(0.32, 0.38, 0.45))
++		draw_line(wall.position, wall.position + Vector2(wall.size.x, 0), Color(0.6, 0.67, 0.72), 3)
++	for i in range(level.plates.size()):
++		var plate: Vector2 = level.plates[i]
++		var active: bool = mechanisms.plate_occupied.size() > i and mechanisms.plate_occupied[i]
++		draw_circle(plate, 24, Color(0.2, 0.8, 0.5) if active else Color(0.42, 0.35, 0.16))
++		draw_arc(plate, 24, 0, TAU, 32, Color(1, 0.8, 0.3), 2)
++		text_at(plate + Vector2(-25, -32), "合作板 %d" % (i + 1))
++	for gate: Dictionary in level.gates:
++		draw_rect(gate.rect, Color(0.1, 0.65, 0.35, 0.18) if gate.open else Color(0.95, 0.5, 0.2))
++		text_at(gate.rect.position + Vector2(-25, 25), "已锁存" if gate.open else "门")
++	for hazard: Dictionary in level.hazards:
++		var phase: int = Mechanisms.hazard_phase(clock, hazard.offset)
++		var rect: Rect2 = hazard.rect
++		var colors := [Color(0.15, 0.55, 0.5, 0.22), Color(1, 0.75, 0.1, 0.5), Color(1, 0.18, 0.25, 0.65)]
++		draw_rect(rect, colors[phase])
++		for y in range(160, 640, 28):
++			if phase == 0:
++				draw_line(Vector2(rect.position.x + 24, y), Vector2(rect.position.x + 24, y + 12), Color.CYAN, 2)
++			elif phase == 1:
++				draw_colored_polygon(PackedVector2Array([Vector2(rect.position.x + 24, y), Vector2(rect.position.x + 12, y + 20), Vector2(rect.position.x + 36, y + 20)]), Color.YELLOW)
++			else:
++				draw_line(Vector2(rect.position.x, y), Vector2(rect.end.x, y + 24), Color(1, 0.7, 0.7), 3)
++		text_at(rect.position + Vector2(-5, 20), ["关闭", "预警", "危险"][phase])
++	if level.checkpoint.size != Vector2.ZERO:
++		draw_rect(level.checkpoint, Color(0.2, 0.7, 0.95, 0.12))
++		text_at(level.checkpoint.position + Vector2(0, 20), "安全岛 · 检查点" if not mechanisms.checkpoint_active else "检查点已激活", Color.CYAN)
++	var receiver: Vector2 = level.receiver
++	if receiver != Vector2.ZERO:
++		draw_circle(receiver, 18, Color(0.5, 0.3, 0.8))
++		draw_arc(receiver, 24, -PI / 2, -PI / 2 + TAU * mechanisms.charge / 0.8, 40, Color.CYAN, 5)
++		text_at(receiver + Vector2(-65, 45), "张紧穿过 · 充能 %.0f%%" % (mechanisms.charge / 0.8 * 100))
++		for p in [Vector2(650, 285), Vector2(650, 495)]:
++			draw_arc(p, 20, 0, TAU, 32, Color(0.7, 0.6, 1), 2)
++	var exit: Rect2 = level.exit
++	draw_rect(exit, Color(0.2, 0.8, 0.45, 0.23))
++	draw_rect(exit, Color(0.3, 1, 0.6), false, 2)
++	text_at(exit.position + Vector2(5, 40), "双人出口", Color(0.4, 1, 0.6), 14)
++	text_at(exit.position + Vector2(-45, exit.size.y + 25), "右键指挥队友进入", Color(0.4, 1, 0.6), 14)
++	var taut := a.position.distance_to(b.position) >= 187
++	draw_line(a.position, b.position, Color(1, 0.75, 0.2) if taut else Color(0.3, 0.85, 1), 4 if taut else 2)
++	if ai.has_target and not local_two:
++		draw_arc(ai.target, 10, 0, TAU, 24, Color(1, 0.7, 0.2), 2)
++		draw_line(ai.target - Vector2(15, 0), ai.target + Vector2(15, 0), Color.WHITE)
++		draw_line(ai.target - Vector2(0, 15), ai.target + Vector2(0, 15), Color.WHITE)
+diff --git a/scripts/twin.gd b/scripts/twin.gd
+new file mode 100644
+--- /dev/null
++++ b/scripts/twin.gd
+@@ -0,0 +1,13 @@
++extends Node2D
++
++const RADIUS := 12.0
++var tint := Color.CYAN
++var number := "1"
++
++func _draw() -> void:
++	draw_circle(Vector2(0, 9), 15, Color(0, 0, 0, 0.35))
++	draw_rect(Rect2(-11, -16, 22, 25), tint)
++	draw_rect(Rect2(-7, -12, 14, 7), Color(0.06, 0.1, 0.16))
++	draw_circle(Vector2(-4, -9), 2, Color.WHITE)
++	draw_circle(Vector2(4, -9), 2, Color.WHITE)
++	draw_string(ThemeDB.fallback_font, Vector2(-4, 5), number, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.BLACK)
+diff --git a/scripts/link_motion.gd b/scripts/link_motion.gd
+new file mode 100644
+--- /dev/null
++++ b/scripts/link_motion.gd
+@@ -0,0 +1,64 @@
++extends RefCounted
++
++const LIMIT := 220.0
++const SPEED := 180.0
++const RADIUS := 12.0
++
++static func free_at(p: Vector2, walls: Array) -> bool:
++	for wall: Rect2 in walls:
++		if wall.grow(RADIUS).has_point(p):
++			return false
++	return true
++
++static func sweep(p: Vector2, motion: Vector2, walls: Array) -> Vector2:
++	# Small axis-separated sweeps allow sliding without tunnelling.
++	var result := p
++	for axis in [Vector2(motion.x, 0), Vector2(0, motion.y)]:
++		if free_at(result + axis, walls):
++			result += axis
++		else:
++			var low := 0.0
++			var high := 1.0
++			for iteration in range(12):
++				var middle := (low + high) * 0.5
++				if free_at(result + axis * middle, walls):
++					low = middle
++				else:
++					high = middle
++			result += axis * low
++	return result
++
++static func advance(a: Node2D, b: Node2D, input_a: Vector2, input_b: Vector2, delta: float, walls: Array) -> void:
++	var count := maxi(1, ceili(SPEED * delta / 2.0))
++	var da := input_a.limit_length() * SPEED * delta / count
++	var db := input_b.limit_length() * SPEED * delta / count
++	for step in range(count):
++		var pa := a.position
++		var pb := b.position
++		var ca := sweep(pa, da, walls)
++		var cb := sweep(pb, db, walls)
++		if ca.distance_to(cb) > LIMIT:
++			var ma := ca.distance_to(pa)
++			var mb := cb.distance_to(pb)
++			var total := ma + mb
++			if total > 0.00001:
++				var correction := (ca - cb).normalized() * (ca.distance_to(cb) - LIMIT + 0.00001)
++				var qa := ca - correction * ma / total
++				var qb := cb + correction * mb / total
++				# Corrections only modify this step's requested motion; never drag an idle twin.
++				if free_at(qa, walls) and free_at(qb, walls) and qa.distance_to(pa) <= da.length() + 0.001 and qb.distance_to(pb) <= db.length() + 0.001:
++					ca = qa
++					cb = qb
++				else:
++					var low := 0.0
++					var high := 1.0
++					for iteration in range(16):
++						var t := (low + high) / 2.0
++						if pa.lerp(ca, t).distance_to(pb.lerp(cb, t)) <= LIMIT:
++							low = t
++						else:
++							high = t
++					ca = pa.lerp(ca, low)
++					cb = pb.lerp(cb, low)
++		a.position = ca
++		b.position = cb
+diff --git a/scripts/partner_ai.gd b/scripts/partner_ai.gd
+new file mode 100644
+--- /dev/null
++++ b/scripts/partner_ai.gd
+@@ -0,0 +1,103 @@
++extends RefCounted
++
++const Motion = preload("res://scripts/link_motion.gd")
++const CELL := 20.0
++var mode := "follow"
++var target := Vector2.ZERO
++var has_target := false
++var feedback := "跟随"
++var route: Array[Vector2] = []
++var timer := 0.0
++var last_goal := Vector2.INF
++
++func reset() -> void:
++	mode = "follow"
++	has_target = false
++	route.clear()
++	timer = 0.0
++	last_goal = Vector2.INF
++	feedback = "跟随"
++
++func wait() -> void:
++	mode = "wait"
++	has_target = false
++	route.clear()
++	feedback = "原地等待"
++
++func command(point: Vector2, position: Vector2, walls: Array) -> void:
++	target = point
++	has_target = true
++	mode = "goto"
++	route = path(position, point, walls)
++	last_goal = point
++	timer = 0.0
++	feedback = "前往目标" if not route.is_empty() else "不可达目标；右键重选 / E 召回"
++
++static func cell(p: Vector2) -> Vector2i:
++	return Vector2i(roundi(p.x / CELL), roundi(p.y / CELL))
++
++static func point(c: Vector2i) -> Vector2:
++	return Vector2(c) * CELL
++
++static func path(start: Vector2, goal: Vector2, walls: Array) -> Array[Vector2]:
++	var result: Array[Vector2] = []
++	if not Motion.free_at(goal, walls):
++		return result
++	var from := cell(start)
++	var to := cell(goal)
++	if not Motion.free_at(point(from), walls) or not Motion.free_at(point(to), walls):
++		return result
++	var frontier: Array[Vector2i] = [from]
++	var previous := {from: from}
++	var cursor := 0
++	while cursor < frontier.size() and cursor < 2200:
++		var current := frontier[cursor]
++		cursor += 1
++		if current == to:
++			var trace := to
++			while trace != from:
++				result.push_front(point(trace))
++				trace = previous[trace]
++			result.append(goal)
++			return result
++		for offset in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
++			var next: Vector2i = current + offset
++			if next.x < 3 or next.x > 52 or next.y < 8 or next.y > 32 or previous.has(next):
++				continue
++			if Motion.free_at(point(next), walls):
++				previous[next] = current
++				frontier.append(next)
++	return result
++
++func direction(position: Vector2, human: Vector2, walls: Array, hazards: Array, time: float, delta: float) -> Vector2:
++	if mode == "wait":
++		return Vector2.ZERO
++	var goal := target if has_target else human
++	if mode == "follow" and position.distance_to(human) <= 88.0:
++		feedback = "跟随 · 保持间距"
++		return Vector2.ZERO
++	if has_target and position.distance_to(target) < 5.0:
++		mode = "wait"
++		feedback = "到达 · 等待（E 召回）"
++		return Vector2.ZERO
++	timer -= delta
++	if timer <= 0.0 or goal.distance_to(last_goal) > 35.0:
++		route = path(position, goal, walls)
++		last_goal = goal
++		timer = 0.6
++	if route.is_empty():
++		feedback = "不可达目标；右键重选 / E 召回"
++		return Vector2.ZERO
++	while route.size() > 1 and position.distance_to(route[0]) < 5.0:
++		route.pop_front()
++	var move := position.direction_to(route[0])
++	var probe := position + move * 20.0
++	for hazard: Dictionary in hazards:
++		if preload("res://scripts/mechanisms.gd").hazard_phase(time, hazard.offset) != 0 and hazard.rect.grow(14).has_point(probe):
++			feedback = "避险 · 等待激光关闭"
++			return Vector2.ZERO
++	if position.distance_to(human) > 218.5 and move.dot((position - human).normalized()) > 0.02:
++		feedback = "连接限制 · 请玩家靠近"
++		return Vector2.ZERO
++	feedback = "前往目标" if has_target else "跟随 · 绕墙寻路"
++	return move
+diff --git a/scripts/levels.gd b/scripts/levels.gd
+new file mode 100644
+--- /dev/null
++++ b/scripts/levels.gd
+@@ -0,0 +1,30 @@
++extends RefCounted
++
++static func create(index: int) -> Dictionary:
++	var common := {
++		"spawn": [Vector2(140, 390), Vector2(210, 390)],
++		"walls": [Rect2(0, 120, 1100, 20), Rect2(0, 660, 1100, 40), Rect2(0, 120, 40, 580), Rect2(1060, 120, 40, 580)],
++		"plates": [], "hazards": [], "receiver": Vector2.ZERO,
++		"gates": [], "checkpoint": Rect2(),
++		"exit": Rect2(930, 290, 115, 230)
++	}
++	match index:
++		0:
++			common["title"] = "01 · 保持连接"
++			common["hint"] = "绕墙上侧 → 右键队友到上板 → 自己站下板 → E 召回 → 两人进入出口"
++			common["walls"].append(Rect2(360, 320, 44, 160))
++			common["plates"] = [Vector2(690, 300), Vector2(690, 480)]
++			common["gates"] = [{"rect": Rect2(850, 140, 22, 520), "kind": "plates", "open": false}]
++		1:
++			common["title"] = "02 · 共同通过危险区"
++			common["hint"] = "激光虚线=关闭，三角=预警，斜纹=危险；安全岛激活检查点，观察时机再同行"
++			common["hazards"] = [{"rect": Rect2(360, 140, 48, 520), "offset": 0.0}, {"rect": Rect2(650, 140, 48, 520), "offset": 2.4}]
++			common["checkpoint"] = Rect2(465, 260, 130, 280)
++		2:
++			common["title"] = "03 · 以连接传能"
++			common["hint"] = "队友停在 (650,285)，自己到 (650,495)；连线张紧穿过接收器 0.8 秒，再合作双板"
++			common["receiver"] = Vector2(650, 390)
++			common["plates"] = [Vector2(890, 300), Vector2(890, 480)]
++			common["gates"] = [{"rect": Rect2(790, 140, 20, 520), "kind": "receiver", "open": false}, {"rect": Rect2(955, 140, 20, 520), "kind": "plates", "open": false}]
++			common["exit"] = Rect2(980, 270, 65, 260)
++	return common
+diff --git a/scripts/mechanisms.gd b/scripts/mechanisms.gd
+new file mode 100644
+--- /dev/null
++++ b/scripts/mechanisms.gd
+@@ -0,0 +1,42 @@
++extends RefCounted
++
++const CHARGE_TIME := 0.8
++var charge := 0.0
++var plate_occupied: Array[bool] = []
++var checkpoint_active := false
++
++func reset() -> void:
++	charge = 0.0
++	checkpoint_active = false
++	plate_occupied.clear()
++
++static func hazard_phase(time: float, offset: float) -> int:
++	var phase := fposmod(time + offset, 6.0)
++	if phase < 3.6:
++		return 0
++	if phase < 4.4:
++		return 1
++	return 2
++
++static func hits(rect: Rect2, p: Vector2) -> bool:
++	return rect.grow(12.0).has_point(p)
++
++func update(level: Dictionary, a: Vector2, b: Vector2, delta: float, time: float) -> String:
++	plate_occupied.clear()
++	for plate: Vector2 in level.plates:
++		plate_occupied.append(a.distance_to(plate) < 24.0 or b.distance_to(plate) < 24.0)
++	var both_plates := plate_occupied.size() == 2 and plate_occupied[0] and plate_occupied[1]
++	var receiver: Vector2 = level.receiver
++	var valid := receiver != Vector2.ZERO and a.distance_to(b) >= 187.0 and Geometry2D.get_closest_point_to_segment(receiver, a, b).distance_to(receiver) <= 18.0
++	charge = minf(CHARGE_TIME, charge + delta) if valid else 0.0
++	for gate: Dictionary in level.gates:
++		if (gate.kind == "plates" and both_plates) or (gate.kind == "receiver" and charge >= CHARGE_TIME - 0.000001):
++			gate.open = true
++	for hazard: Dictionary in level.hazards:
++		if hazard_phase(time, hazard.offset) == 2 and (hits(hazard.rect, a) or hits(hazard.rect, b)):
++			return "death"
++	if level.checkpoint.has_point(a) and level.checkpoint.has_point(b):
++		checkpoint_active = true
++	if level.exit.has_point(a) and level.exit.has_point(b):
++		return "exit"
++	return ""
+diff --git a/tests/headless.gd b/tests/headless.gd
+new file mode 100644
+--- /dev/null
++++ b/tests/headless.gd
+@@ -0,0 +1,281 @@
++extends SceneTree
++
++const Motion = preload("res://scripts/link_motion.gd")
++const Partner = preload("res://scripts/partner_ai.gd")
++var game
++var failures: Array[String] = []
++var checks := 0
++var frames := 0
++var max_distance := 0.0
++var max_step := 0.0
++const DT := 1.0 / 60.0
++
++func _initialize() -> void:
++	create_timer(20.0).timeout.connect(func(): print("FAIL: watchdog timeout"); quit(2))
++	call_deferred("run")
++
++func check(condition: bool, message: String) -> void:
++	checks += 1
++	if not condition:
++		failures.append(message)
++		print("FAIL: ", message)
++	else:
++		print("PASS: ", message)
++	if not condition and game != null:
++		print("  state: level=", game.level_index, " a=", game.a.position, " b=", game.b.position, " time=", game.clock, " AI=", game.ai.feedback)
++
++func tick(first := Vector2.ZERO, second := Vector2.ZERO, delta := DT) -> void:
++	frames += 1
++	if frames > 30000:
++		print("FAIL: frame budget exceeded")
++		quit(2)
++		return
++	var old_a: Vector2 = game.a.position
++	var old_b: Vector2 = game.b.position
++	var old_level: int = game.level_index
++	var old_deaths: int = game.deaths
++	game.simulate(delta, first, second)
++	var distance: float = game.a.position.distance_to(game.b.position)
++	max_distance = maxf(max_distance, distance)
++	if distance > 220.001 or not Motion.free_at(game.a.position, game.walls()) or not Motion.free_at(game.b.position, game.walls()):
++		if not failures.has("逐帧距离/碰撞不变量"):
++			failures.append("逐帧距离/碰撞不变量")
++	if game.level_index == old_level and game.deaths == old_deaths:
++		var displacement := maxf(old_a.distance_to(game.a.position), old_b.distance_to(game.b.position))
++		max_step = maxf(max_step, displacement)
++		if displacement > Motion.SPEED * delta + 0.02 and not failures.has("无瞬移/拖拽步长"):
++			failures.append("无瞬移/拖拽步长")
++
++func idle(count: int) -> void:
++	for i in range(count):
++		tick()
++
++func wait_phase(offset: float, low: float, high: float) -> void:
++	for i in range(370):
++		var phase: float = fposmod(game.clock + offset, 6.0)
++		if phase >= low and phase <= high:
++			return
++		tick()
++	check(false, "有界等待危险相位")
++
++func walk(target: Vector2, budget := 800) -> bool:
++	var index: int = game.level_index
++	for i in range(budget):
++		if game.level_index != index or game.won:
++			return true
++		if game.a.position.distance_to(target) < 4.0:
++			return true
++		tick(game.a.position.direction_to(target))
++	print("walk blocked: ", target, " a=", game.a.position, " b=", game.b.position, " ", game.ai.feedback)
++	return false
++
++func settle_ai(budget := 600) -> bool:
++	for i in range(budget):
++		if game.ai.mode == "wait":
++			return true
++		tick()
++	print("AI blocked: ", game.a.position, " / ", game.b.position, " ", game.ai.feedback)
++	return false
++
++func run() -> void:
++	game = load("res://scenes/main.tscn").instantiate()
++	root.add_child(game)
++	game.manual_tick = true
++	check(not game.local_two and game.ai.mode == "follow", "默认离线 AI")
++	game.ai.wait()
++	var stationary: Vector2 = game.b.position
++	for i in range(180):
++		tick(Vector2.LEFT)
++	check(game.b.position == stationary, "等待队友不被强制拖拽")
++	game.respawn()
++	game.set_mode(true)
++	for i in range(240):
++		tick(Vector2.LEFT, Vector2.RIGHT)
++	check(game.a.position.distance_to(game.b.position) > 219, "真实反向移动到达连接上限")
++	for i in range(32):
++		tick(Vector2.RIGHT, Vector2.LEFT)
++	check(game.a.position.distance_to(game.b.position) < 50, "张紧后允许靠近")
++	game.load_level(0)
++	game.set_mode(false)
++	game.ai.wait()
++	check(walk(Vector2(140, 280)), "进入绕墙通道")
++	game.ai.reset()
++	check(walk(Vector2(520, 280)), "AI 跟随绕过真实墙体")
++	idle(160)
++	check(game.b.position.x > 404, "队友到达墙另一侧")
++	game.command_target(Vector2(380, 380))
++	idle(40)
++	check(game.ai.feedback.contains("不可达"), "墙内不可达目标反馈")
++	game.command_target(Vector2(780, 300))
++	idle(180)
++	check(game.ai.feedback.contains("连接限制"), "远目标在连接范围停止")
++	game.command_target(Vector2(690, 300))
++	check(walk(Vector2(600, 390)), "玩家靠近远目标")
++	check(settle_ai(), "玩家靠近后 AI 继续并等待")
++	check(walk(Vector2(690, 480)), "玩家进入第二块压力板")
++	idle(2)
++	check(game.level.gates[0].open, "两块真实压力板打开锁存门")
++	game.ai.reset()
++	check(walk(Vector2(760, 390)), "召回后可离开机关")
++	check(game.level.gates[0].open, "离开压力板门保持开启")
++	check(walk(Vector2(1010, 390)), "第一关出口路线")
++	idle(150)
++	check(game.level_index == 1, "第一关单人 + AI 实际通关")
++	# L2 is traversed using real movement, observing the deterministic hazard phase.
++	check(walk(Vector2(305, 390)), "第二关到第一激光等待区")
++	game.ai.reset()
++	idle(100)
++	wait_phase(0.0, 0.0, 0.05)
++	check(walk(Vector2(570, 390)), "关闭窗口穿过第一激光")
++	idle(110)
++	check(game.mechanisms.checkpoint_active, "两人到安全岛激活检查点")
++	var deaths: int = game.deaths
++	# Deliberately move into an active laser: still uses production motion/death logic.
++	game.ai.wait()
++	wait_phase(2.4, 4.45, 4.50)
++	for i in range(100):
++		tick(Vector2.RIGHT)
++		if game.deaths > deaths:
++			break
++	check(game.deaths == deaths + 1 and game.a.position == Vector2(510, 370) and game.b.position == Vector2(560, 420), "任一角色死亡后共同恢复检查点")
++	game.ai.reset()
++	check(walk(Vector2(590, 390)), "恢复后到第二激光等待区")
++	idle(60)
++	wait_phase(2.4, 0.0, 0.05)
++	check(walk(Vector2(825, 390)), "错时关闭窗口穿过第二激光")
++	check(walk(Vector2(1035, 390)), "第二关出口路线")
++	idle(150)
++	check(game.level_index == 2, "第二关单人 + AI 实际通关")
++	if game.level_index != 2:
++		finish()
++		return
++	check(walk(Vector2(600, 390)), "第三关到接收器")
++	game.command_target(Vector2(650, 285))
++	check(settle_ai(), "AI 到接收器上操作区等待")
++	check(walk(Vector2(650, 495)), "人类到下操作区形成张紧线段")
++	idle(60)
++	check(game.level.gates[0].open, "真实连线穿过接收器持续 0.8 秒开门")
++	game.ai.reset()
++	check(walk(Vector2(730, 390)), "召回接收器队友")
++	check(walk(Vector2(850, 390)), "通过接收器门")
++	game.command_target(Vector2(890, 300))
++	check(settle_ai(), "AI 到最终合作板")
++	check(walk(Vector2(890, 480)), "人类到最终合作板")
++	idle(2)
++	check(game.level.gates[1].open, "第三关组合压力板打开第二门")
++	game.ai.reset()
++	check(walk(Vector2(915, 390)), "召回准备最终出口")
++	game.ai.wait()
++	check(walk(Vector2(1020, 390)), "单角色可进入出口区域")
++	check(not game.won, "单角色不能触发出口")
++	game.command_target(Vector2(1010, 410))
++	idle(200)
++	check(game.won, "三关单人 + AI 全流程完成")
++	# Independent production-scene scenarios start only through normal level/reset APIs.
++	game.load_level(0)
++	game.set_mode(true)
++	for i in range(150):
++		tick(Vector2.UP, Vector2.UP)
++	for i in range(100):
++		tick(Vector2.LEFT, Vector2.RIGHT)
++	for i in range(100):
++		tick(Vector2.DOWN, Vector2.UP)
++	check(game.a.position.distance_to(game.b.position) <= 220.001, "贴墙与反向移动距离约束")
++	game.load_level(0)
++	game.set_mode(true)
++	for i in range(40):
++		tick(Vector2.UP, Vector2.UP)
++	for i in range(100):
++		tick(Vector2.RIGHT, Vector2.RIGHT)
++	for i in range(100):
++		tick(Vector2.DOWN, Vector2.RIGHT)
++	check(Motion.free_at(game.a.position, game.walls()) and Motion.free_at(game.b.position, game.walls()), "真实墙角滑动无穿墙")
++	game.load_level(0)
++	game.set_mode(true)
++	for i in range(40):
++		tick(Vector2.LEFT, Vector2.RIGHT)
++	var old_a: Vector2 = game.a.position
++	var old_b: Vector2 = game.b.position
++	for i in range(35):
++		tick(Vector2.UP, Vector2.DOWN)
++	check(game.a.position.distance_to(old_a) > 30 and game.b.position.distance_to(old_b) > 30, "沿张紧边界切向移动")
++	game.set_mode(false)
++	game.command_target(Vector2(280, 250))
++	old_a = game.a.position
++	old_b = game.b.position
++	game.set_mode(true)
++	idle(30)
++	check(game.a.position == old_a and game.b.position == old_b and not game.ai.has_target, "双人切换清理目标并停用 AI，不改变位置")
++	game.set_mode(false)
++	idle(80)
++	check(game.b.position != old_b, "切回 AI 恢复跟随驱动")
++	game.paused = true
++	old_a = game.a.position
++	var old_clock: float = game.clock
++	tick(Vector2.RIGHT)
++	check(game.a.position == old_a and game.clock == old_clock, "暂停冻结世界与危险时钟")
++	game.paused = false
++	game.load_level(2)
++	check(walk(Vector2(600, 390)), "接收器失效测试走到开放区域")
++	game.command_target(Vector2(650, 285))
++	check(settle_ai(), "失效测试队友定位")
++	check(walk(Vector2(650, 495)), "失效测试形成连线")
++	game.mechanisms.charge = 0.0
++	idle(20)
++	check(game.mechanisms.charge > 0 and not game.level.gates[0].open, "接收器未满 0.8 秒不打开")
++	check(walk(Vector2(580, 450)), "移开线段破坏充能条件")
++	check(game.mechanisms.charge == 0.0, "失去线段/张紧条件充能立即归零")
++	game.load_level(2)
++	check(walk(Vector2(630, 390)), "接收器反例走近中心")
++	game.command_target(Vector2(650, 410))
++	check(settle_ai(), "接收器反例队友靠近中心")
++	idle(60)
++	check(not game.level.gates[0].open and game.mechanisms.charge == 0, "角色触碰接收器但连线松弛不充能")
++	game.load_level(0)
++	check(walk(Vector2(140, 280)), "单板反例绕墙起步")
++	check(walk(Vector2(600, 280)), "单板反例进入机关区")
++	game.command_target(Vector2(690, 300))
++	check(settle_ai(), "仅队友占用一块板")
++	idle(60)
++	check(not game.level.gates[0].open, "单块压力板不能打开门")
++	game.load_level(1)
++	check(walk(Vector2(300, 390)), "AI 避险到激光前")
++	wait_phase(0, 3.65, 3.7)
++	game.command_target(Vector2(420, 390))
++	idle(40)
++	check(game.ai.feedback.contains("避险") or game.b.position.x < 340, "AI 在预警/开启阶段停在危险外")
++	wait_phase(0, 0.0, 0.05)
++	check(settle_ai(), "关闭后 AI 继续通过危险")
++	# AI waits inside the laser, proving partner death also resets the human.
++	game.command_target(Vector2(384, 390))
++	check(settle_ai(), "队友通过真实移动进入关闭危险区")
++	deaths = game.deaths
++	for i in range(370):
++		tick()
++		if game.deaths > deaths:
++			break
++	check(game.deaths > deaths and game.a.position.distance_to(game.checkpoint[0]) < 1 and game.b.position.distance_to(game.checkpoint[1]) < 1, "队友死亡触发共同重生")
++	game.ai.wait()
++	old_a = game.a.position
++	old_b = game.b.position
++	idle(60)
++	check(game.b.position == old_b, "Q 对应等待行为保持静止")
++	game.respawn()
++	check(game.ai.mode == "follow" and not game.ai.has_target, "检查点重开清理指令并恢复跟随")
++	# Tick size variation on the same production movement implementation.
++	for delta in [1.0 / 30.0, 1.0 / 120.0]:
++		game.load_level(0)
++		game.set_mode(true)
++		for i in range(150):
++			tick(Vector2.LEFT, Vector2.RIGHT, delta)
++	check(not failures.has("逐帧距离/碰撞不变量") and not failures.has("无瞬移/拖拽步长"), "所有帧合法且步长有界（30/60/120 Hz）")
++	finish()
++
++func finish() -> void:
++	var report := {"checks": checks, "failures": failures, "frames": frames, "maximum_distance": max_distance, "maximum_step": max_step, "status": "PASS" if failures.is_empty() else "FAIL"}
++	var output := FileAccess.open("res://tests/latest_result.json", FileAccess.WRITE)
++	output.store_string(JSON.stringify(report, "\t"))
++	output.close()
++	print("RESULT ", JSON.stringify(report))
++	game.queue_free()
++	quit(0 if failures.is_empty() else 1)
+diff --git a/tests/decision_review.gd b/tests/decision_review.gd
+new file mode 100644
+--- /dev/null
++++ b/tests/decision_review.gd
+@@ -0,0 +1,126 @@
++extends SceneTree
++
++# Isolated headless checks; synthetic events never use desktop input devices.
++var game
++var checks := 0
++var failures: Array[String] = []
++
++func _initialize() -> void:
++	call_deferred("run")
++
++func check(condition: bool, message: String) -> void:
++	checks += 1
++	if not condition:
++		failures.append(message)
++	print("PASS: " if condition else "FAIL: ", message)
++
++func key(code: Key) -> void:
++	var event := InputEventKey.new()
++	event.keycode = code
++	event.physical_keycode = code
++	event.pressed = true
++	game._unhandled_input(event)
++
++func button(text: String) -> Button:
++	for child in game.menu.get_child(0).get_children():
++		if child is Button and child.text == text:
++			return child
++	return null
++
++func run() -> void:
++	game = load("res://scenes/main.tscn").instantiate()
++	root.add_child(game)
++	game.manual_tick = true
++	await process_frame
++	key(KEY_Q)
++	check(game.ai.mode == "wait", "Q handler enters wait")
++	key(KEY_Q)
++	check(game.ai.mode == "follow", "Q handler resumes follow")
++	game.command_target(Vector2(280, 390))
++	key(KEY_E)
++	check(game.ai.mode == "follow" and not game.ai.has_target, "E handler clears target and recalls")
++	key(KEY_ESCAPE)
++	check(game.paused and game.menu.visible, "Esc handler opens pause menu")
++	game.command_target(Vector2(280, 390))
++	key(KEY_Q)
++	check(not game.ai.has_target and game.ai.mode == "follow", "Paused world rejects target and Q commands")
++	var before: Vector2 = game.a.position
++	var clock: float = game.clock
++	game.simulate(1.0 / 60.0, Vector2.RIGHT)
++	check(game.a.position == before and game.clock == clock, "Pause freezes production movement and clock")
++	game.mode_button.pressed.emit()
++	check(game.local_two and game.paused, "Mode menu callback selects local two while paused")
++	button("继续").pressed.emit()
++	check(not game.paused and not game.menu.visible, "Continue callback closes pause menu")
++	game.command_target(Vector2(280, 390))
++	check(not game.ai.has_target, "Local two rejects AI target commands")
++	game.set_mode(false)
++	var event := InputEventKey.new()
++	event.physical_keycode = KEY_D
++	event.keycode = KEY_D
++	event.pressed = true
++	Input.parse_input_event(event)
++	Input.flush_buffered_events()
++	check(game.keyboard([KEY_A, KEY_D, KEY_W, KEY_S]) == Vector2.RIGHT, "Synthetic D reaches physical-key polling")
++	game.manual_tick = false
++	game._physics_process(1.0 / 60.0)
++	check(game.a.position == before, "Mode switch clears one frame of movement input")
++	game._physics_process(1.0 / 60.0)
++	check(game.a.position.x > before.x, "Production physics handler moves player from keyboard state")
++	var release := event.duplicate()
++	release.pressed = false
++	Input.parse_input_event(release)
++	Input.flush_buffered_events()
++	game.manual_tick = true
++	check(game.keyboard([KEY_A, KEY_D, KEY_W, KEY_S]) == Vector2.ZERO, "Synthetic key release clears keyboard state")
++	var motion := InputEventMouseMotion.new()
++	motion.position = Vector2(280, 390)
++	motion.global_position = motion.position
++	root.push_input(motion, true)
++	var click := InputEventMouseButton.new()
++	click.button_index = MOUSE_BUTTON_RIGHT
++	click.pressed = true
++	click.position = motion.position
++	click.global_position = motion.position
++	root.push_input(click, true)
++	if not game.ai.has_target or game.ai.target.distance_to(motion.position) >= 1:
++		print("Input state: viewport_mouse=", root.get_mouse_position(), " global_mouse=", game.get_global_mouse_position(), " target=", game.ai.target, " has_target=", game.ai.has_target)
++	check(game.ai.has_target and game.ai.target.distance_to(motion.position) < 1, "Viewport right-click targets actual ground coordinate")
++	game.position = Vector2(25, 30)
++	game.scale = Vector2(0.8, 0.8)
++	var ground := Vector2(300, 410)
++	var transformed_click := InputEventMouseButton.new()
++	transformed_click.button_index = MOUSE_BUTTON_RIGHT
++	transformed_click.pressed = true
++	transformed_click.position = game.get_global_transform_with_canvas() * ground
++	transformed_click.global_position = transformed_click.position
++	root.push_input(transformed_click, true)
++	check(game.ai.has_target and game.ai.target.distance_to(ground) < 1, "Right-click coordinate respects scene translation and scale")
++	game.position = Vector2.ZERO
++	game.scale = Vector2.ONE
++	key(KEY_R)
++	check(game.a.position == game.checkpoint[0] and game.b.position == game.checkpoint[1] and not game.ai.has_target, "R handler restores both characters and clears commands")
++	game.command_target(Vector2(280, 390))
++	game.paused = true
++	game.refresh_ui()
++	button("检查点重开").pressed.emit()
++	check(not game.paused and not game.ai.has_target and game.a.position == game.checkpoint[0] and game.b.position == game.checkpoint[1], "Checkpoint restart callback clears commands and resumes play")
++	game.load_level(2)
++	game.paused = true
++	button("返回第一关 / 重新游玩").pressed.emit()
++	check(game.level_index == 0 and not game.paused and not game.won, "Return-to-start callback rebuilds playable first level")
++	game.load_level(2)
++	game.won = true
++	game.paused = true
++	game.refresh_ui()
++	check(game.menu.visible and game.menu_title.text.contains("三关完成"), "Completion state shows restart menu")
++	button("返回第一关 / 重新游玩").pressed.emit()
++	game.simulate(1.0 / 60.0, Vector2.RIGHT)
++	check(game.level_index == 0 and not game.won and not game.paused and game.a.position.x > game.checkpoint[0].x, "Completion restart restores production movement")
++	var report := {"checks": checks, "failures": failures, "status": "PASS" if failures.is_empty() else "FAIL", "scope": "真正 headless 的生产输入处理、合成视口事件和菜单回调；不使用桌面输入，不代表视觉验收"}
++	var output := FileAccess.open("res://tests/decision_review_result.json", FileAccess.WRITE)
++	output.store_string(JSON.stringify(report, "\t"))
++	output.close()
++	print("RESULT ", JSON.stringify(report))
++	game.queue_free()
++	quit(0 if failures.is_empty() else 1)
+diff --git a/tests/evidence.gd b/tests/evidence.gd
+new file mode 100644
+--- /dev/null
++++ b/tests/evidence.gd
+@@ -0,0 +1,21 @@
++extends SceneTree
++
++func _initialize() -> void:
++	# Repository began with only INITIAL_DEVELOPMENT_PLAN.md; all listed sources are additions.
++	var paths := ["project.godot", ".gitignore", "scenes/main.tscn", "scripts/game.gd", "scripts/twin.gd", "scripts/link_motion.gd", "scripts/partner_ai.gd", "scripts/levels.gd", "scripts/mechanisms.gd", "tests/headless.gd", "tests/decision_review.gd", "tests/evidence.gd", "启动白盒.cmd", "验证白盒.cmd", "README.md", "docs/TEST_REPORT.md", "docs/DECISION_REVIEW.md", "docs/PLAYTEST_CHECKLIST.md"]
++	var diff := FileAccess.open("res://docs/IMPLEMENTATION.diff", FileAccess.WRITE)
++	var manifest := {}
++	for path: String in paths:
++		var text := FileAccess.get_file_as_string("res://" + path)
++		var lines := text.trim_suffix("\n").split("\n")
++		diff.store_string("diff --git a/%s b/%s\nnew file mode 100644\n--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n" % [path, path, path, lines.size()])
++		for line: String in lines:
++			diff.store_string("+" + line + "\n")
++		manifest[path] = FileAccess.get_sha256("res://" + path)
++	manifest["docs/INITIAL_DEVELOPMENT_PLAN.md"] = FileAccess.get_sha256("res://docs/INITIAL_DEVELOPMENT_PLAN.md")
++	diff.close()
++	var output := FileAccess.open("res://tests/source_hashes.json", FileAccess.WRITE)
++	output.store_string(JSON.stringify(manifest, "\t", true))
++	output.close()
++	print("Evidence: additions diff and SHA-256 manifest written; original plan retained.")
++	quit(0)
+diff --git a/启动白盒.cmd b/启动白盒.cmd
+new file mode 100644
+--- /dev/null
++++ b/启动白盒.cmd
+@@ -0,0 +1,10 @@
++@echo off
++setlocal
++set "ENGINE=D:\Tools\Godot\4.7.1\Godot_v4.7.1-stable_win64.exe"
++if not exist "%ENGINE%" (
++  echo Godot executable missing: %ENGINE%
++  pause
++  exit /b 1
++)
++"%ENGINE%" --path "%~dp0."
++endlocal
+diff --git a/验证白盒.cmd b/验证白盒.cmd
+new file mode 100644
+--- /dev/null
++++ b/验证白盒.cmd
+@@ -0,0 +1,7 @@
++@echo off
++setlocal
++"D:\Tools\Godot\4.7.1\Godot_v4.7.1-stable_win64_console.exe" --headless --path "%~dp0." --script res://tests/headless.gd
++set "RESULT=%ERRORLEVEL%"
++echo Verification exit code: %RESULT%
++pause
++exit /b %RESULT%
+diff --git a/README.md b/README.md
+new file mode 100644
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,52 @@
++# 共生连线 · Godot 白盒
++
++在同一屏幕协调两个机器人，用长度有限的能量线和站位完成三个合作关卡。默认一个人游玩，队友由游戏内确定性 AI 驱动，无联网、模型服务或 API Key。
++
++**启动：双击本目录 `启动白盒.cmd`。** 使用已安装的 `D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64.exe`，不修改系统环境。也可以用 Godot 4.7.1 打开 `project.godot` 后运行主场景。首次运行可能生成本地 `.godot/` 缓存。
++
++## 操作
++
++| 按键 | 行为 |
++| --- | --- |
++| WASD | 玩家一移动 |
++| 鼠标右键 | 队友前往地面目标，到达后等待；点击墙/封闭区有不可达反馈 |
++| Q | 原地等待 / 恢复跟随 |
++| E | 召回队友，取消目标，恢复跟随 |
++| R | 两人从当前检查点共同重开，清理队友指令 |
++| Esc | 暂停、操作说明及菜单 |
++| 方向键 | 菜单切换到本地双人后控制玩家二 |
++
++菜单可切换“单人 + AI / 本地双人”、检查点重开、返回第一关。第三关完成显示通关页，可重新游玩。单人指令在双人模式停用；切换不改变位置，取消旧指令并清空一帧输入。按住移动键会继续作为新模式的当前输入。
++
++## 核心规则
++
++- 两人最大中心距离 220 像素，速度 180 像素/秒，半径 12。能量线可穿墙，机器人不可穿墙。
++- 达到约 85% 长度时金色粗线表示张紧；不能继续分离，但可以靠近和沿边界移动。等待的队友不会被拖走。
++- 队友跟随保持约 88 像素间距。远目标会在合法距离停住；自己靠近后队友继续。AI 不会自动替你按顺序解题。
++- 压力板需两块同时有人占用；门开启后锁存，离开板子不会关门。
++- 接收器需要**真实两人中心连线**穿过圆形区域，长度至少 187，连续保持 0.8 秒。失去条件立即清零；开门后保持开启。
++- 危险按 6 秒周期重复：虚线关闭 3.6 秒，黄色三角预警 0.8 秒，红色斜纹开启 1.6 秒。第二道错开 2.4 秒。AI 会在预警和开启时等待；站在危险内仍可能共同死亡。
++- 任一机器人触碰开启危险，两人共同重生。第二关两人同时进入蓝色安全岛后更新检查点；重生后时序从安全窗口重新开始。
++- 两人中心均进入绿色出口才能切关。出口狭窄时右键指挥队友走进去，单人进入不会自动通关。
++
++## 可复现单人路线
++
++1. **保持连接**：从出生区走到墙上侧（约 y=280），向右绕过墙。到机关附近，右键上板 `(690,300)`，自己站下板 `(690,480)`。开门后按 E，向右进入绿色出口，必要时右键队友到出口内。
++2. **共同通过危险区**：到第一道激光左侧约 `(305,390)`，等虚线关闭周期开始后向右同行到安全岛约 `(570,390)`。确认两人都进入蓝区；第二道左侧约 `(590,390)` 等待另一道刚关闭，再向右通过。不要让队友留在激光区等待。出口约 `(1035,390)`。
++3. **以连接传能**：到接收器左侧 `(600,390)`；右键队友到上圈 `(650,285)`，自己走到下圈 `(650,495)`。等充满开门，E 召回，经过中间 `(730,390)` 到 `(850,390)`。右键队友到上板 `(890,300)`，自己到下板 `(890,480)`，开第二门。E 召回后两人进入出口；自己在 `(1020,390)` 时可右键队友到 `(1010,410)` 完成。
++
++以上路线已由 headless 测试通过真实场景复现，测试只发送移动方向、目标指令和正常重开/切换；未为通关设置角色位置或机关开门标记。测试场景独立重置使用正常 `load_level` 接口，充能失效专项测试重置过一次充能计时器。
++
++## 结构与验证
++
++`scripts/game.gd` 管理入口、统一固定步、恢复与 UI；`link_motion.gd` 处理碰撞兼容的双人连接运动；`partner_ai.gd` 是有界网格寻路与状态机；`levels.gd` 存放三关几何配置；`mechanisms.gd` 驱动生产机关；`twin.gd` 绘制角色、阴影。主场景为 `scenes/main.tscn`。
++
++双击 `验证白盒.cmd` 或在 PowerShell 运行：
++
++```powershell
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --script res://tests/headless.gd --log-file "D:/ConjoinedTwins/tests/headless.log"
++```
++
++验证有总帧预算、单段有界路线与 20 秒 watchdog，成功退出码 0，断言失败 1，超时 2。结果写入 `tests/latest_result.json`，日志保存于 `tests/headless.log`。全部检查使用实际主场景与生产移动/机关代码。详情见 [测试报告](docs/TEST_REPORT.md) 和 [用户试玩清单](docs/PLAYTEST_CHECKLIST.md)。
++
++当前是几何白盒；视觉可读性、鼠标交互手感和难度仍待人工试玩。预期约 5–10 分钟，仅为设计目标。尚无正式美术、战斗、跳跃、联网或绕柱绳索。
+diff --git a/docs/TEST_REPORT.md b/docs/TEST_REPORT.md
+new file mode 100644
+--- /dev/null
++++ b/docs/TEST_REPORT.md
+@@ -0,0 +1,67 @@
++# 白盒实施与执行者自测报告
++
++日期：2026-10-12。实际工作目录：`D:/ConjoinedTwins`。原始输入 `docs/INITIAL_DEVELOPMENT_PLAN.md` 保留，未改写。
++
++## 身份与边界
++
++- 本次角色：执行者，通过原生文件工具在授权目录直接实施。
++- 会话声明模型：`gpt-6.1-sol`；模型后端身份和推理变体没有额外工具核验，不将计划中的角色配置当作已核验事实。
++- 运行上下文路径包含 runtime 标识 `92184584fd7d49b4`、execution 标识 `d9136cea-3d0d-4769-a795-d9a46db671fa`；Controller 正式 Run ID 未在派发 JSON 中单独提供，待 Controller 绑定，不虚构。
++- 本机真实运行引擎输出：`Godot Engine v4.7.1.stable.official.a13da4feb`。
++- 外部 `D:/PersonalAgent-data/global-interaction-policy.json`、caveman 技能及 `C:/Users/WYL20/.codex/RTK.md` 读取被工具 `external_directory` 权限拒绝。未改权限或绕过 Hook，采用默认 **work**，仅原生文件开发和 headless 命令，未启动可见窗口。RTK / Serena 专用能力未在本次可调用工具中提供，文件调查使用专用 Read / Glob / Grep。
++- 当前目录初始只有计划文档，无 Git 仓库；未提交、推送、发布或修改其他项目。`docs/IMPLEMENTATION.diff` 为相对于该初始状态的新文件统一 Diff，`tests/source_hashes.json` 为生产文件与原计划 SHA-256 清单；Godot 自动生成 `.godot/` 和 `.gd.uid` 不计入源码 Diff。
++
++## 实际产物
++
++`project.godot`、主场景、六份生产脚本、三关配置、中文 README、`启动白盒.cmd`、`验证白盒.cmd`、真实场景测试脚本、日志、JSON 结果、Diff、试玩清单均位于授权目录。三关以数据驱动实例化，不额外复制三份场景。
++
++运动采用 Node2D 角色和几何碰撞统一处理，不依赖 CharacterBody2D 的逐角色更新。固定步中以最多 2 像素小步扫描墙体、轴向滑动，再对本步自身运动进行连接修正；不可合法修正时联合缩短本步。等待者不受拖拽。墙体膨胀 12 像素形成保守碰撞边界；角色互相可重叠。能量线不绕墙。
++
++离线 AI 使用 20 像素四邻网格、有界 BFS、0.6 秒重规划，跟随、等待、前往后等待、召回、连接限制及危险等待有明确反馈。机关状态与角色位置由生产逻辑驱动；门锁存，重生保留已开门，返回第一关重新建立初始状态。
++
++## 命令与结果
++
++均在 `D:/ConjoinedTwins` 工作目录同步运行，使用控制台引擎 `D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe`。无后台写入进程。
++
++```powershell
++# 导入 / 解析（headless，不打开编辑器窗口）
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --editor --import --quit --log-file "D:/ConjoinedTwins/tests/import.log"
++# 主场景正常固定物理步启动
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --quit-after 120 --log-file "D:/ConjoinedTwins/tests/startup.log"
++# 驱动真实场景和生产逻辑
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --script res://tests/headless.gd --log-file "D:/ConjoinedTwins/tests/headless.log"
++# 生成实际源码 Diff 和哈希清单
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --script res://tests/evidence.gd
++```
++
++最终执行者结果：导入与主场景启动退出码 **0**，未见脚本解析/运行错误；机制验证退出码 **0**，**65 项断言通过**，**6012 个真实模拟步**，失败数组为空。最大连接距离 **220.000030517578 像素**；最大正常帧位移 **6 像素**（30 Hz，180 像素/秒），没有用 1 像素容限掩盖超长。详见 `tests/headless.log` 和 `tests/latest_result.json`。
++
++验证覆盖反向移动、靠近、贴墙、墙角、切向运动、30/60/120 Hz 步长、等待不拖拽、AI 绕墙/不可达/过远恢复/召回/避险、单板不开门与双板锁存、松弛触碰不充能/线段张紧充能/不足 0.8 秒不开门/条件失效归零、错时危险、两种角色死亡、共同检查点恢复、实际切关、单角色出口无效、三关单人 + AI 全流程、模式切换及暂停。
++
++测试通过正常输入方向与队友目标驱动 `main.tscn` 的 `simulate`，不会为通关瞬移、伪造占板或直接开门。场景专项用正常加载/重开接口复位；唯一额外写入生产机关状态是在充能失效专项中将已累积的计时器清零，以测量不足时长，并非通关路径。GUI 点击、实际鼠标/键盘设备事件和窗口呈现未由 headless 验证。
++
++所有行走循环、AI 等待循环、危险相位等待都设上限；总帧预算 30000，另有 20 秒 watchdog。外层工具超时 30 秒，首次失败使用 60 秒工具超时终止。不会无限驻留 headless 服务。
++
++## 失败与修复记录
++
++1. 首轮：靠近检查在两人相遇后仍持续相向走，最终重新分离，产生测试误判；AI 跟随间距使队友尚未跨到墙另一侧及安全岛，远目标未超实际范围。第二关未切换后继续访问第三关机关数组，引发越界并超时终止。修复测试路径、缩短靠近段、扩大远目标、增加失败关卡保护和 watchdog。
++2. 次轮：主动触碰危险段开始过晚，走到危险时已关闭；出口边缘跟随队友中心仍在区域外。对齐危险开启早段，向出口更深处移动，并明确指挥队友进入最终窄出口。均通过实际运动修正测试，无生产绕过。
++3. 三关完成后专项运动不动：发现生产 `load_level` 未清除通关遗留暂停状态。修复加载关卡时 `paused=false`，复测张紧切向运动、切回 AI 跟随及完整三关通过。
++4. 最终扩展到 65 项，补 AI 单独死亡、松弛接收器、单板反例和预警避险，全部通过。HUD 加入自动换行与出口指挥提示；最终源码再次导入、启动和机制验证。
++
++前几轮失败摘要由真实工具输出整理；最终日志未冒充历史失败日志。
++
++## 验收状态
++
++| 层级 | 状态 | 说明 |
++| --- | --- | --- |
++| 执行者自测 | PASS | 上述 65 项及导入/主场景启动，由执行者运行 |
++| 决策者审查 | PASS | 已读取源码与证据，修复右键事件坐标处理；65 项机制复验及 20 项补充检查通过，见 `docs/DECISION_REVIEW.md` |
++| Controller 独立测试 | 未运行 | 派发 `tests=[]`，执行者运行不计作 Controller 独立测试 |
++| 用户试玩 | pending | 见 `docs/PLAYTEST_CHECKLIST.md` |
++| 可见 GUI 验收 | deferred_by_work_mode | 未打开游戏窗口，不伪报视觉验收 |
++| 正式交付 / 发布批准 | 未授予 | 停在审查及人工验收边界，未提交或发布 |
++
++决策者于 2026-10-12 完成开发任务验收，Controller 提供的证据路径确认正式 Run ID 为 `d9136cea-3d0d-4769-a795-d9a46db671fa`。前文身份与策略读取受限部分保留为执行者当时的记录；补充审查、实际策略值与修复证据见 `docs/DECISION_REVIEW.md`。
++
++下一步入口：用户双击 `D:/ConjoinedTwins/启动白盒.cmd`。执行者自测、决策者验收、Controller 独立测试和用户确认仍分别记录；两类 headless 通过不代表用户试玩或正式交付批准。
+diff --git a/docs/DECISION_REVIEW.md b/docs/DECISION_REVIEW.md
+new file mode 100644
+--- /dev/null
++++ b/docs/DECISION_REVIEW.md
+@@ -0,0 +1,49 @@
++# 决策者审查与复验记录
++
++日期：2026-10-12。结论：**PASS（开发任务验收）**。用户试玩和正式交付批准仍待用户处理，本记录不替代这两项。
++
++## 审查范围
++
++- 实际工作目录：`D:/ConjoinedTwins`。读取主场景、工程配置、六份生产脚本、三关数据、测试脚本、README、启动入口、执行者报告、试玩清单、源码新增 Diff 和哈希清单。
++- 通过本次 Controller 提供的证据路径确认 Run ID：`d9136cea-3d0d-4769-a795-d9a46db671fa`；runtime：`92184584fd7d49b4`。模型后端身份和推理变体没有额外核验，仍以执行者报告中的会话声明为准。
++- 验收时直接读取交互策略，实际值为 `idle`。执行者此前读取外部策略被拒绝，按默认 work 执行；该历史记录保留。两阶段均未自动打开游戏窗口，不操作桌面、改策略或绕过 Hook。
++- 使用 RTK 代理普通 Shell。Serena 当前不可调用，使用定向检索及必要源码读取。
++- 非 Git 工程，Diff 表示相对于初始仅有计划文档的新增源码。修复前核对原哈希清单，17 项一致。没有全项目自动快照，不声称验证了所有外部或未知历史变更；原计划文档保留。
++
++## 直接修复与补充验证
++
++右键目标原先在事件处理中查询当前全局鼠标位置。headless 合成视口事件没有更新原生鼠标位置，导致事件坐标与查询值不一致。改用右键事件自身的坐标，并通过场景画布变换转换为地面坐标；无需读取或移动桌面鼠标，也避免缓冲事件处理时使用后续游标位置。
++
++新增 `tests/decision_review.gd`，实例化真实主场景，验证生产输入处理、引擎内合成按键/视口事件、暂停、模式菜单、检查点重开、返回起点和完成后重玩回调。右键同时验证正常坐标与场景平移/缩放后的坐标。合成事件不等于真实设备或可见 GUI 验收。
++
++首次补充测试中，合成按键尚未刷新、复用了事件对象，且全局鼠标查询不能反映合成事件。修正测试适配：等待场景初始化、刷新引擎输入缓冲、使用新的释放事件；随后完成上述右键处理修复。最终测试日志对应修复后的结果，没有将初轮失败冒充通过。
++
++## 实际命令与结果
++
++工作目录均为本项目；以下命令通过 `rtk proxy powershell -NoProfile -Command` 调用，实际使用 Godot `4.7.1.stable.official.a13da4feb`。所有调用同步结束。
++
++```powershell
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --editor --import --quit --log-file "D:/ConjoinedTwins/tests/decision-import.log"
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --quit-after 120 --log-file "D:/ConjoinedTwins/tests/decision-startup.log"
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --script res://tests/headless.gd --log-file "D:/ConjoinedTwins/tests/decision-headless.log"
++& "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe" --headless --path "D:/ConjoinedTwins" --script res://tests/decision_review.gd --quit-after 180 --log-file "D:/ConjoinedTwins/tests/decision-review.log"
++```
++
++- 导入、解析、主场景启动：退出码均为 **0**，未见脚本错误。
++- 原机制套件复验：**65 项通过，6012 个模拟步**，最大距离 **220.000030517578 像素**，最大正常帧位移 **6 像素**；结果见 `tests/latest_result.json`。三关通过真实移动与 AI 指令完成，没有为通关瞬移或直接开门。
++- 补充套件：**20 项通过**，退出码 **0**，结果见 `tests/decision_review_result.json`。补充检查在有限步骤内结束，运行命令另设 180 帧退出上限。
++- 修复后重新导入、启动并运行原机制套件，65 项仍通过。
++- 最终源码 Diff 与 SHA-256 清单同步更新；项目无残留 Godot 进程。没有 Git 提交、推送或发布。
++
++## 验收边界
++
++| 层级 | 结果 |
++| --- | --- |
++| 执行者自测 | PASS：65 项机制断言及导入/启动 |
++| 决策者审查与复验 | PASS：源码审查、直接修复、65 项复验及 20 项补充检查 |
++| Controller 独立测试 | 未运行：`tests=[]`；上述复验不计为 Controller 测试 |
++| 用户试玩 | pending：中文显示、视觉反馈、真实设备输入、操作手感、难度与卡死检查 |
++| 可见 GUI | 未运行；执行者阶段记录为 `deferred_by_work_mode`，验收阶段仍遵守不自动开窗口的授权 |
++| 正式交付 / 发布批准 | 未授予 |
++
++用户入口：双击 `D:/ConjoinedTwins/启动白盒.cmd`，按 `docs/PLAYTEST_CHECKLIST.md` 独自试玩三关。
+diff --git a/docs/PLAYTEST_CHECKLIST.md b/docs/PLAYTEST_CHECKLIST.md
+new file mode 100644
+--- /dev/null
++++ b/docs/PLAYTEST_CHECKLIST.md
+@@ -0,0 +1,18 @@
++# 用户试玩清单
++
++状态：**pending**。可见 GUI：**deferred_by_work_mode**。执行者未打开游戏窗口；由用户双击 `D:/ConjoinedTwins/启动白盒.cmd` 开始。
++
++- [ ] 启动无错误，中文 HUD、操作说明和角色标识可读，窗口缩放后可正常操作。
++- [ ] WASD 移动顺畅，贴墙及墙角不会穿墙；两人反向移动时连线阻止继续分离，仍可靠近或转向。
++- [ ] Q 等待不拖拽队友；右键目标可见，到达后等待；E 召回可恢复跟随。
++- [ ] 点击墙内目标有不可达反馈；点击过远目标有连接限制提示，玩家靠近后继续；绕墙无长时间顶墙抖动。
++- [ ] 第一关独自完成双板，离开板后门保持开启，必须两人到出口才能进入第二关。
++- [ ] 第二关虚线、三角、斜纹可分别识别；能观察错时危险，安全岛能激活检查点。
++- [ ] 故意让任一角色遇到开启激光，两人共同恢复；R 从安全岛重开。
++- [ ] 第三关看见真实连线穿过接收器并充能，松弛或离开有效区域会清零；能完成接收器和双板组合。
++- [ ] Esc 暂停会冻结移动和危险；继续、重开和返回起点可用。
++- [ ] 本地双人切换后方向键控制 2，AI 不再移动；切回 AI 无位置跳变、旧目标清除。
++- [ ] 第三关显示通关页，重新游玩能从第一关恢复正常运动。
++- [ ] 记录三关总用时、最难理解的步骤、卡死位置、AI 反馈是否足够，以及操作舒适度。
++
++headless 自测通过不能代替这些勾选。决策者审查、Controller 独立测试和正式交付批准均由对应流程单独记录。

@@ -1,0 +1,46 @@
+{
+  "passed": true,
+  "routes": 197,
+  "player_direction_samples": 838464,
+  "illegal_inputs": [],
+  "raw_directions": [
+    [
+      -1.0,
+      -1.0
+    ],
+    [
+      -1.0,
+      0.0
+    ],
+    [
+      -1.0,
+      1.0
+    ],
+    [
+      0.0,
+      -1.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      1.0
+    ],
+    [
+      1.0,
+      -1.0
+    ],
+    [
+      1.0,
+      0.0
+    ],
+    [
+      1.0,
+      1.0
+    ]
+  ],
+  "maximum_catalog_exit_error_units": 0.5071606445339967,
+  "input_encoding": "每轴-1/0/1，step在生产中归一化对角；跳跃为按下状态"
+}

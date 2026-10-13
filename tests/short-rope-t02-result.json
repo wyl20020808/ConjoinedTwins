@@ -1,0 +1,876 @@
+{
+	"checks": [
+		{
+			"name": "生产配置：高柱 5 米、受阻 0.8 秒、长度容限 0.5 毫米",
+			"passed": true
+		},
+		{
+			"name": "同侧通过：无接触、无受阻、继续前进",
+			"passed": true
+		},
+		{
+			"name": "同侧通过：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "同侧通过：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "同侧通过：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "改走同侧：接近前换边后无接触通过",
+			"passed": true
+		},
+		{
+			"name": "改走同侧：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "改走同侧：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "改走同侧：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：绳索挂上柱子并保持同一绕行侧",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：仅接触未耗尽时不计时",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：受阻约 0.8 秒共同失败",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：受阻期间自动推进与前后边界停住，角色不被推过柱子",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：失败状态反馈",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "分侧绕柱：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "靠拢：挂柱后收拢推迟受阻并多前进一段，不误判失败",
+			"passed": true
+		},
+		{
+			"name": "靠拢：仍在两侧时最终受阻失败",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻前）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻前）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻前）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻后）：收拢期间计时基本不累计且不清零",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻后）：停止收拢后继续累计至失败",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻后）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻后）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "靠拢（受阻后）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：解绕期间计时暂停，接触解除后清零",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：解围前道路保持停滞",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：两人改走同侧后继续前进，无陈旧接触",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：全程未触碰柱子",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "回撤解围：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "普通拉紧（无柱）：到达绳长上限但不受阻、不计时",
+			"passed": true
+		},
+		{
+			"name": "普通拉紧（无柱）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "普通拉紧（无柱）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "普通拉紧（无柱）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "普通拉紧（柱子在附近未接触）：不受阻、不计时",
+			"passed": true
+		},
+		{
+			"name": "独立跳跃保留地面连接约束",
+			"passed": true
+		},
+		{
+			"name": "大步长调用：长度上限、不穿柱、绕行侧不翻转",
+			"passed": true
+		},
+		{
+			"name": "求解模块高速扫掠：不穿柱、长度连续",
+			"passed": true
+		},
+		{
+			"name": "求解模块：缠绕超过一圈仍保持绕行侧，原路退回后只解除一次",
+			"passed": true
+		},
+		{
+			"name": "随机输入：覆盖到接触与受阻状态",
+			"passed": true
+		},
+		{
+			"name": "随机输入 12 种子：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "随机输入 12 种子：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "随机输入 12 种子：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "随机输入：运行中角色不进入柱体",
+			"passed": true
+		},
+		{
+			"name": "绳段高度：站立分侧通过矮桩会挂住",
+			"passed": true
+		},
+		{
+			"name": "绳段高度：两人同时起跳把绳索抬过矮桩，不产生接触",
+			"passed": true
+		},
+		{
+			"name": "绳段高度：单人起跳时机恰好时整段高过桩顶，可以越过",
+			"passed": true
+		},
+		{
+			"name": "绳段高度：单人起跳时机偏早或偏晚，斜绳低端一侧低于桩顶，被挂住",
+			"passed": true
+		},
+		{
+			"name": "绳段高度：受阻后起跳抬过矮桩解除接触并清除计时",
+			"passed": true
+		},
+		{
+			"name": "矮桩高度：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "矮桩高度：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "矮桩高度：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "绳段高度：5 米高柱不能靠起跳越过",
+			"passed": true
+		},
+		{
+			"name": "端点重合：零长度直绳有效",
+			"passed": true
+		},
+		{
+			"name": "端点重合（已绕柱）：保留接触与绕行侧，长度为绕柱闭环",
+			"passed": true
+		},
+		{
+			"name": "端点重合（生产）：角色随道路推进 120 单位",
+			"passed": true
+		},
+		{
+			"name": "真实高度：斜绳低端一侧低于桩顶时挂住，路径不穿柱",
+			"passed": true
+		},
+		{
+			"name": "真实高度：占地范围内整段高过桩顶时越过",
+			"passed": true
+		},
+		{
+			"name": "真实高度：下降到桩顶以下立即挂住，不留穿柱直绳",
+			"passed": true
+		},
+		{
+			"name": "真实高度：落下时取圆心所在一侧（较短一侧）并可重新抬离",
+			"passed": true
+		},
+		{
+			"name": "持续脱离：相切抖动 40 次只建立一次接触、不解除，绕行侧与长度连续",
+			"passed": true
+		},
+		{
+			"name": "持续脱离：短暂离开后返回恢复原接触与绕行侧",
+			"passed": true
+		},
+		{
+			"name": "持续脱离：停在间隙内连续 36 次求解未压回后解除",
+			"passed": true
+		},
+		{
+			"name": "持续脱离：真正退回同侧（间隙超过 0.5 单位）后解除",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、无收拢）：腾空期间被落点约束停住且不计时，落下后受阻共同失败",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、无收拢）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、无收拢）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、无收拢）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、立即收拢）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、立即收拢）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（拉满、立即收拢）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（有余量）：绳段从桩的上方落下时当即挂住",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（有余量）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（有余量）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（有余量）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（单人起跳）：不强制队友起跳，绳索按真实高度被挂住",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（单人起跳）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（单人起跳）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（单人起跳）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（双方错时起跳 36 例）：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（双方错时起跳 36 例）：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "落到矮桩（双方错时起跳 36 例）：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "拉满绳长分侧遇柱：约 0.8 秒受阻失败，不无限停住",
+			"passed": true
+		},
+		{
+			"name": "拉满绳长分侧遇柱：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "拉满绳长分侧遇柱：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "拉满绳长分侧遇柱：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "暂停：接触、路径与受阻计时冻结",
+			"passed": true
+		},
+		{
+			"name": "暂停：恢复后计时接续，合计仍约 0.8 秒失败",
+			"passed": true
+		},
+		{
+			"name": "重试：清除接触、受阻状态、计时和路径",
+			"passed": true
+		},
+		{
+			"name": "重试后重新开始：无残留接触影响",
+			"passed": true
+		},
+		{
+			"name": "重定位：接触随坐标平移，绕行侧、缠绕角与长度不变",
+			"passed": true
+		},
+		{
+			"name": "重定位：之后仍按同一时序受阻失败，无陈旧接触",
+			"passed": true
+		},
+		{
+			"name": "重定位：每个固定步的有效路径长度都不超过固定上限（容限 0.5 毫米）",
+			"passed": true
+		},
+		{
+			"name": "重定位：绳段不穿柱（真实路径与当前高度独立判定）、绕行侧不翻转、端点与角色一致",
+			"passed": true
+		},
+		{
+			"name": "重定位：无瞬移（单步位移不超过移动加推进速度）",
+			"passed": true
+		},
+		{
+			"name": "回收：通过后的柱子被回收，标识表同步，无接触残留",
+			"passed": true
+		},
+		{
+			"name": "回收：仍被绳索挂住的柱子不会被回收",
+			"passed": true
+		},
+		{
+			"name": "回收：障碍消失后接触立即失效并清除计时",
+			"passed": true
+		},
+		{
+			"name": "切换难度：清除接触与受阻状态",
+			"passed": true
+		},
+		{
+			"name": "表现：高柱模型与碰撞一致（约 5 米高、直径 1.2 米）",
+			"passed": true
+		},
+		{
+			"name": "表现：直线状态只画一段、无接触环",
+			"passed": true
+		},
+		{
+			"name": "表现：挂柱时绳索按切线与弧段绘制并亮起接触环与张力提示",
+			"passed": true
+		},
+		{
+			"name": "表现：受阻时绳索与接触环转红并显示受阻计时",
+			"passed": true
+		},
+		{
+			"name": "表现：绕柱失败面板说明原因与解法",
+			"passed": true
+		},
+		{
+			"name": "表现：重试后恢复单段绳索、接触环隐藏",
+			"passed": true
+		},
+		{
+			"name": "生成：高柱每 4 段一根、位于路中央",
+			"passed": true
+		},
+		{
+			"name": "生产流式场景：同侧沿走廊行进 60 秒经过多根高柱不受阻",
+			"passed": true
+		}
+	],
+	"failures": 0,
+	"metrics": {
+		"coincident_wrapped": {
+			"expected_units": 163.668548588373,
+			"length_units": 163.66855528706,
+			"wrap_rad": 3.57839019692377
+		},
+		"converge_after_block": {
+			"advance_during_inward_units": 1.30000000000001,
+			"inward_ticks": 13,
+			"timer_substeps_during_inward": 1,
+			"total_block_window_s": 1.03333333333333
+		},
+		"converge_before_block": {
+			"bound_delay_s": 0.05,
+			"bound_tick": 451,
+			"extra_advance_m": 0.306054178873697,
+			"fail_tick": 547
+		},
+		"descent": {
+			"hooked_at_height": 39.0,
+			"length_after_landing": 60.0,
+			"side": -1
+		},
+		"fuzz": {
+			"attaches": 8,
+			"bound_ticks": 662,
+			"contact_ticks": 1534,
+			"detaches": 0,
+			"max_length_units": 146.600009685382,
+			"max_move_units": 2.388916015625,
+			"max_polyline_gap_units": 0.155537085357565,
+			"min_rope_clearance_units": 0.854033470153809,
+			"outcomes": {
+				"hit": 7,
+				"passed": 0,
+				"rope": 5
+			},
+			"seeds": 12,
+			"ticks": 6439
+		},
+		"landing_single": {
+			"cases": 12,
+			"hooked_cases": 12,
+			"max_length_units": 146.599997545127,
+			"penetrations": 0
+		},
+		"landing_slack": {
+			"cases": 6,
+			"hooked_cases": 6,
+			"landed_on_post_cases": 5,
+			"max_length_units": 146.599992458098,
+			"penetrations": 0
+		},
+		"landing_staggered": {
+			"cases": [
+				{
+					"jump_tick": 226,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 230,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 234,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 238,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 242,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 246,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 226,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 230,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 234,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 238,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 242,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 246,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 226,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 230,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 234,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 238,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 242,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 246,
+					"max_length_units": 146.599997545125,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 150,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 226,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 230,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 234,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 238,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 242,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 246,
+					"max_length_units": 116.09259565757,
+					"over_ticks": 0,
+					"partner_delay_ticks": -12,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 226,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 230,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 234,
+					"max_length_units": 116.09259565757,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 238,
+					"max_length_units": 114.966350958947,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 242,
+					"max_length_units": 114.350803863542,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 246,
+					"max_length_units": 114.333297729492,
+					"over_ticks": 0,
+					"partner_delay_ticks": 12,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 226,
+					"max_length_units": 146.599992458098,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 15,
+					"state": "failed"
+				},
+				{
+					"jump_tick": 230,
+					"max_length_units": 116.09259565757,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 234,
+					"max_length_units": 114.491253473646,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 238,
+					"max_length_units": 114.333297729492,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 242,
+					"max_length_units": 114.333297729492,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 15,
+					"state": "running"
+				},
+				{
+					"jump_tick": 246,
+					"max_length_units": 114.333297729492,
+					"over_ticks": 0,
+					"partner_delay_ticks": 24,
+					"spread_ticks": 15,
+					"state": "running"
+				}
+			],
+			"max_length_units": 146.599997545127,
+			"penetrations": 0
+		},
+		"landing_taut_idle": {
+			"air_stalled_cases": 6,
+			"cases": 6,
+			"max_length_units": 146.599997545127,
+			"penetrations": 0,
+			"rope_failed_cases": 6,
+			"timer_substeps_while_airborne": 0
+		},
+		"landing_taut_inward": {
+			"cases": 6,
+			"hooked_cases": 6,
+			"max_length_units": 146.599990844727,
+			"penetrations": 0,
+			"running_cases": 3
+		},
+		"pause": {
+			"block_ticks_before_pause": 31,
+			"ticks_after_resume_to_fail": 66
+		},
+		"rebase": {
+			"rebased_bound_tick": 445,
+			"rebased_fail_tick": 541,
+			"reference_contact_to_fail_ticks": 154,
+			"world_origin": 4800.0
+		},
+		"release": {
+			"distance_units": 0.5,
+			"released_after_solves": 37,
+			"solves": 36
+		},
+		"retreat": {
+			"bound_tick": 445,
+			"clear_tick": 583,
+			"final_a_m": [
+				2.03406429290771,
+				62.5104614257813
+			],
+			"final_state": "running",
+			"peak_timer_s": 0.305555555555556,
+			"resume_scale": 1.0,
+			"stall_to_clear_s": 1.15,
+			"unwinding_ticks": 100
+		},
+		"solver_fast": {
+			"attaches": 1,
+			"max_length_jump_units": 3.62206842596942,
+			"min_clearance_units": 0.85407543182373,
+			"peak_wrap_rad": 14.2770311550958
+		},
+		"split": {
+			"block_s": 0.808333333333333,
+			"bound_ahead_of_pillar_m": 2.23303680419922,
+			"bound_tick": 445,
+			"contact_tick": 387,
+			"contact_to_bound_s": 0.483333333333333,
+			"fail_tick": 541,
+			"stall_drift_units": 0.0,
+			"wrap_rad": 2.05952031616814
+		},
+		"stream": {
+			"pillars_in_first_40_segments": 7,
+			"reason": "",
+			"run_distance_m": 360.0,
+			"state": "running"
+		},
+		"tangent_jitter": {
+			"attaches": 1,
+			"detaches": 0,
+			"max_length_jump_units": 0.00000133061206497587,
+			"samples": 40
+		},
+		"taut_far_link_m": 7.32999954223633,
+		"taut_into_pillar": {
+			"block_s": 0.8,
+			"bound_tick": 388,
+			"fail_tick": 483,
+			"wrap_rad": 0.000918480520929243
+		}
+	},
+	"passed": true
+}

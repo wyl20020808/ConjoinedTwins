@@ -1,0 +1,254 @@
+{
+  "executor_self_test": "pass",
+  "production_sources": {
+    "project.godot": "6ca66af71ee1c222df00fb86db11b4153a096002bbb3d68128571d47d682023c",
+    "scenes/road_demo.tscn": "c0d951795830ab7562cc113d9462c8abb7fc8a1c5ec7991365fef183a04a7458",
+    "scripts/link_motion.gd": "6e1a63e4abb6eb94d8d80b1c4391fde3d0dffa61f111d1adbaf38fdafd4f5eda",
+    "scripts/road_demo.gd": "63f59ca8d744f61bc3131547238f5d6e496ce40654f1e77953ed816668603370",
+    "scripts/road_run.gd": "cc6e5c83f0f86cc01564b23aea9400a40c63a7446dc3fb2a5948ff0c908dd461"
+  },
+  "unchanged_historical_files": {
+    "scripts/game.gd": true,
+    "scripts/game.gd.uid": true,
+    "scripts/levels.gd": true,
+    "scripts/levels.gd.uid": true,
+    "scripts/link_motion.gd": true,
+    "scripts/link_motion.gd.uid": true,
+    "scripts/mechanisms.gd": true,
+    "scripts/mechanisms.gd.uid": true,
+    "scripts/partner_ai.gd": true,
+    "scripts/partner_ai.gd.uid": true,
+    "scripts/twin.gd": true,
+    "scripts/twin.gd.uid": true,
+    "scenes/main.tscn": true,
+    "tests/decision-headless.log": true,
+    "tests/decision-import.log": true,
+    "tests/decision-review.log": true,
+    "tests/decision-startup.log": true,
+    "tests/decision_review.gd": true,
+    "tests/decision_review.gd.uid": true,
+    "tests/decision_review_result.json": true,
+    "tests/evidence.gd": true,
+    "tests/evidence.gd.uid": true,
+    "tests/headless.gd": true,
+    "tests/headless.gd.uid": true,
+    "tests/headless.log": true,
+    "tests/import.log": true,
+    "tests/latest_result.json": true,
+    "tests/source_hashes.json": true,
+    "tests/startup.log": true
+  },
+  "new_test_count": 33,
+  "finish_seconds": 74.999999999997,
+  "package": {
+    "timestamp_utc": "20261012T091835175791Z",
+    "commands": [
+      {
+        "command": [
+          "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe",
+          "--headless",
+          "--path",
+          "D:\\ConjoinedTwins",
+          "--editor",
+          "--import"
+        ],
+        "exit_code": 0,
+        "log": "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\import.log"
+      },
+      {
+        "command": [
+          "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe",
+          "--headless",
+          "--path",
+          "D:\\ConjoinedTwins",
+          "--export-release",
+          "macOS Universal",
+          "D:\\ConjoinedTwins\\builds\\macos\\ConjoinedTwins-macOS-universal.zip"
+        ],
+        "exit_code": 0,
+        "log": "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\export.log"
+      },
+      {
+        "command": [
+          "C:\\Users\\WYL20\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+          "D:\\ConjoinedTwins\\build-tools\\verify_macos.py",
+          "D:\\ConjoinedTwins\\builds\\macos\\ConjoinedTwins-macOS-universal.zip",
+          "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\validation.json"
+        ],
+        "exit_code": 0,
+        "log": "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\validation.log"
+      },
+      {
+        "command": [
+          "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe",
+          "--headless",
+          "--path",
+          "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z",
+          "--main-pack",
+          "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\exported-game.pck",
+          "--quit-after",
+          "3"
+        ],
+        "exit_code": 0,
+        "log": "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\exported-pck-smoke.log"
+      },
+      {
+        "command": [
+          "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe",
+          "--headless",
+          "--path",
+          "D:\\ConjoinedTwins",
+          "--script",
+          "res://tests/road_headless.gd",
+          "--log-file",
+          "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\headless-engine.log"
+        ],
+        "exit_code": 0,
+        "log": "D:\\ConjoinedTwins\\builds\\macos\\evidence-20261012T091835175791Z\\headless.log"
+      }
+    ],
+    "mac_playtest": "pending",
+    "decision_review": "pending",
+    "controller_independent_test": "not_run",
+    "engine_version": "4.7.1.stable.official.a13da4feb",
+    "previous_package": {
+      "sha256": "e0d0ad1f72f24939344bf2aa4c4488d47e5ee97471a66dfcade2b4bf966348f7",
+      "size": 61170120,
+      "preserved_at": "D:\\ConjoinedTwins\\builds\\macos\\history\\ConjoinedTwins-20261012T091835175791Z-e0d0ad1f72f2.zip"
+    },
+    "exported_pck_smoke": "pass (Windows headless engine; not Mac binary execution)",
+    "self_test": "pass",
+    "package": "D:\\ConjoinedTwins\\builds\\macos\\ConjoinedTwins-macOS-universal.zip",
+    "size": 61170971,
+    "sha256": "c1a963299525134808af01a944f056c6728545b63bc968a8800938b7a4d97711"
+  },
+  "package_logs": {
+    "import.log": {
+      "error_lines": [],
+      "sha256": "92aa61b2a865c921aeae9b9a92e8f8977c2be195e4cd6821afe8136ec2ed410a"
+    },
+    "export.log": {
+      "error_lines": [],
+      "sha256": "94ef645653a3b44b149b9c1fbadfb82dced6f64a34aa45dafb039fa0c223de70"
+    },
+    "validation.log": {
+      "error_lines": [],
+      "sha256": "69fbc7efa68f194128de3a948b826a5c46dcf0b818377eb0118dbc5319bca49a"
+    },
+    "exported-pck-smoke.log": {
+      "error_lines": [],
+      "sha256": "b34e2f78cfea3009a796ed3b746e91d48b774419b457e2fb7737f3890a854867"
+    },
+    "headless.log": {
+      "error_lines": [],
+      "sha256": "1d33828c76f51c76d9934284414888659d653b60102b30c5f411e5d52164eb4b"
+    }
+  },
+  "captures": [
+    {
+      "elapsed": 0.0,
+      "file": "res://docs/screenshots/00-start.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 0.0,
+      "save_error": 0,
+      "state": "start",
+      "sha256": "cd604bd46b0c14a9790e55a8bc37c9543fa216d5f6e1fbd2e6fd7fd14c77599f"
+    },
+    {
+      "elapsed": 8.34999999999999,
+      "file": "res://docs/screenshots/01-departure.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 1002.0,
+      "save_error": 0,
+      "state": "running",
+      "sha256": "cfd98e3f72d989889973d406b06e082b126272ffe28a94fbf8930d64f515744a"
+    },
+    {
+      "elapsed": 26.6833333333331,
+      "file": "res://docs/screenshots/02-energy.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 3202.0,
+      "save_error": 0,
+      "state": "running",
+      "sha256": "651f845b709122677692f84974b5e9ffe663d3cbf13d8ff9dd5a62bd2bf55339"
+    },
+    {
+      "elapsed": 26.6833333333331,
+      "file": "res://docs/screenshots/04-pause.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 3202.0,
+      "save_error": 0,
+      "state": "paused",
+      "sha256": "f384b453d33cbd47eb828fc94c8685bd6985b247694336435840e62565ae3b6d"
+    },
+    {
+      "elapsed": 50.0166666666651,
+      "file": "res://docs/screenshots/03-homeward.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 6002.0,
+      "save_error": 0,
+      "state": "running",
+      "sha256": "985026c43ea2db3429d0425994d231b74854b8ef79c6556cd4de8a8f20e6c3b9"
+    },
+    {
+      "elapsed": 71.6833333333306,
+      "file": "res://docs/screenshots/06-finish-approach.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 8602.0,
+      "save_error": 0,
+      "state": "running",
+      "sha256": "58ec531db9186b13afabb0d9e66843950afc1944d7162880693229d5165441a4"
+    },
+    {
+      "elapsed": 74.999999999997,
+      "file": "res://docs/screenshots/05-finish.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 9000.0,
+      "save_error": 0,
+      "state": "finished",
+      "sha256": "04fb98bf6db317a2cf913f13f7570755555d12716429a9a6510713cbba0d4b0b"
+    },
+    {
+      "elapsed": 27.8499999999997,
+      "file": "res://docs/screenshots/07-barrier-approach.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 3342.0,
+      "save_error": 0,
+      "state": "running",
+      "sha256": "98ccb9eaae8cb9586eb51800b955c6910ead6daad38063aef101093faac6983c"
+    },
+    {
+      "elapsed": 28.5666666666663,
+      "file": "res://docs/screenshots/08-barrier-failure.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 3427.99975585938,
+      "save_error": 0,
+      "state": "failed",
+      "sha256": "6fa0d05f10741a388ef4f4b73ce327afad7ea575e76ad06b423040bc642a2c7d"
+    },
+    {
+      "elapsed": 28.5666666666663,
+      "file": "res://docs/screenshots/08-barrier-contact-detail.png",
+      "menu_hidden_for_contact_review": true,
+      "progress": 3427.99975585938,
+      "save_error": 0,
+      "state": "failed",
+      "sha256": "efcbc9e16a65f9d823b87d4a31fc137b6ff4cf3e7137a626b4534a23f80b485a"
+    },
+    {
+      "elapsed": 0.0,
+      "file": "res://docs/screenshots/09-common-retry.png",
+      "menu_hidden_for_contact_review": false,
+      "progress": 0.0,
+      "save_error": 0,
+      "state": "running",
+      "sha256": "805e890dd9db95aae8b1ba0538b5b9a6cac0be0986c4987752653cf0c5967b75"
+    }
+  ],
+  "capture_log_sha256": "706906dc2c1705d52cc41ad7fa46efeba5e213eba285cc5b1305117be17b88e4",
+  "decision_review": "pending",
+  "controller_tests": [],
+  "visible_gui": "deferred_by_work_mode",
+  "mac_runtime": "pending_user_playtest",
+  "human_input_motion_comfort": "pending_user_playtest"
+}

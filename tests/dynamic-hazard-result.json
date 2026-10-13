@@ -1,0 +1,70 @@
+{
+	"checks": [
+		{
+			"name": "双方正常输入通过决策者伸出净空夹具 P1",
+			"passed": true
+		},
+		{
+			"name": "伸出时未来高度不提前致命 P1",
+			"passed": true
+		},
+		{
+			"name": "伸出中真正超过角色才命中 P1",
+			"passed": true
+		},
+		{
+			"name": "回落后接触不使用旧最高高度 P1",
+			"passed": true
+		},
+		{
+			"name": "回落初期真实接触仍命中 P1",
+			"passed": true
+		},
+		{
+			"name": "跨激活边界接触发生于预警期不致命 P1",
+			"passed": true
+		},
+		{
+			"name": "跨失活边界仅安全期进入不致命 P1",
+			"passed": true
+		},
+		{
+			"name": "跨整段激活期首尾安全仍捕获 P1",
+			"passed": true
+		},
+		{
+			"name": "双方正常输入通过决策者伸出净空夹具 P2",
+			"passed": true
+		},
+		{
+			"name": "伸出时未来高度不提前致命 P2",
+			"passed": true
+		},
+		{
+			"name": "伸出中真正超过角色才命中 P2",
+			"passed": true
+		},
+		{
+			"name": "回落后接触不使用旧最高高度 P2",
+			"passed": true
+		},
+		{
+			"name": "回落初期真实接触仍命中 P2",
+			"passed": true
+		},
+		{
+			"name": "跨激活边界接触发生于预警期不致命 P2",
+			"passed": true
+		},
+		{
+			"name": "跨失活边界仅安全期进入不致命 P2",
+			"passed": true
+		},
+		{
+			"name": "跨整段激活期首尾安全仍捕获 P2",
+			"passed": true
+		}
+	],
+	"failures": 0,
+	"passed": true
+}

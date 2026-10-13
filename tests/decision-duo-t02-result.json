@@ -1,0 +1,167 @@
+{
+	"checks": [
+		{
+			"name": "生产场景初始为开始页，无模式按钮",
+			"passed": true
+		},
+		{
+			"name": "道路实际可玩宽度扩大 1.5 倍",
+			"passed": true
+		},
+		{
+			"name": "George / Leela 均有 AnimationPlayer",
+			"passed": true
+		},
+		{
+			"name": "角色 1 骨骼动画 Idle 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 1 骨骼动画 Run 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 1 骨骼动画 Jump 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 1 骨骼动画 HitRecieve_1 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 1 骨骼动画 Death 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 2 骨骼动画 Idle 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 2 骨骼动画 Run 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 2 骨骼动画 Jump 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 2 骨骼动画 HitRecieve_1 可播放",
+			"passed": true
+		},
+		{
+			"name": "角色 2 骨骼动画 Death 可播放",
+			"passed": true
+		},
+		{
+			"name": "玩家一独立横移，无 AI 接管玩家二",
+			"passed": true
+		},
+		{
+			"name": "玩家二独立横移",
+			"passed": true
+		},
+		{
+			"name": "两人独立前后调节",
+			"passed": true
+		},
+		{
+			"name": "斜向输入归一化，不额外加速",
+			"passed": true
+		},
+		{
+			"name": "道路边界和前后活动范围合法",
+			"passed": true
+		},
+		{
+			"name": "地面连接包含前后差并限制长度",
+			"passed": true
+		},
+		{
+			"name": "仅玩家一起跳，队友不强制起跳",
+			"passed": true
+		},
+		{
+			"name": "连线随跳跃抬高且阴影仍在地面",
+			"passed": true
+		},
+		{
+			"name": "空中再次按下无二段跳",
+			"passed": true
+		},
+		{
+			"name": "长按跳跃不会落地连跳",
+			"passed": true
+		},
+		{
+			"name": "玩家二可独立跳跃",
+			"passed": true
+		},
+		{
+			"name": "启动或重试按住跳跃无附带起跳",
+			"passed": true
+		},
+		{
+			"name": "暂停冻结位置、高度及计时",
+			"passed": true
+		},
+		{
+			"name": "恢复清理跳跃残留，不新增起跳",
+			"passed": true
+		},
+		{
+			"name": "跳跃高度允许跨越低障碍",
+			"passed": true
+		},
+		{
+			"name": "同一低障碍地面接触共同失败",
+			"passed": true
+		},
+		{
+			"name": "跳跃不能穿越高货箱",
+			"passed": true
+		},
+		{
+			"name": "连续线段检查捕获高速穿越",
+			"passed": true
+		},
+		{
+			"name": "真实生产双人路线完成 450 米",
+			"passed": true
+		},
+		{
+			"name": "共同重试恢复双方合法地面状态",
+			"passed": true
+		},
+		{
+			"name": "生产 WASD / 方向键前后映射，无 W/上跳跃",
+			"passed": true
+		},
+		{
+			"name": "生产空格只跳玩家一",
+			"passed": true
+		},
+		{
+			"name": "生产回车跳玩家二",
+			"passed": true
+		},
+		{
+			"name": "生产恢复后按住旧跳跃键不连跳",
+			"passed": true
+		},
+		{
+			"name": "生产重试清理空格回车残留",
+			"passed": true
+		},
+		{
+			"name": "回车启动不会同时跳跃",
+			"passed": true
+		},
+		{
+			"name": "空格启动不会同时跳跃",
+			"passed": true
+		}
+	],
+	"failures": 0,
+	"passed": true,
+	"scope": "决策者生产场景 headless 复跑，非真实键盘及 GUI 验收"
+}

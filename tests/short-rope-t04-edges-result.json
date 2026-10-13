@@ -1,0 +1,304 @@
+{
+	"checks": [
+		{
+			"name": "cargo 交换false 拉满false每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满false硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满false护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满false沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满false回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满true每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满true硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满true护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满true沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换false 拉满true回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满false每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满false硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满false护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满false沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满false回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满true每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满true硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满true护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满true沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "cargo 交换true 拉满true回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满false每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满false硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满false护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满false沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满false回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满true每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满true硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满true护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满true沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换false 拉满true回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满false每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满false硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满false护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满false沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满false回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满true每步实体扫掠不穿入",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满true硬绳长/边界/位移同时合法",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满true护盾只消耗一次且到期失败",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满true沿面滑行不穿障碍",
+			"passed": true
+		},
+		{
+			"name": "pillar 交换true 拉满true回撤可离开接触面",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：同点",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：同一个前圈",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：仅一人到位",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：中线两侧不足分站",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：真实前后站位",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：交换角色站位",
+			"passed": true
+		},
+		{
+			"name": "前后奖品：光圈边缘合法",
+			"passed": true
+		},
+		{
+			"name": "超大配置仍禁止圈重叠且表现半径同源",
+			"passed": true
+		}
+	],
+	"failed": 0,
+	"metrics": [
+		{
+			"a": [
+				-42.0,
+				300.0
+			],
+			"b": [
+				42.0,
+				405.148071289063
+			],
+			"case": "cargo 交换false 拉满false",
+			"distance": 353.574035644531,
+			"maximum_link_units": 134.581268310547
+		},
+		{
+			"a": [
+				-42.0,
+				300.0
+			],
+			"b": [
+				42.0,
+				420.147888183594
+			],
+			"case": "cargo 交换false 拉满true",
+			"distance": 361.073944091797,
+			"maximum_link_units": 146.599853515625
+		},
+		{
+			"a": [
+				42.0,
+				405.148071289063
+			],
+			"b": [
+				-42.0,
+				300.0
+			],
+			"case": "cargo 交换true 拉满false",
+			"distance": 353.574035644531,
+			"maximum_link_units": 134.581268310547
+		},
+		{
+			"a": [
+				42.0,
+				420.147888183594
+			],
+			"b": [
+				-42.0,
+				300.0
+			],
+			"case": "cargo 交换true 拉满true",
+			"distance": 361.073944091797,
+			"maximum_link_units": 146.599853515625
+		},
+		{
+			"a": [
+				-42.0,
+				300.0
+			],
+			"b": [
+				42.0,
+				405.148071289063
+			],
+			"case": "pillar 交换false 拉满false",
+			"distance": 353.574035644531,
+			"maximum_link_units": 134.581268310547
+		},
+		{
+			"a": [
+				-42.0,
+				300.0
+			],
+			"b": [
+				42.0,
+				420.147888183594
+			],
+			"case": "pillar 交换false 拉满true",
+			"distance": 361.073944091797,
+			"maximum_link_units": 146.599853515625
+		},
+		{
+			"a": [
+				42.0,
+				405.148071289063
+			],
+			"b": [
+				-42.0,
+				300.0
+			],
+			"case": "pillar 交换true 拉满false",
+			"distance": 353.574035644531,
+			"maximum_link_units": 134.581268310547
+		},
+		{
+			"a": [
+				42.0,
+				420.147888183594
+			],
+			"b": [
+				-42.0,
+				300.0
+			],
+			"case": "pillar 交换true 拉满true",
+			"distance": 361.073944091797,
+			"maximum_link_units": 146.599853515625
+		}
+	],
+	"passed": true
+}

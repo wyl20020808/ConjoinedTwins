@@ -1,0 +1,86 @@
+[
+	{
+		"distance": 0.0,
+		"file": "res://docs/screenshots/duo-start.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"positions": [
+			"(-42.0, 0.0)",
+			"(42.0, 0.0)"
+		],
+		"save_error": 0,
+		"state": "start"
+	},
+	{
+		"distance": 50.0,
+		"file": "res://docs/screenshots/duo-wide-road.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"positions": [
+			"(-78.76937, 86.76948)",
+			"(78.76937, 13.23042)"
+		],
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"distance": 80.0,
+		"file": "res://docs/screenshots/duo-jump.png",
+		"heights": [
+			19.9999999999999,
+			0.0
+		],
+		"positions": [
+			"(-78.76937, 116.7697)",
+			"(78.76937, 43.23041)"
+		],
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"distance": 80.0,
+		"file": "res://docs/screenshots/duo-pause.png",
+		"heights": [
+			19.9999999999999,
+			0.0
+		],
+		"positions": [
+			"(-78.76937, 116.7697)",
+			"(78.76937, 43.23041)"
+		],
+		"save_error": 0,
+		"state": "paused"
+	},
+	{
+		"distance": 608.0,
+		"file": "res://docs/screenshots/duo-hit.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"positions": [
+			"(-107.0004, 608.0004)",
+			"(-22.99994, 608.0004)"
+		],
+		"save_error": 0,
+		"state": "failed"
+	},
+	{
+		"distance": 608.0,
+		"file": "res://docs/screenshots/duo-failure.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"positions": [
+			"(-107.0004, 608.0004)",
+			"(-22.99994, 608.0004)"
+		],
+		"save_error": 0,
+		"state": "failed"
+	}
+]

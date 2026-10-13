@@ -1,0 +1,106 @@
+[
+	{
+		"difficulty": "普通",
+		"distance": 0.0,
+		"elapsed": 0.0,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-start.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "start"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 100.002062528073,
+		"elapsed": 0.833333333333333,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-wide-offset.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "running"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 132.003602565046,
+		"elapsed": 1.1,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-jump.png",
+		"heights": [
+			20.7999999999999,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "running"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 132.003602565046,
+		"elapsed": 1.1,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-pause.png",
+		"heights": [
+			20.7999999999999,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "paused"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 2701.51875655845,
+		"elapsed": 22.4999999999994,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-dynamic.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "running"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 748.116419562047,
+		"elapsed": 6.23333333333343,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-hit.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "failed"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 748.116419562047,
+		"elapsed": 6.23333333333343,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-failure.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "failed"
+	},
+	{
+		"difficulty": "普通",
+		"distance": 0.0,
+		"elapsed": 0.0,
+		"error": 0,
+		"file": "res://docs/screenshots/t04-retry.png",
+		"heights": [
+			0.0,
+			0.0
+		],
+		"seed": 20261012,
+		"state": "running"
+	}
+]

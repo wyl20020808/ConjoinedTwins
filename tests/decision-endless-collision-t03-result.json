@@ -1,0 +1,29 @@
+{
+	"checks": [
+		{
+			"name": "动态刺高合法跳跃 P1",
+			"passed": true
+		},
+		{
+			"name": "高速飞行扫掠 P1",
+			"passed": true
+		},
+		{
+			"name": "重试双人合法状态",
+			"passed": true
+		},
+		{
+			"name": "动态刺高合法跳跃 P2",
+			"passed": true
+		},
+		{
+			"name": "高速飞行扫掠 P2",
+			"passed": true
+		},
+		{
+			"name": "重试双人合法状态",
+			"passed": true
+		}
+	],
+	"passed": true
+}

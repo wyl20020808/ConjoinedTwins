@@ -1,0 +1,17 @@
+{
+  "purpose": "完整指令的项目内传递副本，不改变权限、策略或项目规则",
+  "files": [
+    {
+      "source": "C:\\Users\\WYL20\\.codex\\skills\\caveman\\SKILL.md",
+      "copy": "D:\\ConjoinedTwins\\build-tools\\agent-instructions\\caveman\\SKILL.md",
+      "sha256": "fec5718a391dd9d8c89746d39e0cc0fa7aa5b50447669a15e44c3244167828c0",
+      "byte_identical": true
+    },
+    {
+      "source": "C:\\Users\\WYL20\\.codex\\RTK.md",
+      "copy": "D:\\ConjoinedTwins\\build-tools\\agent-instructions\\RTK.md",
+      "sha256": "56005802a4e3650bcf5639ddec1dae6b9838a4e8e77a4996af1dc40b67d15ce3",
+      "byte_identical": true
+    }
+  ]
+}

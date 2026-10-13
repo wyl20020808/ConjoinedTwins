@@ -1,0 +1,178 @@
+[
+	{
+		"actions": [
+			"Idle",
+			"Idle"
+		],
+		"distance": 0.0,
+		"elapsed": 0.0,
+		"file": "res://docs/screenshots/t02-start.png",
+		"save_error": 0,
+		"state": "start"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 516.0,
+		"elapsed": 4.3,
+		"file": "res://docs/screenshots/t02-cargo.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 986.0,
+		"elapsed": 8.21666666666684,
+		"file": "res://docs/screenshots/t02-rail.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Air",
+			"Run"
+		],
+		"distance": 1016.0,
+		"elapsed": 8.46666666666683,
+		"file": "res://docs/screenshots/t02-jump.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 1456.0,
+		"elapsed": 12.1333333333333,
+		"file": "res://docs/screenshots/t02-spikes.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 1926.0,
+		"elapsed": 16.0499999999997,
+		"file": "res://docs/screenshots/t02-active_spikes.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 1926.0,
+		"elapsed": 16.0499999999997,
+		"file": "res://docs/screenshots/t02-spikes-warning.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 2041.0,
+		"elapsed": 17.008333333333,
+		"file": "res://docs/screenshots/t02-spikes-extend.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 2071.0,
+		"elapsed": 17.258333333333,
+		"file": "res://docs/screenshots/t02-spikes-active.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 2191.0,
+		"elapsed": 18.2583333333329,
+		"file": "res://docs/screenshots/t02-spikes-retract.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 2221.0,
+		"elapsed": 18.5083333333329,
+		"file": "res://docs/screenshots/t02-spikes-safe.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 2395.0,
+		"elapsed": 19.9583333333328,
+		"file": "res://docs/screenshots/t02-scanner.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 2865.0,
+		"elapsed": 23.8749999999993,
+		"file": "res://docs/screenshots/t02-fly_low.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 3335.0,
+		"elapsed": 27.7916666666657,
+		"file": "res://docs/screenshots/t02-fly_body.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Run",
+			"Run"
+		],
+		"distance": 3805.0,
+		"elapsed": 31.7083333333322,
+		"file": "res://docs/screenshots/t02-fly_tall.png",
+		"save_error": 0,
+		"state": "running"
+	},
+	{
+		"actions": [
+			"Idle",
+			"Idle"
+		],
+		"distance": 9000.0,
+		"elapsed": 75.0000000000058,
+		"file": "res://docs/screenshots/t02-route-end.png",
+		"save_error": 0,
+		"state": "finished"
+	}
+]
