@@ -1257,7 +1257,9 @@ func build_charge_gate(view: Node3D = null) -> void:
 	var door := box(view, Vector3(0, 2.5, -7.8), Vector3(25, 5, 0.6), energy)
 	door.name = "Door"
 	for side in [-1, 1]:
-		var zone := box(view, Vector3(side * 2.475, 0.02, -3), Vector3(3.25, 0.025, 3), zone_material("gate_zone", Color(0.3, 0.85, 0.8, 0.28)))
+		var zone_center: float = (Run.ChargeGate.ZONE_INNER + Run.ChargeGate.ZONE_OUTER) * 0.5 / SCALE
+		var zone_width: float = (Run.ChargeGate.ZONE_OUTER - Run.ChargeGate.ZONE_INNER) / SCALE
+		var zone := box(view, Vector3(side * zone_center, 0.02, -3), Vector3(zone_width, 0.025, 3), zone_material("gate_zone", Color(0.3, 0.85, 0.8, 0.28)))
 		zone.name = "LeftZone" if side < 0 else "RightZone"
 	var receiver := cylinder(view, Vector3(0, 1.4, -3), 0.4, 0.3, energy)
 	receiver.name = "Receiver"

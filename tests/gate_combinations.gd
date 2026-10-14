@@ -43,6 +43,8 @@ func verify_routes() -> void:
 				run.a.position = Vector2(-25, 0)
 				run.b.position = Vector2(25, 0)
 				run.rope.reset(run.a.position, run.b.position)
+				# 与路线证明的“历史中心夹具”入口一致：证明在安装段前先执行 step(0)。
+				run.step(0)
 				run.install_block(block, 0, "replay")
 				var opened := false
 				var legal := true

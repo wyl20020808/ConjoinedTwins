@@ -1221,8 +1221,9 @@ func gate_hint(gate: Dictionary) -> String:
 			if not occupied[0] or not occupied[1]: missing.append("左右各站一板 · 可交换角色")
 			if result.get("ready", false): missing.append("持续站稳 %.2f 秒" % duration)
 		else:
-			if not result.get("positioned", false): missing.append("分别站左右绿区 · 可交换角色")
-			if not result.get("taut", false): missing.append("张紧 ≥%d%%" % int(ChargeGate.TENSION * 100))
+			if not result.get("positioned", false): missing.append("分别站左右绿区（道路外侧） · 可交换角色")
+			if not result.get("taut", false):
+				missing.append("张紧不足：两人向外拉开 · 绳 %.1f/%.1fm" % [rope.required / 20.0, LINK_LIMIT * ChargeGate.TENSION / 20.0])
 			if not result.get("clear", true): missing.append("绳路受阻 · 回撤调整")
 			if not result.get("crosses", false):
 				missing.append("让绳路穿过中心接收器")

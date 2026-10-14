@@ -76,6 +76,10 @@ static func sync(game, view: Node3D, gate: Dictionary) -> void:
 		var guide: MeshInstance3D = power.get_node("LeftGuide" if side == 0 else "RightGuide")
 		var status: Label3D = power.get_node("LeftStatus" if side == 0 else "RightStatus")
 		var side_state: String = sides[side].state
+		# 引导与分侧状态跟随该门实际站位区，充能绿区和踏板位置不同。
+		var zone_x: float = (gate.left if side == 0 else gate.right).get_center().x / game.SCALE
+		guide.position.x = zone_x
+		status.position.x = zone_x
 		var side_tint := Color("687782")
 		if side_state == "airborne": side_tint = Color("ef956b")
 		elif side_state == "holding": side_tint = Color("ffc06b")

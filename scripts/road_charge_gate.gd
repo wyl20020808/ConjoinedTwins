@@ -1,18 +1,23 @@
 extends RefCounted
 
 # 历史白盒的连续充能、失效清零、锁存开门规则；道路使用真实求解路径。
-const Mechanisms = preload("res://scripts/mechanisms.gd")
-const CHARGE_TIME := Mechanisms.CHARGE_TIME
+# 数值与历史 mechanisms.gd 保持一致；该白盒脚本不进入导出包，生产代码不能预加载它。
+const CHARGE_TIME := 0.8
 const TENSION := 0.85
 const RECEIVER_RADIUS := 8.0
 const RECEIVER_HEIGHT := 28.0
 const HEIGHT_TOLERANCE := 4.0
 const HOLD_DISTANCE := 60.0
+# 绿区只保留能拉紧绳索的外侧带：两人都站内缘时间距 126 ≥ 146.6×85%≈124.6，
+# 站进绿区任意位置即满足张紧，避免宽绿区里大半面积永远充不上能。
+const ZONE_INNER := 63.0
+const ZONE_OUTER := 82.0
 
 static func make_tutorial() -> Dictionary:
 	return {"active": true, "open": false, "charge": 0.0,
 		"receiver": Vector2(0, HOLD_DISTANCE),
-		"left": Rect2(-82, 30, 65, 60), "right": Rect2(17, 30, 65, 60),
+		"left": Rect2(-ZONE_OUTER, 30, ZONE_OUTER - ZONE_INNER, 60),
+		"right": Rect2(ZONE_INNER, 30, ZONE_OUTER - ZONE_INNER, 60),
 		"door": Rect2(-250, 150, 500, 12)}
 
 static func relocate(gate: Dictionary, offset: float) -> void:
@@ -22,7 +27,7 @@ static func relocate(gate: Dictionary, offset: float) -> void:
 	gate.door.position.y += offset
 
 static func route_input(run, gate: Dictionary) -> Array:
-	# 合法按键逼近 ±65，半步死区留足张紧余量，不吸附角色位置。
+	# 合法按键逼近 ±65（绿区内缘外侧），半步死区仍落在绿区内，不吸附角色位置。
 	return [run.Templates.keyboard_direction(Vector2(-65, gate.receiver.y) - run.a.position),
 		run.Templates.keyboard_direction(Vector2(65, gate.receiver.y) - run.b.position), false, false]
 
