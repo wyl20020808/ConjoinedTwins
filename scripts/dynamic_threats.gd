@@ -19,7 +19,7 @@ static func spec(kind: String, warning: float) -> Dictionary:
 
 # 从两人的当前位置共同换到危险左/右侧，计入角色半径与 0.35 秒输入余量。
 # 使用当前实际前向输入估算相对速度；证据同时保存速度、TTC 和共同换边时间。
-static func warn(data: Dictionary, rect: Rect2, players: Array, velocities: Array, lateral: float, edge: float, radius: float, now: float) -> void:
+static func warn(data: Dictionary, rect: Rect2, players: Array, velocities: Array, lateral: float, edge: float, radius: float, now: float, maximum_forward: float = -INF) -> void:
 	if data.locked: return
 	var left := rect.position.x - radius - 2.0
 	var right := rect.end.x + radius + 2.0
@@ -29,17 +29,21 @@ static func warn(data: Dictionary, rect: Rect2, players: Array, velocities: Arra
 	if right <= edge: right_time = maxf(maxf(0, right - players[0].x), maxf(0, right - players[1].x)) / lateral
 	var change_time := minf(left_time, right_time)
 	var ttc := INF
+	var possible_ttc := INF
 	var relative: Array = []
 	for i in range(2):
 		var closing: float = velocities[i].y - data.velocity.y
 		relative.append(closing)
 		if closing > 0: ttc = minf(ttc, maxf(0, (rect.position.y - radius - players[i].y) / closing))
+		var possible_closing: float = maxf(velocities[i].y, maximum_forward) - data.velocity.y
+		if possible_closing > 0: possible_ttc = minf(possible_ttc, maxf(0, (rect.position.y - radius - players[i].y) / possible_closing))
 	var lead := maxf(data.warning, change_time + 0.35)
-	if ttc <= lead:
+	# 纵向轴可在下一固定步反向；按合法最大前速提前锁定，仍保存当帧实际 TTC。
+	if possible_ttc <= lead + 1.0 / 120.0:
 		data.locked = true
 		data.trigger = now
 		data.warning_evidence = {"relative_speed": relative, "ttc": ttc, "joint_change_time": change_time,
-			"required_lead": lead, "velocity": data.velocity, "time": now, "left_time": left_time, "right_time": right_time}
+			"required_lead": lead, "velocity": data.velocity, "time": now, "left_time": left_time, "right_time": right_time, "possible_ttc": possible_ttc}
 
 # 球体与角色竖直胶囊的连续相对运动检测。高度跨球心处切段，避免包围盒角落误判。
 static func sphere_body(from: Vector2, to: Vector2, h0: float, h1: float, c0: Vector2, c1: Vector2, radius: float, body: float, player_radius: float) -> bool:

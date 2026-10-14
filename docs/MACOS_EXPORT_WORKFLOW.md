@@ -45,7 +45,7 @@ python build-tools/package_macos.py
 3. headless 导入并以 release 模式导出 macOS Universal ZIP。
 4. 检查 ZIP、应用结构、双架构、执行权限、实际临时签名与资源封印。
 5. 从实际 ZIP 提取 PCK，在隔离资源目录用 Windows headless 引擎加载。
-6. 运行当前无限生产场景 `tests/endless_headless.gd` 与碰撞回归 `tests/endless_collision.gd`，保存结果、退出码、日志、包大小和 SHA-256。旧 `road_headless.gd`、白盒与固定路线断言保留为历史入口，不代替新玩法验证。当前版本为 0.3.0，包检查同时要求新生产依赖 `scripts/road_templates`。
+6. 依次运行 `PRODUCTION_TESTS` 中的当前有限三关生产回归：`baseline_controls`、`baseline_rope_view`、`road_charge_gate`、`road_sync_plates`、`endless_collision`（文件名为历史命名）和 `baseline_random_routes`（三难度合法键盘路线，约 5 分钟）。任一退出码非零、日志出现 `FAIL` 或 `SCRIPT ERROR` 即判失败；保存各测试日志、退出码、包大小和 SHA-256。历史 `endless_headless.gd` 仍断言无限无终点，已不作为打包门槛。旧 `road_headless.gd`、白盒与固定路线断言保留为历史入口，不代替新玩法验证。当前版本为 0.3.0，包检查同时要求新生产依赖 `scripts/road_templates`。
 
 该入口是普通导出与有界验证，不是重型源码编译。遵守实时 work/idle 策略，不为检查自动启动游戏窗口。
 

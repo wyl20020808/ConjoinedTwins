@@ -25,6 +25,9 @@ func drive() -> void:
 	var first_seed: int = run.seed_value
 	run.level_index = int(args[0]) if args.size() > 0 else 0
 	game.primary_action()
+	# 固定首个随机候选为本轮组合，后续抽签和散布仍使用生产种子与后台证明。
+	run.generator.bag = ["charge_cargo"]
+	run.generator.bag_level = run.level_index
 	check("开始后换了新种子", run.seed_value != first_seed or run.seed_value != 20261012)
 	var kinds := {}
 	var extras := 0
@@ -35,14 +38,22 @@ func drive() -> void:
 	var sounds := {}
 	var original_play: Callable = game.sfx.play
 	var seen_segments := {}
-	for tick in range(60 * 150):
+	var taught := false
+	for tick in range(120 * 160):
 		while run.async_thread != null and run.async_thread.is_alive(): OS.delay_msec(1)
 		var input: Array = Templates.existing_route_input(run)
+		if run.charge_gate.active and not run.charge_gate.open and run.charge_gate.id == "tutorial":
+			input = [Vector2.ZERO, Vector2.ZERO, false, false]
+			if run.distance >= 60:
+				# 本夹具每次推进两个固定步：到达有效站位后松开轴，避免单步控制器来回越过张紧门槛。
+				input[0] = Vector2.LEFT if run.a.position.x > -64 else Vector2.ZERO
+				input[1] = Vector2.RIGHT if run.b.position.x < 64 else Vector2.ZERO
 		var previous: String = run.state
 		var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": game.locked_threats()}
-		run.step(1.0 / 60, input[0], input[1], input[2], input[3])
+		run.step(1.0 / 120, input[0], input[1], input[2], input[3])
+		taught = taught or run.gate_events.any(func(e): return e.id == "tutorial" and e.event == "opened")
 		game.play_events(before, previous)
-		game.frame_delta = 1.0 / 60
+		game.frame_delta = 1.0 / 120
 		game.sync_view()
 		for segment in run.route_segments:
 			if seen_segments.has(segment.number): continue
@@ -67,6 +78,9 @@ func drive() -> void:
 	print("状态 ", run.state, " ", run.reason, " 段落 ", seen_segments.size(), " 陷阱 ", extras, " 种类 ", kinds.keys())
 	print("金币 ", run.coins, " 显示分 ", game.shown_score, " 同时飞行最多 ", max_flying, " 音效 ", sounds.keys())
 	check("按已证明路线到达结算", run.state == "settlement")
+	check("第一关先完成合法充能教学", run.level_index != 0 or taught)
+	check("独立踏板教学先于随机组合", run.level_index != 0 or run.gate_events.filter(func(e): return e.event == "opened").slice(0, 2).map(func(e): return e.id) == ["tutorial", "sync_tutorial"])
+	check("后台实际安装充能货箱组合", run.gate_events.any(func(e): return e.id not in ["tutorial", "sync_tutorial"] and e.event == "opened"))
 	check("出现散布陷阱", extras > 20)
 	check("金币飞行补间出现过", max_flying > 0)
 	# 等最后几枚飞完再核对分数。
@@ -81,6 +95,10 @@ func drive() -> void:
 	game.primary_action()
 	check("重试后换了新种子", run.seed_value != seed_before)
 	print("SCENE failed=%d" % failed)
+	for player in game.sfx.players:
+		player.stop()
+		player.stream = null
+	await create_timer(0.1).timeout
 	game.queue_free()
 	await process_frame
 	quit(1 if failed > 0 else 0)

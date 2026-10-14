@@ -16,6 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "build-tools/cache"
 OUTPUT = ROOT / "builds/macos"
 ENGINE = "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe"
+# 打包门槛使用的当前生产回归（脚本名, 超时秒）。三难度合法键盘路线约需 5 分钟。
+PRODUCTION_TESTS = [
+    ("baseline_controls", 120),
+    ("baseline_rope_view", 120),
+    ("road_charge_gate", 120),
+    ("road_sync_plates", 120),
+    ("endless_collision", 60),
+    ("baseline_random_routes", 600),
+]
 API = "https://api.github.com/repos/godotengine/godot-builds/releases/tags/4.7.1-stable"
 
 
@@ -143,12 +152,17 @@ def main():
         if "ERROR:" in smoke_log.read_text(encoding="utf-8"):
             raise RuntimeError("Exported PCK smoke test logged errors")
         report["exported_pck_smoke"] = "pass (Windows headless engine; not Mac binary execution)"
-        run([args.engine, "--headless", "--path", str(ROOT), "--script", "res://tests/endless_headless.gd", "--log-file", str(evidence_dir / "headless-engine.log")], evidence_dir / "headless.log", 120, report["commands"])
-        shutil.copy2(ROOT / "tests/endless-result.json", evidence_dir / "headless-result.json")
-        test_result = json.loads((evidence_dir / "headless-result.json").read_text(encoding="utf-8"))
-        if not test_result["passed"] or "ERROR:" in (evidence_dir / "headless.log").read_text(encoding="utf-8"):
-            raise RuntimeError("Road production tests did not pass")
-        run([args.engine, "--headless", "--path", str(ROOT), "--script", "res://tests/endless_collision.gd"], evidence_dir / "collision.log", 60, report["commands"])
+        # 当前有限三关生产回归：基线操作、绳索显示、三难度合法键盘路线、两类合作门及连续碰撞。
+        # 历史 endless_headless.gd 仍断言无限无终点，已不适用于当前生产玩法，不再作为打包门槛。
+        regressions = {}
+        for name, timeout in PRODUCTION_TESTS:
+            log = evidence_dir / f"{name}.log"
+            run([args.engine, "--headless", "--path", str(ROOT), "--script", f"res://tests/{name}.gd"], log, timeout, report["commands"])
+            text = log.read_text(encoding="utf-8")
+            if "SCRIPT ERROR" in text or "\nFAIL " in text:
+                raise RuntimeError(f"Production regression {name} reported failures; see {log}")
+            regressions[name] = "pass"
+        report["production_regressions"] = regressions
         shutil.copy2(ROOT / "tests/endless-collision-result.json", evidence_dir / "collision-result.json")
         shutil.copy2(CACHE / "template-source.json", evidence_dir / "template-source.json")
         report.update({"self_test": "pass", "package": str(target), "size": target.stat().st_size, "sha256": sha(target)})
