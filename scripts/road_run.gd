@@ -834,11 +834,22 @@ func begin_fall(role: int, point: Vector2) -> void:
 		fall(role, point)
 		return
 	var rate: float = RESCUE_RATES[difficulty] * pow(RESCUE_ESCALATION, rescue_count)
-	rescue = {"role": role, "point": point, "progress": 0.0, "time": 0.0, "rate": rate,
+	rescue = {"role": role, "point": point, "hang": hang_point(point, last_support[role]), "progress": 0.0, "time": 0.0, "rate": rate,
 		"gain": (1.0 / RESCUE_TIME + RESCUE_DECAY) / rate, "presses": [0, 0]}
 	state = "rescue"
 	actions[role] = "Hang"
 	reset_input()
+
+# 仅供表现：失足时身体中心可能仍在桥面上方，沿离开方向找到真正的崖沿，吊在崖沿外 0.4 米。
+func hang_point(point: Vector2, from: Vector2) -> Vector2:
+	var direction := (point - from).normalized()
+	if direction == Vector2.ZERO: direction = Vector2(signf(point.x) if point.x != 0.0 else 1.0, 0)
+	var gaps := ground_gaps()
+	var probe := point
+	for n in range(40):
+		if absf(probe.x) > EDGE or not Surfaces.supported(probe, 0.5, gaps): break
+		probe += direction * 2.0
+	return probe + direction * 8.0
 
 # 冻结世界，只推进救援计时；按键只计按下边沿，按住不算。
 func rescue_step(delta: float, jump_a: bool, jump_b: bool) -> void:

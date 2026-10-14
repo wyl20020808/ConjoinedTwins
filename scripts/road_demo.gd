@@ -1759,6 +1759,9 @@ func sync_view() -> void:
 		if not run.rescue.is_empty():
 			# 救援：坠落者吊在崖边绳下，随进度被拉上来；救援者后仰拉绳。
 			if hanging:
+				var hang: Vector2 = run.rescue.hang
+				robots[i].position.x = hang.x / SCALE
+				robots[i].position.z = -hang.y / SCALE + forward
 				robots[i].position.y = lerpf(-2.0, -0.4, run.rescue.progress) + sin(run.rescue.time * 9.0) * 0.06
 				robots[i].rotation.x = -0.35
 			else:
