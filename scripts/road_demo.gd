@@ -1131,7 +1131,8 @@ func build_ui() -> void:
 	panel.add_theme_stylebox_override("panel", style)
 	root.add_child(panel)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 20)
+	# 网页版自带的中文字体行高更大、折行更多，收紧间距以免面板底部的联机状态被挤出画面。
+	column.add_theme_constant_override("separation", 12 if OS.has_feature("web") else 20)
 	panel.add_child(column)
 	column.add_child(label("CO-OP ROAD / 本地双人三关", 16, Color("63dbe4")))
 	title = label("共生归航", 40)
@@ -1548,6 +1549,9 @@ func toggle_online() -> void:
 	update_ui()
 
 func load_address() -> String:
+	# 网页版优先用网址给出的服务器，避免浏览器里保存的旧地址失效。
+	var page := NetClient.page_default_address()
+	if not page.is_empty(): return page
 	var config := ConfigFile.new()
 	if config.load(NET_CONFIG) != OK: return ""
 	return str(config.get_value("online", "address", ""))

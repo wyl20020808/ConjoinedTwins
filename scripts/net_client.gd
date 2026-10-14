@@ -8,7 +8,7 @@ signal match_stopped(reason: String)
 const Relay = preload("res://scripts/net_relay.gd")
 const HASH_INTERVAL := 60
 
-var peer: ENetMultiplayerPeer = null
+var peer: MultiplayerPeer = null
 var api := SceneMultiplayer.new()
 var role := -1
 var in_match := false
@@ -24,25 +24,82 @@ func _ready() -> void:
 	api.server_disconnected.connect(func(): stop("与服务器断开。"))
 	api.peer_packet.connect(_on_packet)
 
-# 地址可写 “主机” 或 “主机:端口”。
+# 地址可写 “主机”、“主机:端口”、“[IPv6]:端口”，或 ws:// / wss:// 开头的完整地址。
+# 原生客户端默认走 ENet（UDP）；网页版浏览器不能收发 UDP，一律走 WebSocket。
 func connect_to(address: String) -> void:
 	disconnect_from()
-	var host := address.strip_edges()
-	var port := Relay.DEFAULT_PORT
-	if host.count(":") == 1:
-		port = int(host.get_slice(":", 1))
-		host = host.get_slice(":", 0)
-	if host.is_empty():
-		status_changed.emit("请先填写服务器地址。")
+	var target := parse_address(address, OS.has_feature("web"), page_is_secure())
+	if target.has("error"):
+		status_changed.emit(target.error)
 		return
-	peer = ENetMultiplayerPeer.new()
-	var error := peer.create_client(host, port)
+	var error: int
+	if target.kind == "ws":
+		var ws := WebSocketMultiplayerPeer.new()
+		error = ws.create_client(target.url)
+		peer = ws
+	else:
+		var enet := ENetMultiplayerPeer.new()
+		error = enet.create_client(target.host, target.port)
+		peer = enet
 	if error != OK:
 		peer = null
 		status_changed.emit("无法创建连接（错误 %d）。" % error)
 		return
 	api.multiplayer_peer = peer
-	status_changed.emit("正在连接 %s:%d …" % [host, port])
+	status_changed.emit("正在连接 %s …" % target.label)
+
+# 纯函数，便于测试。返回 {kind: "enet"/"ws", host, port, url, label} 或 {error}。
+static func parse_address(address: String, web: bool, secure_page: bool) -> Dictionary:
+	var text := address.strip_edges()
+	if text.is_empty():
+		return {"error": "请先填写服务器地址。"}
+	var lower := text.to_lower()
+	if lower.begins_with("ws://") or lower.begins_with("wss://"):
+		if secure_page and lower.begins_with("ws://"):
+			return {"error": "网页是 https 打开的，只能连接 wss:// 开头的地址。"}
+		return {"kind": "ws", "url": text, "label": text}
+	if text.contains("://"):
+		return {"error": "地址格式不对：只支持 主机:端口、ws:// 或 wss:// 开头的地址。"}
+	var host := text
+	var port := -1
+	if text.begins_with("["):
+		var close := text.find("]")
+		if close < 0: return {"error": "IPv6 地址缺少右方括号 ]。"}
+		host = text.substr(1, close - 1)
+		var rest := text.substr(close + 1)
+		if rest.begins_with(":"):
+			port = rest.substr(1).to_int() if rest.substr(1).is_valid_int() else 0
+		elif not rest.is_empty():
+			return {"error": "地址格式不对。"}
+	elif text.count(":") == 1:
+		host = text.get_slice(":", 0)
+		var tail := text.get_slice(":", 1)
+		port = tail.to_int() if tail.is_valid_int() else 0
+	if host.is_empty() or port == 0 or port > 65535:
+		return {"error": "地址格式不对：端口应为 1～65535 的数字。"}
+	if web:
+		var scheme := "wss" if secure_page else "ws"
+		var url := "%s://%s" % [scheme, "[%s]" % host if host.contains(":") else host]
+		# https 网页不写端口时走 443；http 网页不写端口时直连中继的 WebSocket 端口。
+		if port < 0 and not secure_page: port = Relay.DEFAULT_WS_PORT
+		if port > 0: url += ":%d" % port
+		return {"kind": "ws", "url": url, "label": url}
+	if port < 0: port = Relay.DEFAULT_PORT
+	return {"kind": "enet", "host": host, "port": port, "label": "%s:%d" % [host, port]}
+
+static func page_is_secure() -> bool:
+	if not OS.has_feature("web"): return false
+	return str(JavaScriptBridge.eval("location.protocol", true)) == "https:"
+
+# 网页版的默认服务器地址：网址里的 ?server= 优先；否则用网页所在主机的 /ws（网页与中继由同一台机器提供时免填）。
+# 原生客户端返回空字符串，沿用本地保存的地址。
+static func page_default_address() -> String:
+	if not OS.has_feature("web"): return ""
+	var server = JavaScriptBridge.eval("new URLSearchParams(location.search).get('server') || ''", true)
+	if server is String and not server.is_empty(): return server
+	var host = JavaScriptBridge.eval("location.host", true)
+	if not host is String or host.is_empty(): return ""
+	return ("wss://" if page_is_secure() else "ws://") + host + "/ws"
 
 func disconnect_from() -> void:
 	if peer != null:
