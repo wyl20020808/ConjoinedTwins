@@ -122,6 +122,8 @@ var generation_enabled := true
 var generation_halted := false
 var async_enabled := false
 var async_thread: Thread = null
+var cooperative_job = null
+const GENERATION_STEPS_PER_POLL := 32
 var async_cancel = null
 var async_job := {}
 var async_epoch := 0
@@ -297,6 +299,9 @@ func dispose() -> void:
 
 func cancel_generation() -> void:
 	async_epoch += 1
+	if cooperative_job != null:
+		cooperative_job.dispose()
+		cooperative_job = null
 	if async_cancel != null: async_cancel.cancel()
 	if async_thread != null and async_thread.is_started():
 		async_thread.wait_to_finish()
@@ -321,9 +326,9 @@ static func verification_worker(job: Dictionary, cancellation) -> Dictionary:
 		"canceled": cancellation.is_canceled(), "reason": verifier.last_evidence.get("reason", ""),
 		"elapsed_usec": Time.get_ticks_usec() - started}
 
-# 返回 true 表示本段已直接安装（命中缓存或线程不可用），调用方可继续排下一段。
+# 返回 true 表示本段已直接安装（命中历史或缓存），调用方可继续排下一段。
 func schedule_generation(base: float) -> bool:
-	if async_thread != null: return false
+	if async_thread != null or cooperative_job != null: return false
 	if block_history.has(next_segment):
 		async_job = {"number": next_segment, "base": base + world_origin}
 		install_generated(block_history[next_segment].duplicate(true), "checkpoint_history")
@@ -338,12 +343,14 @@ func schedule_generation(base: float) -> bool:
 		install_generated(proven_blocks[async_job.key].duplicate(true), "cached")
 		return true
 	async_cancel = Templates.Cancellation.new()
+	if not supports_background_generation():
+		start_cooperative_generation()
+		return false
 	async_thread = Thread.new()
 	if async_thread.start(verification_worker.bind(async_job.duplicate(true), async_cancel)) != OK:
 		async_thread = null
-		async_cancel = null
-		install_generated(Templates.make_block("safe", 0, level_index), "safe_thread_unavailable")
-		return true
+		start_cooperative_generation()
+		return false
 	return false
 
 func install_generated(block: Dictionary, source: String, detail: String = "") -> void:
@@ -357,7 +364,43 @@ func install_generated(block: Dictionary, source: String, detail: String = "") -
 	async_events.append({"event": "installed", "number": job.number, "base": job.base,
 		"route": block.route, "source": source, "detail": detail})
 
+# Web 无论导出模板是否启用线程，都走同一个可暂停验证器；原生保留后台线程。
+# 独立方法允许 headless 回归模拟真实 Web 能力，不改变生成参数或验证断言。
+func supports_background_generation() -> bool:
+	return not OS.has_feature("web")
+
+func start_cooperative_generation() -> void:
+	cooperative_job = preload("res://scripts/road_generation_job.gd").new(async_job, async_cancel)
+
+func poll_cooperative_generation() -> void:
+	var started := Time.get_ticks_usec()
+	cooperative_job.advance(GENERATION_STEPS_PER_POLL)
+	if lockstep:
+		# 与原生 worker 完全相同的模拟安装时点；能力/帧率不能决定地图出现在哪一帧。
+		if total_distance() + LOCKSTEP_LEAD < async_job.base: return
+	elif not cooperative_job.done:
+		var leading: float = maxf(a.position.y, b.position.y) + world_origin
+		if leading + level_speed() * LATE_MARGIN < async_job.base: return
+	# 到达既定安装时点时只补完剩余证明，不因为平台没有 Thread 就吞掉障碍。
+	while not cooperative_job.done: cooperative_job.advance(256)
+	var proven: Dictionary = cooperative_job.result
+	cooperative_job.dispose()
+	cooperative_job = null
+	async_cancel = null
+	if proven.canceled or proven.block.is_empty():
+		install_generated(Templates.make_block("safe", 0, level_index), "safe_rejected", proven.reason)
+	else:
+		if not lockstep:
+			if proven_blocks.size() > 256: proven_blocks.clear()
+			proven_blocks[async_job.key] = proven.block.duplicate(true)
+		install_generated(proven.block, "proven")
+	async_events[-1].backend = "cooperative"
+	async_peak_poll_usec = maxi(async_peak_poll_usec, Time.get_ticks_usec() - started)
+
 func poll_generation() -> void:
+	if async_enabled and cooperative_job != null:
+		poll_cooperative_generation()
+		return
 	if not async_enabled or async_thread == null: return
 	var started := Time.get_ticks_usec()
 	if lockstep:

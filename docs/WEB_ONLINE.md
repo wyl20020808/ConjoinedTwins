@@ -67,3 +67,28 @@ python3 build-tools/prepare_web.py --engine /Applications/Godot.app/Contents/Mac
 - WebSocket 走 TCP，网络抖动时偶尔会整体卡顿一下，不会丢操作。
 - 网页版（WebAssembly）与原生客户端混合联机时，三角函数等数学库结果可能有细微差异，存在“画面不同步”风险。建议同一局两人用同一种客户端；不同步时服务器会提示，回开始页重新联机。
 - headless 回归只证明本机中继与 WebSocket 帧同步正确，不代表手机浏览器触屏、帧率和公网联机已验收。
+
+## 无线程关卡生成修复（2026-10-14）
+
+无线程 Web 模板不能启动 `Thread`。旧版在后台验证线程不可用时连续安装 `safe` 空段，导致独立教学门存在，但开门后的随机障碍消失。
+
+当前 Web 使用可暂停的生产验证任务：每次轮询推进最多 32 个验证固定步，验证规则、候选顺序、散布复证、奖励和碰撞检查与原生 worker 共用实现。原生端保留后台线程；线程启动失败也转入同一分帧路径，不因能力缺失直接吞掉障碍。联机仍在原来的模拟距离边界安装段落；到达边界时补完剩余证明，保证不同设备不会因执行速度安装不同地图。此补完可能产生短暂停顿，低性能手机帧率仍需实测。
+
+重试、存档恢复和退出会取消并释放未完成的验证克隆。合法布局验证失败仍保留原有拒绝策略，没有删除障碍、放宽路线断言或更改移动、碰撞、生成随机数及帧同步消息协议。
+
+回归命令（Godot 4.7.1，工作目录为项目根目录）：
+
+```bash
+Godot --headless --path . --script res://tests/web_generation.gd
+Godot --headless --path . --script res://tests/online_lockstep.gd
+ONLINE_TRANSPORT=ws Godot --headless --path . --script res://tests/web_online_generation.gd
+ONLINE_TRANSPORT=mixed Godot --headless --path . --script res://tests/web_online_generation.gd
+```
+
+`web_generation.gd` 覆盖不同切片大小与原 worker 的完整布局一致、合法输入打开教学门、后续真实障碍及生产展示节点、原生/无线程逐帧一致、单机路径、重试和退出释放。`web_online_generation.gd` 继承原有联机断言，仅把第二个客户端能力设为无后台线程，额外核对确实使用分帧验证安装障碍。原有联机测试及其阈值未修改。
+
+发布后两位玩家都应刷新网页，避免混用修复前后不同生成逻辑的旧客户端。测试结果不代表手机实机触屏、帧率和公网完整对局已通过。
+
+本次本机验收记录：无线程专项 26/26；原有 ENet 21/21；WebSocket + 无线程客户端 22/22；ENet/WebSocket 混合 + 无线程客户端 22/22；地址与 /ws 路径 16/16。真实单线程 WebAssembly 自动场景也完成 26/26，开门后生成 4 段、24 个障碍及 24 个生产展示节点。
+
+额外补跑的历史 `road_charge_gate.gd` 为 38/39，“合法交换角色路线仍开门”在未修改基线与修复分支上均失败；没有为此修改测试或玩法，不把它报告成通过。手机音频、触屏与实际帧率仍待用户试玩。
