@@ -65,6 +65,13 @@ func record_frame(endpoint: int, frame_index: int, game) -> void:
 func _initialize() -> void:
 	call_deferred("verify")
 
+# 传输方式由环境变量 ONLINE_TRANSPORT 选择：enet（默认）、ws（两端 WebSocket）、mixed（01 走 ENet、02 走 WebSocket）。
+func client_address(index: int) -> String:
+	var transport := OS.get_environment("ONLINE_TRANSPORT")
+	if transport == "ws" or (transport == "mixed" and index == 1):
+		return "ws://127.0.0.1:%d" % (PORT + 1)
+	return "127.0.0.1:%d" % PORT
+
 func check(label: String, passed: bool) -> void:
 	checks.append({"name": label, "passed": passed})
 	print("PASS " if passed else "FAIL ", label)
@@ -105,6 +112,7 @@ func verify() -> void:
 	var relay = Relay.new()
 	relay.name = "Relay"
 	relay.port = PORT
+	relay.ws_port = PORT + 1
 	root.add_child(relay)
 	var scene: PackedScene = load("res://scenes/road_demo.tscn")
 	var games := [scene.instantiate(), scene.instantiate()]
@@ -112,7 +120,7 @@ func verify() -> void:
 	for i in range(2):
 		games[i].name = "Game%d" % i
 		root.add_child(games[i])
-	for g in games: g.net.connect_to("127.0.0.1:%d" % PORT)
+	for i in range(2): games[i].net.connect_to(client_address(i))
 	var started: bool = await wait_until(func(): return games[0].net.in_match and games[1].net.in_match, 10.0)
 	check("两客户端连上并开局", started)
 	check("角色分别为 01 和 02", [games[0].net.role, games[1].net.role].has(0) and [games[0].net.role, games[1].net.role].has(1))
