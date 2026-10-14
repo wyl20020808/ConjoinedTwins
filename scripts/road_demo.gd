@@ -1,6 +1,9 @@
 extends Node3D
 
+signal online_frame_applied(frame_index: int)
+
 const Run = preload("res://scripts/road_run.gd")
+const RelayPowerView = preload("res://scripts/relay_power_view.gd")
 const SCALE := 20.0
 const SKY_YAW := 240.0
 # 可见路面比可站立范围每侧多 0.3 米：角色中心到边即踩空。
@@ -63,6 +66,10 @@ var net_button: Button
 var net_status: Label
 var pause_button: Button
 var bottom_hint: Label
+var charge_gate_view := Node3D.new()
+var charge_gate_views: Array[Node3D] = []
+var gate_announced := {}
+var charge_announced := false
 func material(name: String, color: Color, emission: float = 0.0) -> StandardMaterial3D:
 	if materials.has(name):
 		return materials[name]
@@ -224,6 +231,7 @@ func _ready() -> void:
 	# 每次开局、重试、进下一关都换新种子：段落顺序、左右、散布陷阱和奖励每次都不一样。
 	randomize()
 	run.random_seed = true
+	run.charge_tutorial = true
 	run.retry()
 	run.state = "start"
 	sfx = Sfx.new()
@@ -240,6 +248,7 @@ func _ready() -> void:
 	build_road()
 	build_robots()
 	build_rewards()
+	build_charge_gate()
 	build_ui()
 	sync_view()
 
@@ -824,9 +833,10 @@ func fit_model(path: String, body: MeshInstance3D, limit: Vector3, tilt: Vector3
 func build_rock_block(chunk: Node3D, index: int) -> void:
 	var rect: Rect2 = run.obstacles[index]
 	var size := Vector3(rect.size.x / SCALE, run.obstacle_heights[index] / SCALE, rect.size.y / SCALE)
-	box(chunk, Vector3(0, size.y / 2, 0), size, tex_material("rock_block", "rock_boulder_dry", 0.2, Color("a3907f")))
-	box(chunk, Vector3(0, size.y + 0.04, 0), Vector3(size.x + 0.1, 0.08, size.z + 0.1), material("rock_block_rim", Color("ff5a2e"), 0.7))
-	box(chunk, Vector3(0, size.y + 0.06, 0), Vector3(size.x - 0.3, 0.12, size.z - 0.3), tex_material("rock_block_top", "rock_boulder_dry", 0.2, Color("b8a694")))
+	# 顶板、警示圈与本体形成阶差，避免共面闪烁；总高度仍等于碰撞高度。
+	box(chunk, Vector3(0, (size.y - 0.1) / 2, 0), Vector3(size.x, size.y - 0.1, size.z), tex_material("rock_block", "rock_boulder_dry", 0.2, Color("a3907f")))
+	box(chunk, Vector3(0, size.y - 0.06, 0), Vector3(size.x, 0.08, size.z), material("rock_block_rim", Color("ff5a2e"), 0.7))
+	box(chunk, Vector3(0, size.y - 0.06, 0), Vector3(size.x - 0.3, 0.12, size.z - 0.3), tex_material("rock_block_top", "rock_boulder_dry", 0.2, Color("b8a694")))
 	var sign := Label3D.new()
 	sign.name = "WarningLabel"
 	sign.position = Vector3(0, size.y + 0.9, 0)
@@ -1234,9 +1244,73 @@ func sync_rewards() -> void:
 	finish_view.position.z = -(run.finish_distance() - run.world_origin) / SCALE
 	finish_view.visible = run.finish_distance() - run.total_distance() < 3600
 
+func build_charge_gate(view: Node3D = null) -> void:
+	if view == null: view = charge_gate_view
+	charge_gate_views.append(view)
+	road.add_child(view)
+	view.name = "ChargeGate"
+	var steel := material("gate_steel", Color("385360"))
+	var energy := material("gate_energy", Color("ffc06b"), 0.4)
+	for side in [-1, 1]:
+		box(view, Vector3(side * 11.6, 2.5, -7.8), Vector3(0.6, 5, 0.8), steel)
+	box(view, Vector3(0, 5.1, -7.8), Vector3(23.8, 0.4, 0.8), steel)
+	var door := box(view, Vector3(0, 2.5, -7.8), Vector3(25, 5, 0.6), energy)
+	door.name = "Door"
+	for side in [-1, 1]:
+		var zone := box(view, Vector3(side * 2.475, 0.02, -3), Vector3(3.25, 0.025, 3), zone_material("gate_zone", Color(0.3, 0.85, 0.8, 0.28)))
+		zone.name = "LeftZone" if side < 0 else "RightZone"
+	var receiver := cylinder(view, Vector3(0, 1.4, -3), 0.4, 0.3, energy)
+	receiver.name = "Receiver"
+	var stem := box(view, Vector3(0, 0.7, -3), Vector3(0.15, 1.4, 0.15), steel)
+	stem.name = "ReceiverStem"
+	for side in [-1, 1]:
+		var plate := cylinder(view, Vector3(side * 2.25, 0.04, -3), 0.9, 0.06, steel)
+		plate.name = "LeftPlate" if side < 0 else "RightPlate"
+		plate.visible = false
+	var bar := box(view, Vector3(0, 3.1, -3), Vector3(3, 0.16, 0.12), material("gate_progress", Color("68dce3"), 0.5))
+	bar.name = "Progress"
+	var sign := Label3D.new()
+	sign.name = "Status"
+	sign.position = Vector3(0, 4, -3)
+	sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	sign.font_size = 36
+	sign.pixel_size = 0.008
+	view.add_child(sign)
+	RelayPowerView.build(self, view)
+
+func sync_charge_gate() -> void:
+	while charge_gate_views.size() < run.charge_gates.size(): build_charge_gate(Node3D.new())
+	for slot in range(charge_gate_views.size()):
+		var view: Node3D = charge_gate_views[slot]
+		view.visible = slot < run.charge_gates.size()
+		if not view.visible: continue
+		var gate: Dictionary = run.charge_gates[slot]
+		view.visible = absf(gate.receiver.y - run.distance) < 4000
+		view.position.z = -(gate.receiver.y - Run.ChargeGate.HOLD_DISTANCE) / SCALE
+		view.get_node("Door").visible = not gate.open
+		var plates: bool = gate.get("kind", "charge") == "sync_plates"
+		var hold_time: float = Run.SyncPlates.HOLD_TIME if plates else Run.ChargeGate.CHARGE_TIME
+		view.get_node("Progress").scale.x = maxf(0.001, gate.charge / hold_time)
+		view.get_node("LeftZone").visible = not plates
+		view.get_node("RightZone").visible = not plates
+		view.get_node("Receiver").visible = not plates
+		view.get_node("ReceiverStem").visible = not plates
+		for side in range(2):
+			var plate: MeshInstance3D = view.get_node("LeftPlate" if side == 0 else "RightPlate")
+			plate.visible = plates
+			if plates:
+				plate.material_override = material("plate_on" if gate.occupied[side] else "plate_off", Color("68dce3") if gate.occupied[side] else Color("385360"), 0.4 if gate.occupied[side] else 0.0)
+		view.get_node("Status").text = run.gate_hint(gate)
+		RelayPowerView.sync(self, view, gate)
+		if gate.open and not gate_announced.get(gate.id, false): sfx.play("prize", -3.0)
+		gate_announced[gate.id] = gate.open
+	for id in gate_announced.keys():
+		if not run.charge_gates.any(func(g): return g.id == id): gate_announced.erase(id)
+
 func clear_controls() -> void:
 	blocked_keys.assign(MOVE_KEYS)
 	run.reset_input()
+	if is_instance_valid(touch): touch.reset()
 
 func key_down(key: int) -> bool:
 	if blocked_keys.has(key):
@@ -1320,7 +1394,8 @@ func online_process(delta: float) -> void:
 	var move := Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT)) - float(key_down(KEY_A) or key_down(KEY_LEFT)),
 		float(key_down(KEY_W) or key_down(KEY_UP)) - float(key_down(KEY_S) or key_down(KEY_DOWN)))
 	if touch.move != Vector2.ZERO: move = touch.move
-	net.send_input(move, key_down(KEY_SPACE) or key_down(KEY_ENTER) or touch.take_jump())
+	var touch_jump: bool = touch.take_jump()
+	net.send_input(move, key_down(KEY_SPACE) or key_down(KEY_ENTER) or touch_jump)
 	var first_index: int = net.next_frame
 	var batch: Array = net.take_frames()
 	for i in range(batch.size()):
@@ -1333,6 +1408,7 @@ func online_process(delta: float) -> void:
 		fall_clock = fall_clock + Run.FIXED_STEP * 2.0 if falling() else 0.0
 		if run.state != previous_state: clear_controls()
 		net.report(first_index + i, run.sync_hash())
+		online_frame_applied.emit(first_index + i)
 	frame_delta = delta * maxi(1, batch.size())
 	sync_view()
 
@@ -1413,6 +1489,7 @@ func falling() -> bool:
 func sync_view() -> void:
 	if view_revision != run.revision: rebuild_hazard_views()
 	sync_rewards()
+	sync_charge_gate()
 	# 云雾随前进向后流动，另带一点自身漂移。
 	for layer in range(mist_layers.size()):
 		mist_layers[layer].uv1_offset = Vector3(run.elapsed * 0.004 * (layer + 1), run.total_distance() / SCALE / 300.0, 0)
@@ -1535,7 +1612,8 @@ func sync_view() -> void:
 						failed_animation_started[i] = true
 				else:
 					failed_animation_started[i] = false
-					play_action(player, "Jump" if run.heights[i] > 0 else ("Run" if run.state == "running" else "Idle"))
+					var waiting: bool = run.charge_gate.active and not run.charge_gate.open and run.distance >= run.charge_gate.receiver.y and run.move_directions[i] == Vector2.ZERO
+					play_action(player, "Jump" if run.heights[i] > 0 else ("Run" if run.state == "running" and not waiting else "Idle"))
 					if player.current_animation.ends_with("Run"):
 						player.speed_scale = run_animation_speed()
 					# 动画与物理抛物线同步；不让 Jump 自带位移改变碰撞中心。
@@ -1576,6 +1654,7 @@ func update_ui() -> void:
 	if not is_instance_valid(hud):
 		return
 	hud.text = "第 %d/3 关 · %s · 金币 %d · 奖品 %d · 护盾 %s" % [run.level_index + 1, run.difficulty, run.coins, run.prizes, "无敌 %.1fs" % maxf(0, run.invulnerable_until - run.elapsed) if run.elapsed < run.invulnerable_until else ("1" if run.shield else "0")]
+	if run.charge_gate.active: hud.text += "\n" + run.gate_hint(run.charge_gate)
 	distance_label.text = "绳 %.1f/%.2fm · 终点 %.0fm" % [run.rope.length / SCALE, Run.LINK_LIMIT / SCALE, maxf(0, run.finish_distance() - run.progress()) / SCALE]
 	match run.rope_status():
 		"contact": distance_label.text += (" · 滚球带绳 张力 %d%%" if run.ball_contact() else " · 绳索挂柱 张力 %d%%") % int(run.rope_tension() * 100)

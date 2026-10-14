@@ -8,6 +8,8 @@ const Levels = preload("res://scripts/road_levels.gd")
 const Threats = preload("res://scripts/dynamic_threats.gd")
 const Surfaces = preload("res://scripts/road_surfaces.gd")
 const Industrial = preload("res://scripts/industrial_obstacles.gd")
+const ChargeGate = preload("res://scripts/road_charge_gate.gd")
+const SyncPlates = preload("res://scripts/road_sync_plates.gd")
 const FINISH := 9000.0
 const FORWARD := 120.0
 const LATERAL := Templates.MANUAL_SPEED
@@ -121,11 +123,16 @@ var ground_support := [true, true]
 var fallen := [false, false]
 # 联机模式：不读缓存、不按线程快慢安装、种子由上一个种子确定性推导，保证两端模拟逐帧一致。
 var lockstep := false
+var charge_tutorial := false
+var charge_gate: Dictionary = {"active": false, "open": false, "charge": 0.0}
+var charge_gates: Array[Dictionary] = []
+var gate_events: Array[Dictionary] = []
 
 # 联机两端定期比对的状态指纹；不一致说明两台设备的模拟已经分叉。
 func sync_hash() -> int:
 	return var_to_str([state, a.position, b.position, heights, vertical_speed, distance, world_origin, elapsed,
-		coins, prizes, shield, level_index, next_segment, seed_value, obstacles.size(), rope.length]).hash()
+		coins, prizes, shield, level_index, next_segment, seed_value, obstacles.size(), rope.length, charge_gate,
+		charge_gates, gate_events, claimed_rewards]).hash()
 
 func level_speed() -> float:
 	return Templates.DIFFICULTIES[difficulty].speed * Levels.LEVELS[level_index].speed_scale
@@ -184,6 +191,7 @@ func check_finish() -> void:
 	rope_unwinding = false
 	rope_block_substeps = 0
 	revision += 1
+	charge_gate.active = false
 	reset_input()
 
 # 事件号由稳定障碍标识与周期组成。护盾吸收后同一事件不能再次消耗另一护盾；
@@ -287,7 +295,7 @@ func schedule_generation(base: float) -> bool:
 	var candidates := [candidate]
 	for n in range(2): candidates.append(generator.candidate_of(candidate.route, level_index))
 	async_job = {"epoch": async_epoch, "number": next_segment, "difficulty": difficulty, "level": level_index,
-		"candidate": candidate, "candidates": candidates, "key": var_to_str([candidate, difficulty, level_index]).sha256_text(),
+		"candidate": candidate, "candidates": candidates, "key": var_to_str([candidate, difficulty, level_index, Templates.source_binding(false)]).sha256_text(),
 		"base": base + world_origin}
 	if not lockstep and proven_blocks.has(async_job.key):
 		install_generated(proven_blocks[async_job.key].duplicate(true), "cached")
@@ -351,6 +359,16 @@ func reset_input() -> void:
 func retry(count_failure: bool = false) -> void:
 	if state in ["settlement", "complete"]: return
 	cancel_generation()
+	charge_gate = ChargeGate.make_tutorial() if charge_tutorial and streaming and level_index == 0 else {"active": false, "open": false, "charge": 0.0}
+	charge_gates.clear()
+	gate_events.clear()
+	if charge_gate.active:
+		charge_gate.id = "tutorial"
+		charge_gates.append(charge_gate)
+		gate_events.append({"id": "tutorial", "event": "installed", "distance": 0.0})
+		var plates := SyncPlates.make_tutorial()
+		charge_gates.append(plates)
+		gate_events.append({"id": plates.id, "event": "installed", "distance": 0.0})
 	generation_halted = false
 	coins = 0
 	prizes = 0
@@ -473,9 +491,12 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			spec.warning_evidence = {"warning": spec.warning, "maximum_forward": maximum_forward, "joint_change_time": joint_change, "earliest_approach": approach, "reaction_margin": approach - joint_change, "side": spec.side, "locked_velocity": [spec.velocity.x, spec.velocity.y], "leading_y": maxf(a.position.y, b.position.y), "rear_y": minf(a.position.y, b.position.y)}
 		if spec.get("front", false):
 			Threats.warn(spec, hazard_sample(index, elapsed).rect, [a.position, b.position],
-				[Vector2(0, forward_speed * rope_resume) + input_a * LATERAL, Vector2(0, forward_speed * rope_resume) + input_b * LATERAL], LATERAL, EDGE, Motion.RADIUS, elapsed)
+				[Vector2(0, forward_speed * rope_resume) + input_a * LATERAL, Vector2(0, forward_speed * rope_resume) + input_b * LATERAL], LATERAL, EDGE, Motion.RADIUS, elapsed, level_speed() + LATERAL)
 	# 绕柱受阻期间自动推进停滞；解围后按 rope_resume 恢复，平时为 1（与原推进完全一致）。
 	var step_speed := 0.0 if rope_bound else forward_speed * rope_resume
+	# 独立教学允许无限等待。停推进中心，不夹推角色；手动前后和跳跃仍按生产规则处理。
+	if charge_gate.active and not charge_gate.open:
+		step_speed = minf(step_speed, maxf(0, charge_gate.receiver.y - distance) / FIXED_STEP)
 	distance += step_speed * FIXED_STEP
 	var circles := rope_circles()
 	var roped: bool = not circles.is_empty() or not rope.contacts.is_empty()
@@ -538,6 +559,11 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			rope_resume = 0.0
 		var ca := bounded(pa + base + input_a * LATERAL * dt)
 		var cb := bounded(pb + base + input_b * LATERAL * dt)
+		if charge_gate.active and not charge_gate.open:
+			# 全宽高门不允许跳过；保留横向滑行和后撤，最终约束位移还需扫掠复核。
+			var front: float = charge_gate.door.position.y - Motion.RADIUS - 0.01
+			ca.y = minf(ca.y, front)
+			cb.y = minf(cb.y, front)
 		# 免伤不解除实体阻挡；先拒绝穿入高货箱/柱子的期望位移，再求双方绳索。
 		var solid_blocked := false
 		if shield or elapsed < invulnerable_until:
@@ -689,6 +715,17 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 				if timed_hazard_hits(index, time_start, time_end, from, to, old_heights[i], heights[i]):
 					if damage(collision_event(index), "%02d 命中%s，两人共同重试" % [i + 1, hazard_name(kinds[index])]): return
 		collect_rewards(pa, pb)
+		if charge_gate.active:
+			var was_open: bool = charge_gate.open
+			if charge_gate.get("kind", "charge") == "sync_plates":
+				# 起跳、腾空或落地的子步不计为连续地面站位。
+				SyncPlates.advance(charge_gate, a.position, b.position,
+					ground_support[0] and old_heights[0] == 0.0 and heights[0] == 0.0 and vertical_speed[0] == 0.0,
+					ground_support[1] and old_heights[1] == 0.0 and heights[1] == 0.0 and vertical_speed[1] == 0.0, dt)
+			else:
+				ChargeGate.advance(charge_gate, rope.path, rope.path_heights(), rope_tension(), charge_path_clear(), dt)
+			if not was_open and charge_gate.open:
+				gate_events.append({"id": charge_gate.id, "event": "opened", "distance": total_distance()})
 		if rope_block_substeps >= ROPE_BLOCK_SUBSTEPS:
 			state = "failed"
 			rope_failed = true
@@ -719,8 +756,23 @@ func solid_sweep_hits(index: int, from: Vector2, to: Vector2, h0: float, h1: flo
 	return kinds[index] == "cargo" or Rope.segment_distance(from, to, obstacles[index].get_center()) < obstacles[index].size.x * 0.5 + Motion.RADIUS - 0.001
 
 func solid_sweep_clear(from: Vector2, to: Vector2, h0: float, h1: float) -> bool:
+	if charge_gate.active and not charge_gate.open and segment_hits(from, to, charge_gate.door.grow(Motion.RADIUS - 0.001)):
+		return false
 	for index in range(kinds.size()):
 		if solid_sweep_hits(index, from, to, h0, h1): return false
+	return true
+
+func charge_path_clear() -> bool:
+	# 判定整条实际路径和实际高度，不用角色端点连线替代绕障结果。
+	if not rope.contacts.is_empty(): return false
+	var path: PackedVector2Array = rope.path
+	var z: PackedFloat32Array = rope.path_heights()
+	for index in range(kinds.size()):
+		var sample := hazard_sample(index, elapsed)
+		if not sample.active or kinds[index] in ["road_gap", "collapse"]: continue
+		for i in range(1, path.size()):
+			if maxf(z[i-1], z[i]) < sample.bottom or minf(z[i-1], z[i]) > sample.top: continue
+			if segment_hits(path[i-1], path[i], sample.rect): return false
 	return true
 
 func fall(role: int, point: Vector2) -> void:
@@ -992,6 +1044,7 @@ func update_stream() -> void:
 		a.position.y -= shift
 		b.position.y -= shift
 		world_origin += shift
+		for gate in charge_gates: ChargeGate.relocate(gate, -shift)
 		for i in range(obstacles.size()): obstacles[i].position.y -= shift
 		for reward in rewards: reward.position.y -= shift
 		for spec in hazard_specs:
@@ -1015,7 +1068,19 @@ func update_stream() -> void:
 		if rewards[i].position.y < distance - Templates.BEHIND:
 			rewards.remove_at(i)
 			revision += 1
-	while generation_enabled and not generation_halted and Templates.START_DISTANCE + next_segment * Templates.SEGMENT < minf(total_distance() + (ASYNC_AHEAD if async_enabled else Templates.AHEAD), finish_distance() - Templates.SEGMENT):
+	# 双方越过门后空间才回收；保留尚未到达的预加载机关。
+	for i in range(charge_gates.size() - 1, -1, -1):
+		var gate: Dictionary = charge_gates[i]
+		if gate.open and gate.get("kind", "charge") == "sync_plates":
+			SyncPlates.advance(gate, a.position, b.position,
+				ground_support[0] and heights[0] == 0.0 and vertical_speed[0] == 0.0,
+				ground_support[1] and heights[1] == 0.0 and vertical_speed[1] == 0.0, 0.0)
+		if gate.open and gate.door.end.y < minf(a.position.y, b.position.y) - Templates.BEHIND:
+			gate_events.append({"id": gate.id, "event": "recycled", "distance": total_distance()})
+			charge_gates.remove_at(i)
+	select_charge_gate()
+	# 教学完成前不安装随机危险，也不让路线验证克隆在关闭门前等待。
+	while generation_enabled and not generation_halted and not (charge_gate.active and not charge_gate.open) and Templates.START_DISTANCE + next_segment * Templates.SEGMENT < minf(total_distance() + (ASYNC_AHEAD if async_enabled else Templates.AHEAD), finish_distance() - Templates.SEGMENT):
 		var base := Templates.START_DISTANCE + next_segment * Templates.SEGMENT - world_origin
 		if async_enabled:
 			if schedule_generation(base): continue
@@ -1036,6 +1101,16 @@ func update_stream() -> void:
 		route_segments.pop_front()
 
 func install_block(block: Dictionary, base: float, prefix: String) -> void:
+	var gates: Array = [block.gate] if block.has("gate") else block.get("gates", [])
+	for slot in range(gates.size()):
+		var id := prefix + ":gate" if block.has("gate") else "%s:gate:%d" % [prefix, slot]
+		if not charge_gates.any(func(gate): return gate.id == id) and not gate_events.any(func(event): return event.event == "installed" and event.id == id):
+			var gate: Dictionary = gates[slot].duplicate(true)
+			ChargeGate.relocate(gate, base)
+			gate.id = id
+			charge_gates.append(gate)
+			gate_events.append({"id": id, "event": "installed", "distance": total_distance()})
+			select_charge_gate()
 	for hazard in block.hazards:
 		var rect: Rect2 = hazard.rect
 		rect.position.y += base
@@ -1098,6 +1173,74 @@ static func hazard_name(kind: String) -> String:
 	if kind == "stone_ball": return "滚石：两人同侧避让"
 	if kind == "iron_ball": return "铁刺球：两人同侧避让"
 	return {"pillar": "高柱：两人同侧绕行", "cargo": "巨岩：左右绕行", "rail": "矮石栏：跳跃或绕行", "spikes": "固定地刺：跳跃或绕行", "active_spikes": "活动地刺：伸出期间跳跃或绕行", "scanner": "高位扫描束：绕行或等待安全时窗", "fly_low": "低空飞石：跳跃或绕行", "fly_body": "飞石：四向避让", "fly_tall": "高大飞行物：四向避让"}.get(kind, "能量屏障")
+
+# 仅消费最后一次生产子步的条件；暂停冻结、重试和实例重建自然保留或清空提示。
+# 侧别由生产条件给出，与角色编号无关；HUD 和主题共用这份反馈。
+func gate_side_feedback(gate: Dictionary) -> Array[Dictionary]:
+	var result: Dictionary = gate.get("conditions", {})
+	var plates: bool = gate.get("kind", "charge") == "sync_plates"
+	var present: Array = result.get("side_present", [false, false])
+	var occupied: Array = result.get("occupied", [false, false])
+	var airborne: Array = result.get("airborne", [false, false])
+	var feedback: Array[Dictionary] = []
+	for side in range(2):
+		var state := "missing"
+		var text := "未占板" if plates else "未到位"
+		if gate.get("open", false):
+			state = "opened"
+			text = "通路已开启"
+		elif plates:
+			if occupied[side]:
+				state = "holding" if result.get("ready", false) else "standing"
+				text = "持续站稳" if state == "holding" else "已落地 · 等待另一板"
+			elif airborne[side]:
+				state = "airborne"
+				text = "腾空 · 请落地"
+		elif present[side]:
+			state = "positioned"
+			text = "已到位"
+		feedback.append({"state": state, "text": ("左" if side == 0 else "右") + ("板：" if plates else "绿区：") + text})
+	return feedback
+
+func gate_hint(gate: Dictionary) -> String:
+	if not gate.get("active", false): return ""
+	var plates: bool = gate.get("kind", "charge") == "sync_plates"
+	var heading := "同步踏板" if plates else "双人充能"
+	var text := ""
+	if gate.open:
+		text = "%s通路已开启 · 共同前进" % heading
+	else:
+		var result: Dictionary = gate.get("conditions", {})
+		var duration: float = SyncPlates.HOLD_TIME if plates else ChargeGate.CHARGE_TIME
+		var missing: Array[String] = []
+		for side in gate_side_feedback(gate): missing.append(side.text)
+		if plates:
+			var grounded: Array = result.get("grounded", [true, true])
+			if not grounded[0] or not grounded[1]: missing.append("两人先落地")
+			var occupied: Array = result.get("occupied", [false, false])
+			if not occupied[0] or not occupied[1]: missing.append("左右各站一板 · 可交换角色")
+			if result.get("ready", false): missing.append("持续站稳 %.2f 秒" % duration)
+		else:
+			if not result.get("positioned", false): missing.append("分别站左右绿区 · 可交换角色")
+			if not result.get("taut", false): missing.append("张紧 ≥%d%%" % int(ChargeGate.TENSION * 100))
+			if not result.get("clear", true): missing.append("绳路受阻 · 回撤调整")
+			if not result.get("crosses", false):
+				missing.append("让绳路穿过中心接收器")
+			elif not result.get("at_height", false): missing.append("绳路高度需对准接收器 · 落地调整")
+			if result.get("ready", false): missing.append("持续充能 %.1f 秒" % duration)
+		var recovery := "可安全等待 · 可回撤调整"
+		if not plates and not result.get("clear", true): recovery = "绳路受阻时请及时回撤调整"
+		text = "%s %d%% · %.2f/%.2f 秒\n%s\n%s" % [heading,
+			int(gate.charge / duration * 100), gate.charge, duration, " · ".join(missing), recovery]
+	if gate.has("relay_index"):
+		text = "接力 %d/%d · %s\n%s" % [gate.relay_index + 1, gate.relay_count, "踏板" if plates else "充能", text]
+	return text
+
+func select_charge_gate() -> void:
+	charge_gate = {"active": false, "open": false, "charge": 0.0}
+	for gate in charge_gates:
+		if not gate.open and (not charge_gate.active or gate.receiver.y < charge_gate.receiver.y): charge_gate = gate
+	if not charge_gate.active and not charge_gates.is_empty(): charge_gate = charge_gates.back()
 
 func hazard_sample(index: int, time: float) -> Dictionary:
 	var spec: Dictionary = hazard_specs[index] if index < hazard_specs.size() else {}

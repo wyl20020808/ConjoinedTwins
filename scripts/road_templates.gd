@@ -34,6 +34,8 @@ const DIFFICULTIES := {
 
 const Threats = preload("res://scripts/dynamic_threats.gd")
 const Surfaces = preload("res://scripts/road_surfaces.gd")
+const ChargeGate = preload("res://scripts/road_charge_gate.gd")
+const SyncPlates = preload("res://scripts/road_sync_plates.gd")
 # 保留历史测试的常量接口；当前生成不再按此间隔调度。
 const PILLAR_EVERY := 4
 const ROUTES := ["left", "right", "jump", "pillar", "ball", "low_jump", "stagger", "double"]
@@ -96,6 +98,9 @@ func reset(seed_value: int) -> void:
 func candidate_block(number: int, level: int) -> Dictionary:
 	if bag.is_empty() or bag_level != level:
 		bag = LEVEL_ROUTES[level].duplicate()
+		bag.append("charge_cargo")
+		bag.append("sync_cargo")
+		bag.append("charge_sync_relay")
 		bag_level = level
 		# 用自己的随机数洗牌，同一种子可复现；Array.shuffle 用全局随机数，不可复现。
 		for i in range(bag.size() - 1, 0, -1):
@@ -107,6 +112,22 @@ func candidate_block(number: int, level: int) -> Dictionary:
 			var held = bag[0]
 			bag[0] = bag.back()
 			bag[bag.size() - 1] = held
+		# 有限关卡未必抽完整袋；教学之后的前八段内必有一次踏板合作。
+		var plates_index := bag.find("sync_cargo")
+		if plates_index < bag.size() - 8:
+			var early_index := rng.randi_range(bag.size() - 8, bag.size() - (2 if last_kind == "sync_cargo" else 1))
+			bag[plates_index] = bag[early_index]
+			bag[early_index] = "sync_cargo"
+		# 接力也须在有限关卡内出现；不能挤走前八段的踏板或造成连抽。
+		var relay_index := bag.find("charge_sync_relay")
+		if relay_index < bag.size() - 12:
+			var slots: Array = []
+			for slot in range(bag.size() - 12, bag.size()):
+				if bag[slot] != "sync_cargo" and not (slot == bag.size() - 1 and last_kind == "charge_sync_relay"):
+					slots.append(slot)
+			var early_index: int = slots[rng.randi_range(0, slots.size() - 1)]
+			bag[relay_index] = bag[early_index]
+			bag[early_index] = "charge_sync_relay"
 	var kind: String = bag.pop_back()
 	last_kind = kind
 	return candidate_of(kind, level)
@@ -144,6 +165,8 @@ static func extra_size(kind: String, picker: RandomNumberGenerator) -> Vector2:
 	return Vector2(24, 24)
 
 static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumberGenerator, difficulty: String, level: int) -> Array:
+	# 接力两处等待、换位和完整出口全宽安全，不叠加散布危险。
+	if block.route == "charge_sync_relay": return []
 	var weights: Dictionary = EXTRA_WEIGHTS[clampi(level, 0, EXTRA_WEIGHTS.size() - 1)]
 	var total := 0
 	for kind in weights: total += weights[kind]
@@ -162,6 +185,8 @@ static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumb
 		var size := extra_size(kind, picker)
 		var position := Vector2(picker.randf_range(-ROAD_HALF_WIDTH + 8, ROAD_HALF_WIDTH - 8 - size.x), picker.randf_range(60, 790 - size.y))
 		var rect := Rect2(position, size)
+		# 全宽保护到达、观察、操作和门后归队空间。
+		if block.has("gate") and rect.grow(EXTRA_CLEARANCE).intersects(Rect2(-250, 0, 500, 350)): continue
 		if not extra_fits(rect, others, block.rewards, corridor): continue
 		var hazard := {"kind": kind, "rect": rect, "extra": true}
 		if kind == "cargo": hazard.filler = true
@@ -242,6 +267,27 @@ static func combination_allowed(block: Dictionary) -> bool:
 	return true
 
 static func make_block(kind: String, side: float, level: int) -> Dictionary:
+	if kind == "charge_sync_relay":
+		var charge := ChargeGate.make_tutorial()
+		ChargeGate.relocate(charge, 60.0)
+		var plates := SyncPlates.make_tutorial()
+		ChargeGate.relocate(plates, 190.0)
+		charge.relay_index = 0
+		plates.relay_index = 1
+		charge.relay_count = 2
+		plates.relay_count = 2
+		return {"route": kind, "lane": 0.0, "gates": [charge, plates], "hazards": [],
+			"rewards": [{"kind": "coin", "position": Vector2(-25, 660), "radius": 20.0},
+				{"kind": "coin", "position": Vector2(-25, 710), "radius": 20.0},
+				{"kind": "coin", "position": Vector2(-25, 760), "radius": 20.0}]}
+	if kind in ["charge_cargo", "sync_cargo"]:
+		var gate := SyncPlates.make_tutorial() if kind == "sync_cargo" else ChargeGate.make_tutorial()
+		# 踏板开门后须从分站位置共同换侧，不能沿用教学纵坐标挤压绕箱距离。
+		ChargeGate.relocate(gate, -170.0 if kind == "sync_cargo" else 60.0)
+		return {"route": kind, "lane": side * 110.0, "gate": gate,
+			"hazards": [{"kind": "cargo", "rect": Rect2(-45, 430, 90, 65)}],
+			"rewards": [{"kind": "coin", "position": Vector2(side * 110.0 - 25, 380), "radius": 20.0},
+				{"kind": "coin", "position": Vector2(side * 110.0 + 25, 520), "radius": 20.0}]}
 	var lane := side * 110.0 if kind not in ["jump", "low_jump", "safe"] else 0.0
 	if kind in ["gap_bypass", "gap_long", "drone", "forklift", "press"]: lane = side * 130.0
 	if kind in ["sweep_double", "gap_double", "gap_single"]: lane = 0.0
@@ -294,6 +340,9 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 # 输出普通双人按键方向和跳跃按下状态，生产运动、碰撞、绳索不做特殊处理。
 # 路线控制器只供生成验证与回放；生产玩家仍由真实键盘输入控制。
 static func route_input(run, block: Dictionary, base: float) -> Array:
+	if run.charge_gate.active and not run.charge_gate.open and run.distance >= run.charge_gate.receiver.y - 100:
+		if run.charge_gate.get("kind", "charge") == "sync_plates": return SyncPlates.route_input(run, run.charge_gate)
+		return ChargeGate.route_input(run, run.charge_gate)
 	var d: float = run.distance - base
 	var lane: float = block.lane
 	# 提速后仍按真实横移速度预留返回中央所需时间，不能依赖旧 150 单位出口。
@@ -301,6 +350,7 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	if block.route == "gap_long": return_at = 660.0
 	if block.route in ["drone", "forklift", "press", "collapse", "steam"]: return_at = 650.0
 	if block.route == "hammer": return_at = 650.0
+	if block.route in ["charge_cargo", "sync_cargo"]: return_at = 570.0
 	# 分部危险的最后端必须落在双方及绳段后方才可回中。
 	for i in range(run.kinds.size()):
 		if not run.hazard_specs[i].get("industrial", false) or run.hazard_specs[i].get("extra", false): continue
@@ -390,6 +440,8 @@ static func clone_state(captured: Dictionary):
 		clone.rope.set(name, value.duplicate(true) if value is Array or value is Dictionary else value)
 	# 仅关闭递归生成，不改变固定步、回收、重定位、支撑和已加载危险。
 	clone.generation_enabled = false
+	# 快照按属性深拷贝后重新选中队列内字典，充能不能写入游离副本。
+	clone.select_charge_gate()
 	return clone
 
 static func source_binding(force: bool = true) -> String:
@@ -416,6 +468,9 @@ static func certificate_key(block: Dictionary, difficulty: String, level: int, e
 		FIXED_STEP, block, entrance, base]).sha256_text()
 
 static func existing_route_input(run) -> Array:
+	if run.charge_gate.active and not run.charge_gate.open and run.distance >= run.charge_gate.receiver.y - 100:
+		if run.charge_gate.get("kind", "charge") == "sync_plates": return SyncPlates.route_input(run, run.charge_gate)
+		return ChargeGate.route_input(run, run.charge_gate)
 	for segment in run.route_segments:
 		if run.total_distance() >= segment.base and run.total_distance() < segment.base + SEGMENT:
 			return route_input(run, segment.block, segment.base - run.world_origin)
@@ -446,6 +501,7 @@ func validate_block(block: Dictionary, difficulty: String, level: int, entrance:
 		run.dispose()
 		return false
 	var source_shield_uses: int = run.shield_uses
+	var shield_collision := {}
 	var reward_prefix := "certificate:%d" % run.next_obstacle_id
 	if build_chain:
 		block.rewards = block.rewards.filter(func(reward): return reward.kind != "coin")
@@ -468,7 +524,8 @@ func validate_block(block: Dictionary, difficulty: String, level: int, entrance:
 	# 本段实际走过的双人位置（段内局部坐标），供之后在路线外散布陷阱。
 	var corridor: Array = []
 	var duration: float = maxf(0.0, absolute_base + SEGMENT - run.total_distance())
-	for tick in range(int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180):
+	# 预算包含每个预加载机关的充能及调整；不改变生产固定步。
+	for tick in range(int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size()):
 		if canceled():
 			last_evidence = {"accepted": false, "reason": "后台验证已取消", "exit": snapshot(run, tick), "source_entry_hash": var_to_str(source_state).sha256_text()}
 			run.dispose()
@@ -493,6 +550,8 @@ func validate_block(block: Dictionary, difficulty: String, level: int, entrance:
 			next_coin_y = local_y + 90.0
 			coin_role = 1 - coin_role
 		run.step(run.FIXED_STEP, input[0], input[1], input[2], input[3])
+		if run.shield_uses > source_shield_uses and shield_collision.is_empty():
+			shield_collision = {"tick": tick, "local_y": local_y, "events": run.absorbed_events.duplicate(true), "state": snapshot(run, tick)}
 		if in_block: corridor.append([Vector2(run.a.position.x, run.a.position.y + run.world_origin - absolute_base), Vector2(run.b.position.x, run.b.position.y + run.world_origin - absolute_base)])
 		for role in range(2):
 			if (before_jump[role] == 0 and run.heights[role] > 0) or (before_jump[role] > 0 and run.heights[role] == 0):
@@ -538,6 +597,9 @@ func validate_block(block: Dictionary, difficulty: String, level: int, entrance:
 	last_evidence.speed = run.speed()
 	last_evidence.layout_hash = var_to_str(block).sha256_text()
 	last_evidence.support_rule = "实际固定步角色地面支撑；绳索不承重；连续扫掠"
+	last_evidence.shield_uses_before = source_shield_uses
+	last_evidence.shield_uses_after = run.shield_uses
+	last_evidence.shield_collision = shield_collision
 	last_evidence.corridor = corridor
 	if illegal_inputs > 0: last_evidence.reason = "非生产键盘输入"
 	run.dispose()
@@ -554,7 +616,8 @@ static func snapshot(run, tick: int) -> Dictionary:
 		threats.append(entry)
 	return {"tick": tick, "a": [run.a.position.x, run.a.position.y], "b": [run.b.position.x, run.b.position.y], "jump": run.heights.duplicate(), "support": run.ground_support.duplicate(), "rope_heights": Array(run.rope.path_heights()), "rope": run.rope.required, "contacts": run.rope.contacts.duplicate(true), "threats": threats, "distance": run.distance, "origin": run.world_origin, "state": run.state, "coins": run.coins, "prizes": run.prizes,
 		"elapsed": run.elapsed, "vertical_speed": run.vertical_speed.duplicate(), "jump_buffer": run.jump_buffer.duplicate(), "jump_held": run.jump_held.duplicate(), "accumulator": run.accumulator,
-		"rope_bound": run.rope_bound, "rope_resume": run.rope_resume, "hazard_specs": run.hazard_specs.duplicate(true), "shield_uses": run.shield_uses}
+		"rope_bound": run.rope_bound, "rope_resume": run.rope_resume, "hazard_specs": run.hazard_specs.duplicate(true), "shield_uses": run.shield_uses,
+		"rope_path": Array(run.rope.path), "charge_gate": run.charge_gate.duplicate(true), "charge_gates": run.charge_gates.duplicate(true), "gate_events": run.gate_events.duplicate(true)}
 
 func generate_block(number: int, difficulty: String, level: int, source_run = null, base: float = 0.0) -> Dictionary:
 	var previous_binding := source_override

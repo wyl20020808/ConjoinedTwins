@@ -5,7 +5,19 @@ var checks: Array = []
 var metrics := {}
 
 func _initialize() -> void:
+	output_path = OS.get_environment("SPEED_GUIDANCE_EVIDENCE").replace("\\", "/").simplify_path()
+	var project_path := ProjectSettings.globalize_path("res://").replace("\\", "/").trim_suffix("/").to_lower()
+	if output_path.is_empty() or not output_path.is_absolute_path() or output_path.begins_with("res://") or output_path.begins_with("user://") or not output_path.to_lower().ends_with(".json") or output_path.to_lower() == project_path or output_path.to_lower().begins_with(project_path + "/") or FileAccess.file_exists(output_path):
+		push_error("SPEED_GUIDANCE_EVIDENCE 必须指定项目外任务目录中尚不存在的绝对 JSON 文件路径；未运行检查或写入历史结果。")
+		quit(2)
+		return
+	if DirAccess.make_dir_recursive_absolute(output_path.get_base_dir()) != OK:
+		push_error("无法创建任务证据目录：" + output_path.get_base_dir())
+		quit(2)
+		return
 	call_deferred("verify")
+
+var output_path := ""
 
 func check(name: String, ok: bool) -> void:
 	checks.append({"name": name, "passed": ok})
@@ -109,5 +121,12 @@ func verify() -> void:
 		game.queue_free()
 		await process_frame
 	var failed := checks.filter(func(c): return not c.passed).size()
-	FileAccess.open("res://build-tools/obstacle-expansion-6377e8b8/speed-guidance/result.json", FileAccess.WRITE).store_string(JSON.stringify({"passed": failed == 0, "checks": checks, "metrics": metrics}, "\t"))
+	var result := FileAccess.open(output_path, FileAccess.WRITE)
+	if result == null:
+		push_error("无法写入任务证据文件：" + output_path)
+		quit(2)
+		return
+	result.store_string(JSON.stringify({"passed": failed == 0, "checks": checks, "metrics": metrics}, "\t"))
+	result.close()
+	print("SPEED_GUIDANCE checks=%d failures=%d output=%s" % [checks.size(), failed, output_path])
 	quit(0 if failed == 0 else 1)
