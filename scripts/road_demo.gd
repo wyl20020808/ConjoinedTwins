@@ -35,6 +35,12 @@ var hazard_pool := {}
 const MOVE_KEYS := [KEY_A, KEY_D, KEY_W, KEY_S, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_SPACE, KEY_ENTER]
 var progress_bar: ColorRect
 var progress_fill: ColorRect
+# 救援提示：谁该狂按什么键、拉起进度和剩余时间。
+var rescue_box: Control
+var rescue_label: Label
+var rescue_fill: ColorRect
+var rescue_timer_fill: ColorRect
+const RESCUE_BAR := 560.0
 var scenery: Array[Node3D] = []
 var materials := {}
 var cable_material: StandardMaterial3D
@@ -1080,6 +1086,34 @@ func build_ui() -> void:
 	bottom.position = Vector2(40, 677)
 	root.add_child(bottom)
 	bottom_hint = bottom
+	rescue_box = Control.new()
+	rescue_box.position = Vector2(640 - RESCUE_BAR / 2, 520)
+	rescue_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rescue_box.visible = false
+	root.add_child(rescue_box)
+	rescue_label = label("", 30, Color("ffe08a"))
+	rescue_label.position = Vector2(0, -52)
+	rescue_label.size = Vector2(RESCUE_BAR, 44)
+	rescue_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rescue_label.add_theme_color_override("font_outline_color", Color("1a0d05"))
+	rescue_label.add_theme_constant_override("outline_size", 10)
+	rescue_box.add_child(rescue_label)
+	var rescue_back := ColorRect.new()
+	rescue_back.size = Vector2(RESCUE_BAR, 22)
+	rescue_back.color = Color(0.04, 0.07, 0.09, 0.85)
+	rescue_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(rescue_back)
+	rescue_fill = ColorRect.new()
+	rescue_fill.size = Vector2(0, 22)
+	rescue_fill.color = Color("ffc06b")
+	rescue_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(rescue_fill)
+	rescue_timer_fill = ColorRect.new()
+	rescue_timer_fill.position = Vector2(0, 28)
+	rescue_timer_fill.size = Vector2(RESCUE_BAR, 6)
+	rescue_timer_fill.color = Color("ff5a48")
+	rescue_timer_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(rescue_timer_fill)
 	touch = TouchControls.new()
 	root.add_child(touch)
 	pause_button = Button.new()
@@ -1416,7 +1450,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		command("retry")
 	elif event.keycode == KEY_ENTER or event.keycode == KEY_SPACE:
 		# 空格/回车也是跳跃键：失败演出期间不能被跳跃误触直接重试；R 仍可主动跳过。
-		if run.state != "running" and not fail_showing():
+		if run.state not in ["running", "rescue"] and not fail_showing():
 			command("primary")
 	update_ui()
 
@@ -1424,7 +1458,7 @@ func _physics_process(delta: float) -> void:
 	if capture_mode:
 		return
 	fail_clock = fail_clock + delta if run.state == "failed" else 0.0
-	touch.set_enabled(touch_device and run.state in ["running", "settlement"])
+	touch.set_enabled(touch_device and run.state in ["running", "rescue", "settlement"])
 	if net.active():
 		online_process(delta)
 		return
@@ -1433,7 +1467,7 @@ func _physics_process(delta: float) -> void:
 	var touch_jump: bool = touch.take_jump()
 	if touch.move != Vector2.ZERO: first = touch.move
 	var previous_state: String = run.state
-	var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": locked_threats()}
+	var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": locked_threats(), "presses": rescue_presses()}
 	run.step(delta, first, second, key_down(KEY_SPACE) or touch_jump, key_down(KEY_ENTER))
 	play_events(before, previous_state)
 	fall_clock = fall_clock + delta if falling() else 0.0
@@ -1457,7 +1491,7 @@ func online_process(delta: float) -> void:
 		var frame: Dictionary = batch[i]
 		for entry in frame.cmds: apply_command(entry[1], entry[2])
 		var previous_state: String = run.state
-		var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": locked_threats()}
+		var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": locked_threats(), "presses": rescue_presses()}
 		run.step(Run.FIXED_STEP * 2.0, frame.a, frame.b, frame.ja, frame.jb)
 		play_events(before, previous_state)
 		fall_clock = fall_clock + Run.FIXED_STEP * 2.0 if falling() else 0.0
@@ -1533,10 +1567,17 @@ func play_events(before: Dictionary, previous_state: String) -> void:
 			if before.heights[i] > 0.0 and run.heights[i] == 0.0: sfx.play("land", -9.0, 1.0 if i == 0 else 1.1)
 		if locked_threats() > before.locked: sfx.play("warning", -9.0)
 	if run.shield_uses > before.shield_uses: sfx.play("shield_break", -3.0)
+	if rescue_presses() > before.get("presses", 0): sfx.play("jump", -8.0, 0.8 + run.rescue.get("progress", 0.0) * 0.6)
 	if run.state == previous_state: return
 	match run.state:
 		"failed": sfx.play("fall" if falling() else "hit", -2.0)
+		"rescue": sfx.play("warning", -4.0)
+		"running":
+			if previous_state == "rescue": sfx.play("shield", -3.0)
 		"settlement": sfx.play("clear", -2.0)
+
+func rescue_presses() -> int:
+	return 0 if run.rescue.is_empty() else run.rescue.presses[0] + run.rescue.presses[1]
 
 func falling() -> bool:
 	return run.state == "failed" and (run.fallen[0] or run.fallen[1])
@@ -1544,11 +1585,23 @@ func falling() -> bool:
 func fail_showing() -> bool:
 	return run.state == "failed" and fail_clock < (FAIL_FALL_SHOW if falling() else FAIL_HIT_SHOW)
 
-# 撞击：0.8 秒内推近到出事角色身后侧上方。坠落：跟到崖边，镜头随下坠角色俯视进云雾。
+# 撞击：推近到出事角色身后侧上方。坠落：跟到崖边，镜头随下坠角色俯视进云雾。
+# 救援：从坠落者外侧回望，同时看到吊着的人和拉绳的队友。各机位之间平滑过渡，结束后回到固定机位。
 func update_camera() -> void:
-	if run.state != "failed" or robots.size() < 2:
-		camera.transform = camera_home
-		return
+	var target := camera_shot()
+	var rate := 6.0 if run.state == "failed" and falling() else 4.0
+	camera.transform = camera.transform.interpolate_with(target, clampf(frame_delta * rate, 0.0, 1.0))
+	if target == camera_home and camera.transform.origin.distance_to(camera_home.origin) < 0.01: camera.transform = camera_home
+
+func camera_shot() -> Transform3D:
+	if robots.size() < 2: return camera_home
+	if not run.rescue.is_empty() and run.state in ["rescue", "paused"]:
+		var hanging: Vector3 = robots[run.rescue.role].position
+		var holder: Vector3 = robots[1 - run.rescue.role].position
+		var away := Vector3(hanging.x - holder.x, 0, hanging.z - holder.z)
+		away = away.normalized() if away.length() > 0.01 else Vector3(0, 0, -1)
+		return Transform3D.IDENTITY.translated(hanging + away * 7.0 + Vector3(0, 4.5, 0)).looking_at((hanging + holder) * 0.5 + Vector3(0, 0.6, 0), Vector3.UP)
+	if run.state != "failed": return camera_home
 	var role := 1 if run.reason.begins_with("02") else 0
 	if falling(): role = 0 if run.fallen[0] else 1
 	var single: bool = falling() or run.reason.begins_with("01") or run.reason.begins_with("02")
@@ -1567,8 +1620,7 @@ func update_camera() -> void:
 	else:
 		eye = Vector3(focus.x * 0.7, 4.6, focus.z + 7.5)
 		look = focus + Vector3(0, 1.3, -1.5)
-	var ease := smoothstep(0.0, 0.8 if not falling() else 0.6, fail_clock)
-	camera.transform = camera_home.interpolate_with(Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP), ease)
+	return Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP)
 
 func sync_view() -> void:
 	if view_revision != run.revision: rebuild_hazard_views()
@@ -1703,12 +1755,20 @@ func sync_view() -> void:
 		var drop: float = maxf(0.0, fall_clock - (0.0 if run.fallen[i] else 0.3)) if falling() else 0.0
 		# 下坠放慢到可看清：约 2.5 秒坠入崖下云雾，边掉边翻滚。
 		robots[i].position.y -= minf(70.0, 7.0 * drop * drop)
+		var hanging: bool = not run.rescue.is_empty() and i == run.rescue.role
+		if not run.rescue.is_empty():
+			# 救援：坠落者吊在崖边绳下，随进度被拉上来；救援者后仰拉绳。
+			if hanging:
+				robots[i].position.y = lerpf(-2.0, -0.4, run.rescue.progress) + sin(run.rescue.time * 9.0) * 0.06
+				robots[i].rotation.x = -0.35
+			else:
+				robots[i].rotation.x = 0.3
 		if drop > 0:
 			# 从路边坠落的角色边翻滚边向外飘离崖壁，不被扶壁岩挡住。
 			if absf(robots[i].position.x) > ROAD_HALF - 1.5: robots[i].position.x += signf(robots[i].position.x) * minf(5.0, drop * 3.5)
 			robots[i].rotation.x = drop * 2.4
 			robots[i].rotation.z = drop * (0.9 if i == 0 else -0.9)
-		shadows[i].visible = drop == 0.0
+		shadows[i].visible = drop == 0.0 and not hanging
 		if i < animation_players.size():
 			var player := animation_players[i]
 			if run.state == "paused":
@@ -1738,7 +1798,7 @@ func sync_view() -> void:
 	for n in range(1, rope_path.size()): span += rope_path[n - 1].distance_to(rope_path[n])
 	var travelled := 0.0
 	var ends_match: bool = rope_path.size() >= 2 and rope_path[0].is_equal_approx(run.a.position) and rope_path[rope_path.size() - 1].is_equal_approx(run.b.position)
-	if ends_match and not falling():
+	if ends_match and not falling() and run.state != "rescue":
 		for n in range(rope_path.size()):
 			if n > 0: travelled += rope_path[n - 1].distance_to(rope_path[n])
 			var lift := lerpf(run.heights[0], run.heights[1], travelled / maxf(span, 0.0001)) / SCALE + 1.4
@@ -1756,6 +1816,9 @@ func sync_view() -> void:
 	var tint := Color("ff5a48") if status in ["blocked", "failed"] else (Color("ffc06b") if taut or status == "unwinding" else Color("ecd3a0"))
 	var glow := 0.9 if status in ["blocked", "failed"] else (0.45 if taut or status == "unwinding" else 0.15)
 	# 暂停时绳子定格，不继续摆动。
+	if run.state == "rescue":
+		tint = Color("ffc06b")
+		glow = 0.9
 	if run.state != "paused": rope_view.simulate(path, frame_delta, tint, glow)
 	update_camera()
 	update_ui()
@@ -1778,7 +1841,15 @@ func update_ui() -> void:
 		button.visible = run.state == "start"
 		button.text = button.text.trim_prefix("✓ ")
 		if button.text == run.difficulty: button.text = "✓ " + button.text
-	panel.visible = run.state != "running" and not fail_showing()
+	panel.visible = run.state not in ["running", "rescue"] and not fail_showing()
+	rescue_box.visible = run.state == "rescue"
+	if run.state == "rescue":
+		var holder: int = 1 - run.rescue.role
+		var keys := ["空格", "回车"]
+		var tap := "（触屏点右半屏）" if touch_device else ""
+		rescue_label.text = "%02d 狂按%s拉人！%02d 按%s往上爬%s" % [holder + 1, keys[holder], run.rescue.role + 1, keys[run.rescue.role], tap]
+		rescue_fill.size.x = RESCUE_BAR * run.rescue.progress
+		rescue_timer_fill.size.x = RESCUE_BAR * maxf(0.0, 1.0 - run.rescue.time / Run.RESCUE_TIME)
 	primary.visible = run.state != "settlement"
 	match run.state:
 		"start":

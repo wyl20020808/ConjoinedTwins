@@ -60,7 +60,12 @@ func _initialize() -> void:
 			var target_b: Vector2 = Vector2(plank + 6, 0) - run.b.position
 			run.step(Run.FIXED_STEP, Vector2(signf(target_a.x) if absf(target_a.x) > 1.5 else 0.0, 0), Vector2(signf(target_b.x) if absf(target_b.x) > 1.5 else 0.0, 0), false, false)
 			if run.state != "running": break
-		check(run.state == "failed", "并排上桥必坠落 side=%d state=%s reason=%s" % [side, run.state, run.reason])
+		# 一人掉下、队友站在桥上：先进入救援；无人按键 3 秒后共同坠落。
+		var hung: bool = run.state == "rescue"
+		for tick in range(120 * 4):
+			if run.state != "rescue": break
+			run.step(Run.FIXED_STEP)
+		check(hung and run.state == "failed", "并排上桥必坠落 side=%d hung=%s state=%s reason=%s" % [side, hung, run.state, run.reason])
 		run.dispose()
 
 	# 5. 最高关速下两人在桥头外侧全力前冲并起跳，跳不过 22 米断崖。
