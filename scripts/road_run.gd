@@ -129,6 +129,15 @@ var async_job := {}
 var async_epoch := 0
 var async_events: Array = []
 var async_peak_poll_usec := 0
+# 教学期间只证明、不安装。影子抽签器不消耗正式对局的随机序列。
+const TUTORIAL_PRELOAD_SEGMENTS := 4
+const PRELOAD_SLICE_USEC := 2000
+var async_preload_started := false
+var async_preload_requests := {}
+var async_preload_tasks := {}
+var async_preload_order: Array = []
+var async_deadline_steps := 0
+var async_preload_peak_usec := 0
 var route_segments: Array[Dictionary] = []
 var level_index := 0
 var rewards: Array[Dictionary] = []
@@ -298,6 +307,13 @@ func dispose() -> void:
 	b.free()
 
 func cancel_generation() -> void:
+	for task in async_preload_tasks.values(): task.dispose()
+	async_preload_tasks.clear()
+	async_preload_requests.clear()
+	async_preload_order.clear()
+	async_preload_started = false
+	async_deadline_steps = 0
+	async_preload_peak_usec = 0
 	async_epoch += 1
 	if cooperative_job != null:
 		cooperative_job.dispose()
@@ -333,12 +349,17 @@ func schedule_generation(base: float) -> bool:
 		async_job = {"number": next_segment, "base": base + world_origin}
 		install_generated(block_history[next_segment].duplicate(true), "checkpoint_history")
 		return true
-	var candidate: Dictionary = generator.candidate_block(next_segment, level_index)
-	var candidates := [candidate]
-	for n in range(2): candidates.append(generator.candidate_of(candidate.route, level_index))
-	async_job = {"epoch": async_epoch, "number": next_segment, "difficulty": difficulty, "level": level_index,
-		"candidate": candidate, "candidates": candidates, "key": var_to_str([candidate, difficulty, level_index, Templates.source_binding(false)]).sha256_text(),
-		"base": base + world_origin}
+	async_job = generation_request(generator, next_segment, base + world_origin)
+	var preload_key := str(next_segment) + ":" + str(async_job.key)
+	if async_preload_requests.has(preload_key):
+		cooperative_job = async_preload_tasks.get(preload_key)
+		if cooperative_job == null:
+			cooperative_job = preload("res://scripts/road_generation_job.gd").new(async_job, Templates.Cancellation.new())
+		async_cancel = cooperative_job.verifier.cancellation
+		async_preload_tasks.erase(preload_key)
+		async_preload_requests.erase(preload_key)
+		async_preload_order.erase(preload_key)
+		return false
 	if not lockstep and proven_blocks.has(async_job.key):
 		install_generated(proven_blocks[async_job.key].duplicate(true), "cached")
 		return true
@@ -352,6 +373,44 @@ func schedule_generation(base: float) -> bool:
 		start_cooperative_generation()
 		return false
 	return false
+
+func generation_request(picker, number: int, absolute_base: float) -> Dictionary:
+	var candidate: Dictionary = picker.candidate_block(number, level_index)
+	var candidates := [candidate]
+	for n in range(2): candidates.append(picker.candidate_of(candidate.route, level_index))
+	return {"epoch": async_epoch, "number": number, "difficulty": difficulty, "level": level_index,
+		"candidate": candidate, "candidates": candidates,
+		"key": var_to_str([candidate, difficulty, level_index, Templates.source_binding(false)]).sha256_text(),
+		"base": absolute_base}
+
+func warm_tutorial_generation() -> void:
+	if not generation_enabled or not async_enabled or not streaming or state != "running": return
+	var teaching := charge_tutorial and level_index == 0 and charge_gates.any(func(gate):
+		return gate.id in ["tutorial", "sync_tutorial"] and not gate.open)
+	if not async_preload_started and teaching:
+		async_preload_started = true
+		var picker = Templates.new()
+		picker.rng.state = generator.rng.state
+		picker.bag = generator.bag.duplicate()
+		picker.bag_level = generator.bag_level
+		picker.last_kind = generator.last_kind
+		for number in range(next_segment, next_segment + TUTORIAL_PRELOAD_SEGMENTS):
+			var request := generation_request(picker, number, Templates.START_DISTANCE + number * Templates.SEGMENT)
+			var key := str(number) + ":" + str(request.key)
+			async_preload_requests[key] = request
+			async_preload_order.append(key)
+	if async_preload_order.is_empty(): return
+	var started := Time.get_ticks_usec()
+	var key: String = async_preload_order[0]
+	if not async_preload_tasks.has(key):
+		async_preload_tasks[key] = preload("res://scripts/road_generation_job.gd").new(async_preload_requests[key], Templates.Cancellation.new())
+	var task = async_preload_tasks[key]
+	# 按时间与验证步数双重限额让出主线程，不在开门事件里集中补算。
+	for index in range(GENERATION_STEPS_PER_POLL):
+		if task.done or Time.get_ticks_usec() - started >= PRELOAD_SLICE_USEC: break
+		task.advance(1)
+	if task.done: async_preload_order.pop_front()
+	async_preload_peak_usec = maxi(async_preload_peak_usec, Time.get_ticks_usec() - started)
 
 func install_generated(block: Dictionary, source: String, detail: String = "") -> void:
 	var job: Dictionary = async_job
@@ -382,7 +441,9 @@ func poll_cooperative_generation() -> void:
 		var leading: float = maxf(a.position.y, b.position.y) + world_origin
 		if leading + level_speed() * LATE_MARGIN < async_job.base: return
 	# 到达既定安装时点时只补完剩余证明，不因为平台没有 Thread 就吞掉障碍。
-	while not cooperative_job.done: cooperative_job.advance(256)
+	while not cooperative_job.done:
+		async_deadline_steps += 256
+		cooperative_job.advance(256)
 	var proven: Dictionary = cooperative_job.result
 	cooperative_job.dispose()
 	cooperative_job = null
@@ -544,6 +605,7 @@ func section() -> int:
 	return clampi(int(progress() / 3000.0), 0, 2)
 
 func step(delta: float, input_a: Vector2 = Vector2.ZERO, input_b: Vector2 = Vector2.ZERO, jump_a: bool = false, jump_b: bool = false) -> void:
+	warm_tutorial_generation()
 	poll_generation()
 	if state == "settlement":
 		confirm_step(jump_a, jump_b)
@@ -1335,7 +1397,7 @@ func update_stream() -> void:
 			gate_events.append({"id": gate.id, "event": "recycled", "distance": total_distance()})
 			charge_gates.remove_at(i)
 	select_charge_gate()
-	# 教学完成前不安装随机危险，也不让路线验证克隆在关闭门前等待。
+	# 教学完成前不安装随机危险；证明已由独立克隆在教学期间分帧预计算。
 	while generation_enabled and not generation_halted and not (charge_gate.active and not charge_gate.open) and Templates.START_DISTANCE + next_segment * Templates.SEGMENT < minf(total_distance() + (ASYNC_AHEAD if async_enabled else Templates.AHEAD), finish_distance() - Templates.SEGMENT):
 		var base := Templates.START_DISTANCE + next_segment * Templates.SEGMENT - world_origin
 		if async_enabled:
