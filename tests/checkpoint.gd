@@ -148,6 +148,10 @@ func verify_level(difficulty: String, level: int, seed_value: int) -> void:
 			wait_worker(run)
 			run.step(Run.FIXED_STEP, Vector2(1, 0), Vector2(1, 0), false, false)
 			if run.state != "running": break
+		# 一人踩空、队友站稳时先进入坠落救援；不按键则 3 秒后共同坠落。
+		for n in range(480):
+			if run.state != "rescue": break
+			run.step(Run.FIXED_STEP)
 		walked_off = walked_off or run.fallen[0] or run.fallen[1]
 	check(tag + "走出路面坠落失败 reason=%s" % run.reason, run.state == "failed" and walked_off)
 	check(tag + "坠落后存档未被覆盖", var_to_str(run.checkpoint) == var_to_str(first_save))

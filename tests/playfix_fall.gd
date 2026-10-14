@@ -1,6 +1,6 @@
 extends SceneTree
 
-# 悬崖边缘：走出路面即坠落并判负，队友被连线拖下去；路面内不受影响。
+# 悬崖边缘：走出路面即坠落；队友站稳时先进入坠落救援，无人按键则 3 秒后判负，队友被连线拖下去；路面内不受影响。
 # 非 headless 运行时额外保存一张坠落过程截图。
 const Run = preload("res://scripts/road_run.gd")
 var failed := 0
@@ -17,10 +17,13 @@ func main() -> void:
 		var run = Run.new(false)
 		run.retry()
 		var ticks := 0
-		while run.state == "running" and ticks < 600:
+		var rescued_first := false
+		while run.state in ["running", "rescue"] and ticks < 1200:
+			rescued_first = rescued_first or run.state == "rescue"
 			run.step(Run.FIXED_STEP, Vector2(side, 0), Vector2(side, 0))
 			ticks += 1
 		var tag := "左侧" if side < 0 else "右侧"
+		check(tag + "队友站稳时先进入救援", rescued_first)
 		check(tag + "走出路面坠崖判负", run.state == "failed" and run.reason.contains("悬崖") and run.fallen == ([true, false] if side < 0 else [false, true]))
 		var outer: float = maxf(absf(run.a.position.x), absf(run.b.position.x))
 		check(tag + "坠落点刚越过边缘", outer > Run.EDGE and outer <= Run.EDGE + Run.FALL_REACH)
@@ -36,6 +39,10 @@ func main() -> void:
 	check("贴着边缘内侧行走不坠落", safe.state == "running")
 	# 空中越过边缘：落地时没有支撑才判负。
 	for tick in range(40): safe.step(Run.FIXED_STEP, Vector2(-1, 0), Vector2.ZERO, tick > 2)
+	check("跳出路面落地先进入救援", safe.state == "rescue")
+	for tick in range(400):
+		if safe.state != "rescue": break
+		safe.step(Run.FIXED_STEP)
 	check("跳出路面落地时坠崖", safe.state == "failed" and safe.reason.contains("悬崖"))
 	safe.dispose()
 	if DisplayServer.get_name() != "headless":

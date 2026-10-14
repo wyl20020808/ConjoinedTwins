@@ -19,6 +19,15 @@ const EDGE := Templates.ROAD_HALF_WIDTH
 const FALL_REACH := 30.0
 # 两人身体互不穿透：中心间距不得小于两倍碰撞半径，窄桥上只能前后单列通过。
 const BODY_GAP := 24.0
+# 坠落救援（试玩初值）：一人踩空而队友稳稳站在地面时，坠落者挂在绳上，世界冻结。
+# 救援者连按自己的跳跃键拉人，坠落者连按效果减半；进度持续回落，限时内拉满即救起，否则共同坠落。
+# RESCUE_RATES 是恰好在限时内拉满所需的救援者按键频率（次/秒）；同关每多救一次提高 RESCUE_ESCALATION 倍。
+const RESCUE_TIME := 3.0
+const RESCUE_DECAY := 0.4
+const RESCUE_CLIMB := 0.5
+const RESCUE_RATES := {"简单": 4.0, "普通": 5.5, "困难": 7.0}
+const RESCUE_ESCALATION := 1.15
+const RESCUE_INVULNERABLE := 1.0
 const FIXED_STEP := Templates.FIXED_STEP
 # 生产道路专用配置（试玩初值）；历史白盒继续使用 link_motion.gd 的 LIMIT，此处不改共用常量。
 # 绳长 7.33 米、前后各 ±5 米、跳跃初速 12 米/秒、重力 40 米/秒²：最高 1.8 米、0.30 秒到顶、0.60 秒腾空。
@@ -134,6 +143,11 @@ var confirmation_held := [true, true]
 var ground_support := [true, true]
 # 本次失败中先坠落的角色；队友被连线拖下去，仅供表现使用。
 var fallen := [false, false]
+# 进行中的救援（空字典表示没有）；last_support 为各角色最近一次有地面支撑的位置，救起后回到这里。
+var rescue := {}
+var rescue_count := 0
+var last_support := [Vector2.ZERO, Vector2.ZERO]
+var paused_from := "running"
 # 联机模式：不读缓存、不按线程快慢安装、种子由上一个种子确定性推导，保证两端模拟逐帧一致。
 var lockstep := false
 var charge_tutorial := false
@@ -151,7 +165,7 @@ var block_history := {}
 func sync_hash() -> int:
 	return var_to_str([state, a.position, b.position, heights, vertical_speed, distance, world_origin, elapsed,
 		coins, prizes, shield, level_index, next_segment, seed_value, obstacles.size(), rope.length, charge_gate,
-		charge_gates, gate_events, claimed_rewards, checkpoint_line, checkpoint_restores]).hash()
+		charge_gates, gate_events, claimed_rewards, checkpoint_line, checkpoint_restores, rescue, rescue_count]).hash()
 
 func level_speed() -> float:
 	return Templates.DIFFICULTIES[difficulty].speed * Levels.LEVELS[level_index].speed_scale
@@ -455,6 +469,9 @@ func retry(count_failure: bool = false) -> void:
 	heights = [0.0, 0.0]
 	ground_support = [true, true]
 	fallen = [false, false]
+	rescue = {}
+	rescue_count = 0
+	last_support = [a.position, b.position]
 	rope.height_a = ROPE_HEIGHT
 	rope.height_b = ROPE_HEIGHT
 	vertical_speed = [0.0, 0.0]
@@ -470,10 +487,11 @@ func retry(count_failure: bool = false) -> void:
 	update_checkpoint()
 
 func pause() -> void:
-	if state == "running":
+	if state in ["running", "rescue"]:
+		paused_from = state
 		state = "paused"
 	elif state == "paused":
-		state = "running"
+		state = paused_from
 	reset_input()
 
 func progress() -> float:
@@ -486,6 +504,9 @@ func step(delta: float, input_a: Vector2 = Vector2.ZERO, input_b: Vector2 = Vect
 	poll_generation()
 	if state == "settlement":
 		confirm_step(jump_a, jump_b)
+		return
+	if state == "rescue":
+		rescue_step(delta, jump_a, jump_b)
 		return
 	if state != "running":
 		return
@@ -536,7 +557,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		if jump_buffer[i] > 0:
 			if heights[i] == 0.0 and vertical_speed[i] == 0.0:
 				if not has_ground_support(a.position if i == 0 else b.position):
-					fall(i, a.position if i == 0 else b.position)
+					begin_fall(i, a.position if i == 0 else b.position)
 					return
 				vertical_speed[i] = JUMP_SPEED
 				jump_buffer[i] = 0
@@ -678,6 +699,8 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		a.position = ca
 		b.position = cb
 		advance_collapse(time_start, time_end, pa, ca, pb, cb, old_heights)
+		# 先求出双方支撑，再判定坠落：救援须知道队友此刻是否站稳。
+		var dropping: Array[int] = []
 		for i in range(2):
 			var from: Vector2 = pa if i == 0 else pb
 			var to: Vector2 = ca if i == 0 else cb
@@ -685,8 +708,13 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			if heights[i] == 0.0:
 				# 落地按最终脚下圆形支撑检查；贴地移动还检查全过程，不能跨过缺口。
 				if not ground_support[i] or (old_heights[i] == 0.0 and not ground_sweep_supported(from, to, time_end)):
-					fall(i, a.position if i == 0 else b.position)
-					return
+					dropping.append(i)
+		if not dropping.is_empty():
+			if dropping.size() == 2: fall(dropping[0], a.position if dropping[0] == 0 else b.position)
+			else: begin_fall(dropping[0], a.position if dropping[0] == 0 else b.position)
+			return
+		for i in range(2):
+			if ground_support[i] and heights[i] == 0.0: last_support[i] = a.position if i == 0 else b.position
 		rope_unwinding = false
 		if rope_bound:
 			if rope.touching() > 0 and rope.total_wrap < wrap_before - ROPE_UNWIND_RATE * dt:
@@ -888,6 +916,81 @@ func restore_checkpoint() -> bool:
 func fall(role: int, point: Vector2) -> void:
 	fallen[role] = true
 	fail_threat(("%02d 走出路面坠下悬崖，队友被连线一起拖了下去" if absf(point.x) > EDGE else "%02d 踩空坠落，绳索拉不住，两人共同重试") % [role + 1])
+
+# 队友贴地站稳才能拉住绳子；队友腾空或也失去支撑时按原规则直接坠落。
+func begin_fall(role: int, point: Vector2) -> void:
+	var partner := 1 - role
+	if heights[partner] > 0.0 or vertical_speed[partner] != 0.0 or not ground_support[partner]:
+		fall(role, point)
+		return
+	var rate: float = RESCUE_RATES[difficulty] * pow(RESCUE_ESCALATION, rescue_count)
+	rescue = {"role": role, "point": point, "hang": hang_point(point, last_support[role]), "progress": 0.0, "time": 0.0, "rate": rate,
+		"gain": (1.0 / RESCUE_TIME + RESCUE_DECAY) / rate, "presses": [0, 0]}
+	state = "rescue"
+	actions[role] = "Hang"
+	reset_input()
+
+# 仅供表现：失足时身体中心可能仍在桥面上方，沿离开方向找到真正的崖沿，吊在崖沿外 0.4 米。
+func hang_point(point: Vector2, from: Vector2) -> Vector2:
+	var direction := (point - from).normalized()
+	if direction == Vector2.ZERO: direction = Vector2(signf(point.x) if point.x != 0.0 else 1.0, 0)
+	var gaps := ground_gaps()
+	var probe := point
+	for n in range(40):
+		if absf(probe.x) > EDGE or not Surfaces.supported(probe, 0.5, gaps): break
+		probe += direction * 2.0
+	return probe + direction * 8.0
+
+# 冻结世界，只推进救援计时；按键只计按下边沿，按住不算。
+func rescue_step(delta: float, jump_a: bool, jump_b: bool) -> void:
+	if clear_input:
+		jump_held = [jump_a, jump_b]
+		clear_input = false
+	else:
+		var pressed := [jump_a, jump_b]
+		for i in range(2):
+			if pressed[i] and not jump_held[i]:
+				rescue.presses[i] += 1
+				rescue.progress = minf(1.0, rescue.progress + rescue.gain * (RESCUE_CLIMB if i == rescue.role else 1.0))
+			jump_held[i] = pressed[i]
+	if rescue.progress >= 1.0:
+		finish_rescue()
+		return
+	accumulator += clampf(delta, 0, 0.25)
+	while accumulator + 0.0000001 >= FIXED_STEP and state == "rescue":
+		accumulator -= FIXED_STEP
+		rescue.time += FIXED_STEP
+		rescue.progress = maxf(0.0, rescue.progress - RESCUE_DECAY * FIXED_STEP)
+		if rescue.time >= RESCUE_TIME - 0.000001:
+			var point: Vector2 = rescue.point
+			var role: int = rescue.role
+			rescue = {}
+			fall(role, point)
+
+# 救起：回到失足前最近的支撑点；该点已塌陷或离队友太近时，沿队友方向找最近的安全落脚点。
+func finish_rescue() -> void:
+	var role: int = rescue.role
+	var partner_point: Vector2 = b.position if role == 0 else a.position
+	var anchor: Vector2 = bounded(last_support[role])
+	for n in range(21):
+		var candidate := anchor.lerp(partner_point, n / 20.0)
+		if has_ground_support(candidate) and candidate.distance_to(partner_point) >= BODY_GAP and solid_sweep_clear(candidate, candidate, 0.0, 0.0):
+			anchor = candidate
+			break
+	if role == 0: a.position = anchor
+	else: b.position = anchor
+	heights[role] = 0.0
+	vertical_speed[role] = 0.0
+	ground_support[role] = true
+	last_support[role] = anchor
+	rope.reset(a.position, b.position)
+	invulnerable_until = elapsed + RESCUE_INVULNERABLE
+	rope_resume = 0.0
+	rescue_count += 1
+	rescue = {}
+	actions = ["Run", "Run"]
+	state = "running"
+	reset_input()
 
 func fail_threat(message: String) -> void:
 	cancel_generation()
