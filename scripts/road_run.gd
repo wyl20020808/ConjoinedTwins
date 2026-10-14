@@ -13,9 +13,12 @@ const SyncPlates = preload("res://scripts/road_sync_plates.gd")
 const FINISH := 9000.0
 const FORWARD := 120.0
 const LATERAL := Templates.MANUAL_SPEED
-# 山脊路面半宽 10.5 米。两侧没有护栏：角色中心越过 EDGE 即失去支撑坠崖，最多走出 FALL_REACH。
-const EDGE := 210.0
+# 山脊路面半宽 16 米（加宽后绳长约为路宽的四分之一，分开绕行时会被绳索拉住）。
+# 两侧没有护栏：角色中心越过 EDGE 即失去支撑坠崖，最多走出 FALL_REACH。须与 Templates.ROAD_HALF_WIDTH 一致。
+const EDGE := Templates.ROAD_HALF_WIDTH
 const FALL_REACH := 30.0
+# 两人身体互不穿透：中心间距不得小于两倍碰撞半径，窄桥上只能前后单列通过。
+const BODY_GAP := 24.0
 const FIXED_STEP := Templates.FIXED_STEP
 # 生产道路专用配置（试玩初值）；历史白盒继续使用 link_motion.gd 的 LIMIT，此处不改共用常量。
 # 绳长 7.33 米、前后各 ±5 米、跳跃初速 12 米/秒、重力 40 米/秒²：最高 1.8 米、0.30 秒到顶、0.60 秒腾空。
@@ -617,6 +620,9 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 					high = t
 			ca = ba.lerp(ca, low)
 			cb = bb.lerp(cb, low)
+		var bodies := separate_bodies(pa, pb, ca, cb)
+		ca = bodies[0]
+		cb = bodies[1]
 		# 所有约束修正（含边界夹取、二分和舍入收回）均在提交前检查实际扫掠。
 		# 失败时从上一合法位置联合缩短位移，不提交后再拉回角色。
 		if not solid_sweep_clear(pa, ca, old_heights[0], heights[0]) or not solid_sweep_clear(pb, cb, old_heights[1], heights[1]):
@@ -744,6 +750,20 @@ func rope_span(p: Vector2, q: Vector2, rope_a: float, rope_b: float, circles: Ar
 		rope.solved_valid = true
 		return p.distance_to(q)
 	return rope.solve(p, q, rope_a, rope_b, circles, false)
+
+# 只削减本子步内“朝对方靠近”的位移分量，按各自靠近量分摊；不推动静止的队友，也不拉回已有间距。
+# 上一子步已重叠时只禁止继续靠近。修正后的位置仍经过边界夹取和后续实体扫掠复核。
+func separate_bodies(pa: Vector2, pb: Vector2, ca: Vector2, cb: Vector2) -> Array:
+	var gap := ca.distance_to(cb)
+	var floor_gap := minf(BODY_GAP, pa.distance_to(pb))
+	if gap >= floor_gap - 0.00001: return [ca, cb]
+	var normal := (cb - ca).normalized() if gap > 0.00001 else (pb - pa).normalized()
+	if normal == Vector2.ZERO: normal = Vector2.RIGHT
+	var ma := maxf(0.0, (ca - pa).dot(normal))
+	var mb := maxf(0.0, (pb - cb).dot(normal))
+	if ma + mb < 0.00001: return [pa, pb]
+	var overlap := floor_gap - gap
+	return [bounded(ca - normal * overlap * ma / (ma + mb)), bounded(cb + normal * overlap * mb / (ma + mb))]
 
 # 仅实体高障碍限制免伤位移；接触表面允许沿面滑行和向外回撤。
 # 0.001 地面单位只消除浮点相切误判，远小于既有绳长容限。
