@@ -10,7 +10,7 @@ static func make_tutorial() -> Dictionary:
 		"open": false, "charge": 0.0, "occupied": [false, false],
 		"receiver": Vector2(0, HOLD_DISTANCE),
 		"left": Rect2(-63, 272, 36, 36), "right": Rect2(27, 272, 36, 36),
-		"door": Rect2(-250, 380, 500, 12)}
+		"door": Rect2(-380, 380, 760, 12)}
 
 static func advance(gate: Dictionary, a: Vector2, b: Vector2,
 		grounded_a: bool, grounded_b: bool, delta: float) -> void:

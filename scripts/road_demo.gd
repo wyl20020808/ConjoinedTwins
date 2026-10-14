@@ -8,6 +8,9 @@ const SCALE := 20.0
 const SKY_YAW := 240.0
 # 可见路面比可站立范围每侧多 0.3 米：角色中心到边即踩空。
 const ROAD_HALF := Run.EDGE / SCALE + 0.3
+# 缺口岩壁向下 6 米后敞开，再往下 28 米是与路外相同的云海（坠落角色先穿过可见空间再没入云中）；窄桥桥面只露出一米厚的石板。
+const GAP_DEPTH := 6.0
+const PLANK_THICKNESS := 1.0
 var run = Run.new(true, true)
 var road := Node3D.new()
 var camera := Camera3D.new()
@@ -39,6 +42,12 @@ var capture_mode := false
 var reward_views: Array[Node3D] = []
 var finish_view := Node3D.new()
 var fall_clock := 0.0
+# 失败演出：失败后先运镜展示过程（撞击推近、坠落跟拍），演出结束才弹失败面板。
+# 镜头只在失败演出期间移动，跑动中仍固定朝向。
+var fail_clock := 0.0
+var camera_home := Transform3D()
+const FAIL_HIT_SHOW := 1.6
+const FAIL_FALL_SHOW := 2.6
 var rock_meshes := {}
 var mist_layers: Array[StandardMaterial3D] = []
 const RopeView = preload("res://scripts/rope_view.gd")
@@ -146,6 +155,29 @@ func rock(parent: Node3D, mesh: Mesh, mat: Material, pos: Vector3, size: float =
 	return instance
 
 # 地面危险区：半透明、不受光照，压在路面上仍看得见下面的车道线。
+# 缺口内壁与路外崖壁同材质；内壁整天处在路面阴影里，不接收阴影以免变成黑洞。
+func gap_wall_material() -> StandardMaterial3D:
+	if materials.has("gap_wall_lit"): return materials["gap_wall_lit"]
+	var m: StandardMaterial3D = tex_material("cliff_face", "rock_face_03", 0.11, Color("a89a90")).duplicate()
+	m.disable_receive_shadows = true
+	# 黄昏逆光下缺口远壁正对镜头背光，补一点同色自发光保留岩石纹理。
+	m.emission_enabled = true
+	m.emission_texture = m.albedo_texture
+	m.emission = Color("a89a90")
+	m.emission_energy_multiplier = 0.12
+	materials["gap_wall_lit"] = m
+	return m
+
+# 缺口下方的云海：复用背景云层纹理，不受路面阴影压暗，颜色与路外云海一致。
+func gap_mist_material() -> StandardMaterial3D:
+	if materials.has("gap_mist"): return materials["gap_mist"]
+	var m: StandardMaterial3D = mist_layers[0].duplicate() if not mist_layers.is_empty() else StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	m.albedo_color = Color("8d86a0")
+	materials["gap_mist"] = m
+	return m
+
 func zone_material(name: String, color: Color) -> StandardMaterial3D:
 	var m := material(name, color)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -291,13 +323,14 @@ func build_lighting() -> void:
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 140
 	add_child(sun)
-	# 镜头压低拉近：角色更大，路面掠过得更快。
-	camera.position = Vector3(0, 8.8, 17.5)
+	# 路面加宽到 32 米后镜头抬高后移，两侧路边（含后退 5 米时）仍在 16:9 画面内；仍固定朝向。
+	camera.position = Vector3(0, 11.5, 22.0)
 	camera.fov = 62
 	camera.far = 450
 	add_child(camera)
-	camera.look_at(Vector3(0, 1.4, -23))
+	camera.look_at(Vector3(0, 1.2, -22))
 	camera.current = true
+	camera_home = camera.transform
 
 func build_road() -> void:
 	# 悬空山脊：没有护栏的古石板路，两侧是崖壁、孤峰和云海。路面宽度与可站立范围同源。
@@ -340,7 +373,7 @@ func build_road() -> void:
 		for side in [-1, 1]:
 			var rim := box(chunk, Vector3(side * (ROAD_HALF - 0.12), 0.012, 0), Vector3(0.2, 0.02, 8), edge_mat)
 			rim.set_meta("road_overlay", true)
-			box(chunk, Vector3(side * (ROAD_HALF - 0.45), -1.85, 0), Vector3(0.9, 2.7, 8), cliff)
+			box(chunk, Vector3(side * (ROAD_HALF - 0.45), -1.85, 0), Vector3(0.9, 2.7, 8), cliff).name = "EdgeWallLeft" if side < 0 else "EdgeWallRight"
 			# 崖壁不是一堵平墙：每段两根贴壁的扶壁岩柱，顶端参差地停在路面以下。
 			for z in [-2.0, 2.0]:
 				var buttress: Mesh = rock_meshes["buttress_%d" % rng.randi_range(0, 3)]
@@ -614,7 +647,7 @@ func build_industrial_model(chunk: Node3D, index: int) -> void:
 			# 每块地板的阶段颜色独立变化，避免共享材质覆盖其他板的预警。
 			body.material_override = body.material_override.duplicate()
 			for n in range(3):
-				var crack := box(body, Vector3((n - 1) * 1.5, 0.02, 0), Vector3(0.06, 0.02, 2.6), material("collapse_crack", Color("ff692e"), 0.7))
+				var crack := box(body, Vector3((n - 1) * 1.5, 0.02, 0), Vector3(0.12, 0.02, 2.6), material("collapse_crack", Color("ff692e"), 1.2))
 				crack.rotation.y = (n - 1) * 0.35
 		# 岩鹰和矿车用实际模型，缩放到不超出同源碰撞盒；原方块隐藏但仍驱动位置和显隐。
 		if kind == "drone":
@@ -657,8 +690,10 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 		if p.name == "floor":
 			body.position.y = 0.26
 			body.mesh.size.y = 0.02
-			body.material_override.albedo_color = Color("f6b650") if sample.warning else Color("667f89")
-			for child in body.get_children(): child.visible = sample.warning
+			# 完整时也是醒目的琥珀色裂纹石板；预警期间黄红闪烁。
+			var flash: bool = fmod(run.elapsed, 0.3) < 0.15
+			body.material_override.albedo_color = (Color("ffd23a") if flash else Color("ff4a1c")) if sample.warning else Color("c9963f")
+			for child in body.get_children(): child.visible = true
 		if p.name == "nozzle": body.position.y = 0.26
 	if run.kinds[index] == "drone":
 		# 预警时原地扇翅悬停，俯冲时收成后掠翼并压低机头；暂停时动画一起冻结。
@@ -712,15 +747,24 @@ func build_surface_hazard(chunk: Node3D, index: int) -> void:
 		envelope.material_override.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		envelope.name = "WarningFootprint"
 	else:
-		var pit := box(chunk, Vector3(0, -3.0, 0), Vector3(rect.size.x / SCALE, 0.1, rect.size.y / SCALE), zone_material("gap_depth", Color(0.01, 0.01, 0.015, 1.0)))
-		pit.material_override.disable_fog = true
-		pit.name = "GapDepth"
+		# 断崖缺口是真正的镂空：缺口下方路基隐藏，透过岩壁向下看到的是与路外相同的云海。
+		var mist := box(chunk, Vector3(0, -28.0, 0), Vector3(1, 0.05, 1), gap_mist_material())
+		mist.name = "GapMist"
+		# 坑沿是发光黄色警戒条，坑前路面另有一条闪烁的红色预警带。所有尺寸在 sync_view 中按实际缺口矩形同步。
 		for side in [-1, 1]:
-			var edge := box(chunk, Vector3(0, 0.01, side), Vector3(1, 0.02, 0.06), material("gap_edge", Color("ffbc54"), 0.5))
+			var edge := box(chunk, Vector3(0, 0.03, side), Vector3(1, 0.06, 0.4), material("gap_edge", Color("ffd23a"), 1.4))
 			edge.name = "GapNear" if side > 0 else "GapFar"
+			var inner := box(chunk, Vector3(0, 0.035, side), Vector3(1, 0.06, 0.14), material("gap_edge_inner", Color("ff3b1f"), 1.6))
+			inner.name = "GapNearInner" if side > 0 else "GapFarInner"
+			var face := box(chunk, Vector3(0, -GAP_DEPTH / 2, side), Vector3(1, GAP_DEPTH, 0.06), gap_wall_material())
+			face.name = "GapNearWall" if side > 0 else "GapFarWall"
 		for side in [-1, 1]:
-			var wall := box(chunk, Vector3(side, -1.5, 0), Vector3(0.06, 3.0, 1), tex_material("gap_wall", "rock_face_03", 0.25, Color("6b5f58")))
+			var wall := box(chunk, Vector3(side, -GAP_DEPTH / 2, 0), Vector3(0.06, GAP_DEPTH, 1), gap_wall_material())
 			wall.name = "GapLeft" if side < 0 else "GapRight"
+			var rim := box(chunk, Vector3(side, 0.03, 0), Vector3(0.3, 0.06, 1), material("gap_edge", Color("ffd23a"), 1.4))
+			rim.name = "GapLeftRim" if side < 0 else "GapRightRim"
+		var approach := box(chunk, Vector3(0, 0.02, 2), Vector3(1, 0.02, 2.4), zone_material("gap_approach", Color(1.0, 0.18, 0.08, 0.45)))
+		approach.name = "GapApproach"
 	var sign := Label3D.new()
 	sign.name = "WarningLabel"
 	sign.text = Run.hazard_name(kind)
@@ -740,6 +784,13 @@ func sync_road_support(chunk: Node3D) -> void:
 	for gap in gaps:
 		var local := Rect2(gap.position.x / SCALE, -gap.end.y / SCALE - chunk.position.z, gap.size.x / SCALE, gap.size.y / SCALE)
 		if local.intersects(Rect2(-ROAD_HALF, -4, ROAD_HALF * 2, 8)): cuts.append(local)
+	# 缺口下方不留实心路基，镂空直通崖下云雾；缺口自身的岩壁补齐断面。
+	chunk.get_node("CliffBody").visible = cuts.is_empty()
+	for side in [-1, 1]:
+		var touches_edge := false
+		for cut in cuts:
+			touches_edge = touches_edge or (cut.end.x >= ROAD_HALF - 0.9 if side > 0 else cut.position.x <= -ROAD_HALF + 0.9)
+		chunk.get_node("EdgeWallLeft" if side < 0 else "EdgeWallRight").visible = not touches_edge
 	if cuts.is_empty():
 		surface.mesh = surface.get_meta("original_mesh")
 	else:
@@ -1252,9 +1303,9 @@ func build_charge_gate(view: Node3D = null) -> void:
 	var steel := material("gate_steel", Color("385360"))
 	var energy := material("gate_energy", Color("ffc06b"), 0.4)
 	for side in [-1, 1]:
-		box(view, Vector3(side * 11.6, 2.5, -7.8), Vector3(0.6, 5, 0.8), steel)
-	box(view, Vector3(0, 5.1, -7.8), Vector3(23.8, 0.4, 0.8), steel)
-	var door := box(view, Vector3(0, 2.5, -7.8), Vector3(25, 5, 0.6), energy)
+		box(view, Vector3(side * (ROAD_HALF + 0.4), 2.5, -7.8), Vector3(0.6, 5, 0.8), steel)
+	box(view, Vector3(0, 5.1, -7.8), Vector3(ROAD_HALF * 2 + 1.4, 0.4, 0.8), steel)
+	var door := box(view, Vector3(0, 2.5, -7.8), Vector3(ROAD_HALF * 2 + 1.0, 5, 0.6), energy)
 	door.name = "Door"
 	for side in [-1, 1]:
 		var zone_center: float = (Run.ChargeGate.ZONE_INNER + Run.ChargeGate.ZONE_OUTER) * 0.5 / SCALE
@@ -1364,13 +1415,15 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif event.keycode == KEY_R:
 		command("retry")
 	elif event.keycode == KEY_ENTER or event.keycode == KEY_SPACE:
-		if run.state != "running":
+		# 空格/回车也是跳跃键：失败演出期间不能被跳跃误触直接重试；R 仍可主动跳过。
+		if run.state != "running" and not fail_showing():
 			command("primary")
 	update_ui()
 
 func _physics_process(delta: float) -> void:
 	if capture_mode:
 		return
+	fail_clock = fail_clock + delta if run.state == "failed" else 0.0
 	touch.set_enabled(touch_device and run.state in ["running", "settlement"])
 	if net.active():
 		online_process(delta)
@@ -1488,6 +1541,35 @@ func play_events(before: Dictionary, previous_state: String) -> void:
 func falling() -> bool:
 	return run.state == "failed" and (run.fallen[0] or run.fallen[1])
 
+func fail_showing() -> bool:
+	return run.state == "failed" and fail_clock < (FAIL_FALL_SHOW if falling() else FAIL_HIT_SHOW)
+
+# 撞击：0.8 秒内推近到出事角色身后侧上方。坠落：跟到崖边，镜头随下坠角色俯视进云雾。
+func update_camera() -> void:
+	if run.state != "failed" or robots.size() < 2:
+		camera.transform = camera_home
+		return
+	var role := 1 if run.reason.begins_with("02") else 0
+	if falling(): role = 0 if run.fallen[0] else 1
+	var single: bool = falling() or run.reason.begins_with("01") or run.reason.begins_with("02")
+	var focus: Vector3 = robots[role].position if single else (robots[0].position + robots[1].position) * 0.5
+	var eye: Vector3
+	var look: Vector3
+	if falling() and absf(focus.x) > ROAD_HALF - 1.0:
+		# 走出路边：镜头移到崖外半空，侧看角色沿崖壁坠入云雾。
+		var out_side := signf(focus.x)
+		eye = Vector3(focus.x + out_side * 9.0, 5.0, focus.z + 10.0)
+		look = Vector3(focus.x - out_side * 1.0, maxf(focus.y, -24.0) + 0.6, focus.z)
+	elif falling():
+		# 路面缺口：镜头越过缺口到对侧上方回望，俯视角色掉进镂空（不被近侧岩壁挡住）。
+		eye = Vector3(focus.x + 1.5, 10.0, focus.z - 3.0)
+		look = Vector3(focus.x, maxf(focus.y, -24.0) + 0.6, focus.z - 1.0)
+	else:
+		eye = Vector3(focus.x * 0.7, 4.6, focus.z + 7.5)
+		look = focus + Vector3(0, 1.3, -1.5)
+	var ease := smoothstep(0.0, 0.8 if not falling() else 0.6, fail_clock)
+	camera.transform = camera_home.interpolate_with(Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP), ease)
+
 func sync_view() -> void:
 	if view_revision != run.revision: rebuild_hazard_views()
 	sync_rewards()
@@ -1523,18 +1605,38 @@ func sync_view() -> void:
 			view.get_node("WarningLabel").text = "旋转扫杆 · 支座须绕行 · 低杆可跳"
 			continue
 		if run.kinds[index] == "road_gap":
-			var width: float = rect.size.x / SCALE
+			# 窄桥两侧缺口延伸到路外；显示只画路面以内部分，坑底不悬在悬崖外。
+			var left := maxf(rect.position.x / SCALE, -ROAD_HALF)
+			var right := minf(rect.end.x / SCALE, ROAD_HALF)
+			var width: float = maxf(0.05, right - left)
 			var length: float = rect.size.y / SCALE
-			view.get_node("GapDepth").mesh.size = Vector3(width, 0.1, length)
-			for edge_name in ["GapNear", "GapFar"]:
+			view.position.x = (left + right) * 0.5
+			view.get_node("GapMist").mesh.size = Vector3(width + 2.0, 0.05, length + 2.0)
+			var narrow: bool = rect.size.y >= Run.Templates.NARROW_LENGTH - 0.01
+			for edge_name in ["GapNear", "GapFar", "GapNearInner", "GapFarInner", "GapNearWall", "GapFarWall"]:
 				var edge: MeshInstance3D = view.get_node(edge_name)
 				edge.mesh.size.x = width
-				edge.position.z = (1 if edge_name == "GapNear" else -1) * (length / 2 + 0.04)
+				var inset: float = 0.07 if edge_name.ends_with("Inner") else (0.03 if edge_name.ends_with("Wall") else 0.2)
+				edge.position.z = (1 if edge_name.begins_with("GapNear") else -1) * (length / 2 + inset)
 			for wall_name in ["GapLeft", "GapRight"]:
+				var sign_x := -1 if wall_name == "GapLeft" else 1
 				var wall: MeshInstance3D = view.get_node(wall_name)
 				wall.mesh.size.z = length
-				wall.position.x = (-1 if wall_name == "GapLeft" else 1) * (width / 2 + 0.03)
-			view.get_node("WarningLabel").text = "长缺口 · 两人同侧绕行" if rect.size.y >= Run.Surfaces.LONG_GAP else Run.hazard_name("road_gap")
+				wall.position.x = sign_x * (width / 2 + 0.03)
+				# 窄桥一侧只画桥板厚度，桥下悬空；其余缺口侧壁深入崖下。
+				var depth: float = PLANK_THICKNESS if narrow and (left if sign_x < 0 else right) * sign_x < ROAD_HALF - 0.01 else GAP_DEPTH
+				wall.mesh.size.y = depth
+				wall.position.y = -depth / 2
+				var rim: MeshInstance3D = view.get_node(wall_name + "Rim")
+				rim.mesh.size.z = length
+				rim.position.x = sign_x * (width / 2 + 0.15)
+				# 贴着悬崖外沿的一边不画桥边警戒条。
+				rim.visible = (left if sign_x < 0 else right) * sign_x < ROAD_HALF - 0.01
+			var approach: MeshInstance3D = view.get_node("GapApproach")
+			approach.mesh.size.x = width
+			approach.position.z = length / 2 + 0.4 + 1.2
+			approach.material_override.albedo_color.a = 0.3 + 0.25 * sin(run.elapsed * 7.0)
+			view.get_node("WarningLabel").text = "独木窄桥 · 只容一人，前后依次通过" if narrow else ("长缺口 · 两人同侧绕行" if rect.size.y >= Run.Surfaces.LONG_GAP else Run.hazard_name("road_gap"))
 			continue
 		if run.hazard_specs[index].get("front", false):
 			var route: MeshInstance3D = view.get_node("FlightRoute")
@@ -1599,8 +1701,13 @@ func sync_view() -> void:
 		shadows[i].scale = Vector3.ONE * (1.0 - 0.36 * run.heights[i] / Run.JUMP_APEX + run.land_time[i] * 1.2)
 		# 踩空的人立刻下坠并前倾，队友被连线拖住 0.3 秒后跟着掉下去。
 		var drop: float = maxf(0.0, fall_clock - (0.0 if run.fallen[i] else 0.3)) if falling() else 0.0
-		robots[i].position.y -= minf(70.0, 16.0 * drop * drop)
-		if drop > 0: robots[i].rotation.x = minf(1.3, drop * 2.2)
+		# 下坠放慢到可看清：约 2.5 秒坠入崖下云雾，边掉边翻滚。
+		robots[i].position.y -= minf(70.0, 7.0 * drop * drop)
+		if drop > 0:
+			# 从路边坠落的角色边翻滚边向外飘离崖壁，不被扶壁岩挡住。
+			if absf(robots[i].position.x) > ROAD_HALF - 1.5: robots[i].position.x += signf(robots[i].position.x) * minf(5.0, drop * 3.5)
+			robots[i].rotation.x = drop * 2.4
+			robots[i].rotation.z = drop * (0.9 if i == 0 else -0.9)
 		shadows[i].visible = drop == 0.0
 		if i < animation_players.size():
 			var player := animation_players[i]
@@ -1650,6 +1757,7 @@ func sync_view() -> void:
 	var glow := 0.9 if status in ["blocked", "failed"] else (0.45 if taut or status == "unwinding" else 0.15)
 	# 暂停时绳子定格，不继续摆动。
 	if run.state != "paused": rope_view.simulate(path, frame_delta, tint, glow)
+	update_camera()
 	update_ui()
 
 func update_ui() -> void:
@@ -1670,7 +1778,7 @@ func update_ui() -> void:
 		button.visible = run.state == "start"
 		button.text = button.text.trim_prefix("✓ ")
 		if button.text == run.difficulty: button.text = "✓ " + button.text
-	panel.visible = run.state != "running" and not (falling() and fall_clock < 1.3)
+	panel.visible = run.state != "running" and not fail_showing()
 	primary.visible = run.state != "settlement"
 	match run.state:
 		"start":

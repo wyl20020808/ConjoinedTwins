@@ -12,7 +12,15 @@ const COMBINATIONS := {"pillar_press": ["pillar", "press"], "low_steam": ["fly_l
 # 横排巨岩：每段在主障碍所在位置把路面横向封死，只留下 open 里的区间（按 side=+1 书写，另一侧镜像）。
 # 留空的是主障碍自身占的位置和合法通道；迎面物用 depth 较长的岩墙夹出一条峡谷，不能提前或推后侧身躲开。
 # 通道左右随段落随机，跳跃段只留中间，所以一直贴着某一侧路边走必然撞墙。
-const ROAD_HALF_WIDTH := 210.0
+# 路面半宽（20 单位/米），road_run.EDGE 直接引用此值。加宽后开口仍按原 10.5 米路面的合法通道书写，
+# 原本通到路边的开口改为通到新路边；新增宽度只在开口外由巨岩补齐，不改变已验证主障碍的通过方式。
+const ROAD_HALF_WIDTH := 320.0
+# 窄桥：桥面宽 2 米，扣除碰撞半径后中心只有 ±0.4 米可站，两人身体互不穿透，只能前后单列。
+# 桥长 22 米，超过最高关速下“前后调节 10 米 + 0.6 秒腾空”的最大跳程，不能并排跳过两侧断崖。
+const NARROW_PLANK := 40.0
+const NARROW_START := 150.0
+const NARROW_LENGTH := 440.0
+const NARROW_SPACING := 40.0
 const ROWS := {
 	"left": {"y": 290, "depth": 65, "open": [[-45, 180]]}, "right": {"y": 290, "depth": 65, "open": [[-45, 180]]},
 	"stagger": {"y": 290, "depth": 65, "open": [[-45, 180]]},
@@ -24,9 +32,11 @@ const ROWS := {
 	"sweep_bypass": {"y": 290, "depth": 50, "open": [[-40, 180]]}, "sweep_single": {"y": 290, "depth": 50, "open": [[-40, 120]]},
 	"sweep_double": {"y": 290, "depth": 50, "open": [[-55, 55]]},
 	"gap_bypass": {"y": 290, "depth": 50, "open": [[-80, 200]]}, "gap_single": {"y": 290, "depth": 50, "open": [[-80, 80]]},
-	"gap_double": {"y": 290, "depth": 50, "open": [[-80, 80]]}, "gap_long": {"y": 300, "depth": 60, "open": [[-80, 210]]},
-"collapse": {"y": 525, "depth": 50, "open": [[-80, 210]]}, "steam": {"y": 555, "depth": 50, "open": [[-60, 210]]},
-	"drone": {"y": 250, "depth": 350, "open": [[-62, 210]]}, "press": {"y": 560, "depth": 50, "open": [[-100, 210]]}}
+	"gap_double": {"y": 290, "depth": 50, "open": [[-80, 80]]}, "gap_long": {"y": 300, "depth": 60, "open": [[-80, ROAD_HALF_WIDTH]]},
+	"collapse": {"y": 525, "depth": 50, "open": [[-80, ROAD_HALF_WIDTH]]}, "steam": {"y": 555, "depth": 50, "open": [[-60, ROAD_HALF_WIDTH]]},
+	"drone": {"y": 250, "depth": 350, "open": [[-62, ROAD_HALF_WIDTH]]}, "press": {"y": 560, "depth": 50, "open": [[-100, ROAD_HALF_WIDTH]]},
+	# 摆锤与矿车原先靠路边封住外侧；加宽后用巨岩补上，不能从新增路面绕过整个摆幅或矿车起点。
+	"hammer": {"y": 420, "depth": 56, "open": [[-215, 240]]}, "forklift": {"y": 570, "depth": 68, "open": [[-215, ROAD_HALF_WIDTH]]}}
 const DIFFICULTIES := {
 	"简单": {"speed": 250.0, "cap": 250.0, "density": 1, "density_cap": 2, "fly_frequency": 0.15, "fly_cap": 0.25, "warning": 1.5, "front_warning": 1.9, "complexity": 1},
 	"普通": {"speed": 295.0, "cap": 295.0, "density": 2, "density_cap": 3, "fly_frequency": 0.3, "fly_cap": 0.4, "warning": 1.25, "front_warning": 1.6, "complexity": 2},
@@ -41,9 +51,9 @@ const PILLAR_EVERY := 4
 const ROUTES := ["left", "right", "jump", "pillar", "ball", "low_jump", "stagger", "double"]
 # 独立身体高度教学和两种球先在第二关出现，双威胁只在第三关出现。
 const LEVEL_ROUTES := [
-	["stone_ball", "rocket", "hammer", "body", "collapse", "steam", "drone", "forklift", "press", "ball", "sweep_bypass", "gap_bypass", "double", "sweep_single", "gap_single", "stagger", "sweep_double", "gap_double", "rocket", "gap_long", "pillar", "low_jump", "jump", "ball", "left", "right", "body", "double"],
-	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right"],
-	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "double", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right"]]
+	["stone_ball", "rocket", "hammer", "body", "collapse", "steam", "drone", "forklift", "press", "ball", "sweep_bypass", "gap_bypass", "double", "sweep_single", "gap_single", "stagger", "sweep_double", "gap_double", "rocket", "gap_long", "pillar", "low_jump", "jump", "ball", "left", "right", "body", "double", "narrow", "narrow"],
+	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right", "narrow", "narrow"],
+	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "double", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right", "narrow", "narrow"]]
 # 一个生产固定步的最大轴向手动位移；段尾只允许正常按键步距残差。
 const MANUAL_SPEED := 300.0
 const FIXED_STEP := 1.0 / 120.0
@@ -170,7 +180,8 @@ static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumb
 	var weights: Dictionary = EXTRA_WEIGHTS[clampi(level, 0, EXTRA_WEIGHTS.size() - 1)]
 	var total := 0
 	for kind in weights: total += weights[kind]
-	var wanted: int = 2 + DIFFICULTIES[difficulty].complexity + level + picker.randi_range(0, 2)
+	# 加宽路面多放一个，避免宽阔路面显得空旷；仍须通过带陷阱复证。
+	var wanted: int = 3 + DIFFICULTIES[difficulty].complexity + level + picker.randi_range(0, 2)
 	var placed: Array = []
 	var others: Array = block.hazards.duplicate()
 	for attempt in range(wanted * 14):
@@ -186,7 +197,7 @@ static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumb
 		var position := Vector2(picker.randf_range(-ROAD_HALF_WIDTH + 8, ROAD_HALF_WIDTH - 8 - size.x), picker.randf_range(60, 790 - size.y))
 		var rect := Rect2(position, size)
 		# 全宽保护到达、观察、操作和门后归队空间。
-		if block.has("gate") and rect.grow(EXTRA_CLEARANCE).intersects(Rect2(-250, 0, 500, 350)): continue
+		if block.has("gate") and rect.grow(EXTRA_CLEARANCE).intersects(Rect2(-ROAD_HALF_WIDTH - 40, 0, ROAD_HALF_WIDTH * 2 + 80, 350)): continue
 		if not extra_fits(rect, others, block.rewards, corridor): continue
 		var hazard := {"kind": kind, "rect": rect, "extra": true}
 		if kind == "cargo": hazard.filler = true
@@ -288,6 +299,15 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 			"hazards": [{"kind": "cargo", "rect": Rect2(-45, 430, 90, 65)}],
 			"rewards": [{"kind": "coin", "position": Vector2(side * 110.0 - 25, 380), "radius": 20.0},
 				{"kind": "coin", "position": Vector2(side * 110.0 + 25, 520), "radius": 20.0}]}
+	if kind == "narrow":
+		# 两侧断崖一直延伸到路外，桥面偏向随机一侧；只放桥上金币，不放需两人并排到位的奖品。
+		var plank := side * 40.0
+		var outer := ROAD_HALF_WIDTH + 40.0
+		return {"route": kind, "lane": plank, "hazards": [
+			{"kind": "road_gap", "rect": Rect2(-outer, NARROW_START, plank - NARROW_PLANK * 0.5 + outer, NARROW_LENGTH), "narrow": true},
+			{"kind": "road_gap", "rect": Rect2(plank + NARROW_PLANK * 0.5, NARROW_START, outer - plank - NARROW_PLANK * 0.5, NARROW_LENGTH), "narrow": true}],
+			"rewards": [{"kind": "coin", "position": Vector2(plank, NARROW_START + 120), "radius": 20.0},
+				{"kind": "coin", "position": Vector2(plank, NARROW_START + 300), "radius": 20.0}]}
 	var lane := side * 110.0 if kind not in ["jump", "low_jump", "safe"] else 0.0
 	if kind in ["gap_bypass", "gap_long", "drone", "forklift", "press"]: lane = side * 130.0
 	if kind in ["sweep_double", "gap_double", "gap_single"]: lane = 0.0
@@ -313,7 +333,7 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 	if kind in ["left", "right", "stagger"]:
 		hazards.append({"kind": "cargo", "rect": Rect2(-45, 290, 90, 65)})
 	if kind == "pillar": hazards.append({"kind": "pillar", "rect": Rect2(-12, 300, 24, 24)})
-	if kind == "jump": hazards.append({"kind": "rail", "rect": Rect2(-246, 294, 492, 12)})
+	if kind == "jump": hazards.append({"kind": "rail", "rect": Rect2(-ROAD_HALF_WIDTH - 36, 294, ROAD_HALF_WIDTH * 2 + 72, 12)})
 	if kind == "low_jump": hazards.append({"kind": "fly_low", "rect": Rect2(-70, 760, 140, 24)})
 	if kind == "ball": hazards.append({"kind": "stone_ball" if level == 0 else "iron_ball", "rect": Rect2(-45, 550, 90, 90) if level == 0 else Rect2(-40, 550, 80, 80)})
 	if kind == "stone_ball": hazards.append({"kind": "stone_ball", "rect": Rect2(-45, 550, 90, 90)})
@@ -351,6 +371,8 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	if block.route in ["drone", "forklift", "press", "collapse", "steam"]: return_at = 650.0
 	if block.route == "hammer": return_at = 650.0
 	if block.route in ["charge_cargo", "sync_cargo"]: return_at = 570.0
+	# 后方角色完全离开桥尾断崖后才回中。
+	if block.route == "narrow": return_at = NARROW_START + NARROW_LENGTH + NARROW_SPACING + 30.0
 	# 分部危险的最后端必须落在双方及绳段后方才可回中。
 	for i in range(run.kinds.size()):
 		if not run.hazard_specs[i].get("industrial", false) or run.hazard_specs[i].get("extra", false): continue
@@ -370,13 +392,15 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	if d < 0: center = 0.0
 	var stagger: bool = block.route == "stagger" and d >= 230 and d < 410
 	var jump_stagger: bool = block.route in ["sweep_double", "gap_double"] and d >= 100 and d < 410
-	var width := 0.0 if stagger else 25.0
-	var offset := 30.0 if stagger else (18.0 if jump_stagger else 0.0)
+	# 窄桥：01 在前、02 在后排成单列，沿桥面中线通过。
+	var single_file: bool = block.route == "narrow" and d >= 0 and d < return_at
+	var width := 0.0 if stagger or single_file else 25.0
+	var offset := 30.0 if stagger else (NARROW_SPACING if single_file else (18.0 if jump_stagger else 0.0))
 	var first_error := Vector2(center - width - run.a.position.x, run.distance + offset - run.a.position.y)
 	var second_error := Vector2(center + width - run.b.position.x, run.distance - offset - run.b.position.y)
 	# 普通段危险接近时只共同横移，避免为半步残差突然前进改变 TTC。
 	# 前后合作段正常使用纵向按键；其余段在危险已通过的出口区修正残差。
-	if block.route != "stagger" and not jump_stagger and d < 450:
+	if block.route not in ["stagger", "narrow"] and not jump_stagger and d < 450:
 		first_error.y = 0
 		second_error.y = 0
 	# 出口先完成横移再修正前后残差，避免对角归一化吃掉回中余量。

@@ -18,7 +18,7 @@ static func make_tutorial() -> Dictionary:
 		"receiver": Vector2(0, HOLD_DISTANCE),
 		"left": Rect2(-ZONE_OUTER, 30, ZONE_OUTER - ZONE_INNER, 60),
 		"right": Rect2(ZONE_INNER, 30, ZONE_OUTER - ZONE_INNER, 60),
-		"door": Rect2(-250, 150, 500, 12)}
+		"door": Rect2(-380, 150, 760, 12)}
 
 static func relocate(gate: Dictionary, offset: float) -> void:
 	gate.receiver.y += offset
