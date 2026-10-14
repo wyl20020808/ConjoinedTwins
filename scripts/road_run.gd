@@ -58,6 +58,16 @@ const ASYNC_AHEAD := 3360.0
 const LATE_MARGIN := 1.0
 # 联机帧同步：后台证明在道路推进到固定位置时才安装（必要时等待线程），两台设备安装时机一致。
 const LOCKSTEP_LEAD := ASYNC_AHEAD - Templates.SEGMENT
+# 存档点（试玩初值）：每到一个段落入口，两人贴地站稳、绳未挂障碍且直行走廊内没有危险时保存完整快照。
+# 后方留 4 米、前方留 1 秒关速路程（另加身体半径与 1.5 米余量）、两侧各留 1.5 米；移动危险（迎面物、飞行物）不限左右，前方再多看 1.5 秒。
+const CHECKPOINT_CLEAR_BEHIND := 80.0
+const CHECKPOINT_CLEAR_AHEAD := 1.0
+const CHECKPOINT_SIDE_MARGIN := 30.0
+const CHECKPOINT_MOVING_AHEAD := 1.5
+# 快照不保存的属性：对象句柄单独保存；跨存档累计的统计、运行模式和生成调度不随恢复回退。
+const CHECKPOINT_EXCLUDED := ["a", "b", "rope", "generator", "checkpoint", "checkpoint_line", "checkpoint_restores",
+	"block_history", "failures", "results", "revision", "proven_blocks", "lockstep", "random_seed", "streaming",
+	"generation_enabled", "async_enabled", "charge_tutorial"]
 # 已证明布局按候选内容缓存，只在主线程读写；重试同种子时直接复用。
 static var proven_blocks := {}
 var a := Node2D.new()
@@ -130,12 +140,18 @@ var charge_tutorial := false
 var charge_gate: Dictionary = {"active": false, "open": false, "charge": 0.0}
 var charge_gates: Array[Dictionary] = []
 var gate_events: Array[Dictionary] = []
+# 最近一次存档点快照（空字典表示本关尚无存档）；checkpoint_line 为下一次尝试存档的进度线。
+var checkpoint := {}
+var checkpoint_line := 0.0
+var checkpoint_restores := 0
+# 本关已安装的段落按段号保存；从存档恢复后重新到达这些段时原样安装，不重新抽签，布局不会刷新。
+var block_history := {}
 
 # 联机两端定期比对的状态指纹；不一致说明两台设备的模拟已经分叉。
 func sync_hash() -> int:
 	return var_to_str([state, a.position, b.position, heights, vertical_speed, distance, world_origin, elapsed,
 		coins, prizes, shield, level_index, next_segment, seed_value, obstacles.size(), rope.length, charge_gate,
-		charge_gates, gate_events, claimed_rewards]).hash()
+		charge_gates, gate_events, claimed_rewards, checkpoint_line, checkpoint_restores]).hash()
 
 func level_speed() -> float:
 	return Templates.DIFFICULTIES[difficulty].speed * Levels.LEVELS[level_index].speed_scale
@@ -294,6 +310,10 @@ static func verification_worker(job: Dictionary, cancellation) -> Dictionary:
 # 返回 true 表示本段已直接安装（命中缓存或线程不可用），调用方可继续排下一段。
 func schedule_generation(base: float) -> bool:
 	if async_thread != null: return false
+	if block_history.has(next_segment):
+		async_job = {"number": next_segment, "base": base + world_origin}
+		install_generated(block_history[next_segment].duplicate(true), "checkpoint_history")
+		return true
 	var candidate: Dictionary = generator.candidate_block(next_segment, level_index)
 	var candidates := [candidate]
 	for n in range(2): candidates.append(generator.candidate_of(candidate.route, level_index))
@@ -316,6 +336,7 @@ func install_generated(block: Dictionary, source: String, detail: String = "") -
 	var job: Dictionary = async_job
 	async_job = {}
 	install_block(block, job.base - world_origin, "%d:%d" % [level_index, job.number])
+	block_history[job.number] = block.duplicate(true)
 	route_segments.append({"number": job.number, "base": job.base, "block": block})
 	next_segment += 1
 	revision += 1
@@ -396,6 +417,11 @@ func retry(count_failure: bool = false) -> void:
 	world_origin = 0.0
 	next_segment = 0
 	route_segments.clear()
+	# 重试换新种子，旧存档和段落记录全部作废。
+	block_history.clear()
+	checkpoint = {}
+	checkpoint_line = 0.0
+	checkpoint_restores = 0
 	next_obstacle_id = 1
 	recycled = 0
 	rebases = 0
@@ -440,6 +466,8 @@ func retry(count_failure: bool = false) -> void:
 	reset_input()
 	# 生产入口必须先完成跳跃、绳状态和输入重置，再生成真实入口证书。
 	if streaming: update_stream()
+	# 起点即第一个存档点：开局附近失败也按同一布局恢复。
+	update_checkpoint()
 
 func pause() -> void:
 	if state == "running":
@@ -742,6 +770,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 	if not rope_bound: rope_resume = minf(1.0, rope_resume + FIXED_STEP / ROPE_RESUME_TIME)
 	if streaming: update_stream()
 	check_finish()
+	if state == "running": update_checkpoint()
 
 func rope_span(p: Vector2, q: Vector2, rope_a: float, rope_b: float, circles: Array) -> float:
 	if circles.is_empty() and rope.contacts.is_empty():
@@ -793,6 +822,67 @@ func charge_path_clear() -> bool:
 		for i in range(1, path.size()):
 			if maxf(z[i-1], z[i]) < sample.bottom or minf(z[i-1], z[i]) > sample.top: continue
 			if segment_hits(path[i-1], path[i], sample.rect): return false
+	return true
+
+# 存档只在安全时刻保存：两人贴地有支撑、绳索未挂障碍或受阻，且附近没有危险、缺口或正在逼近的移动物。
+func checkpoint_safe() -> bool:
+	for i in range(2):
+		if heights[i] != 0.0 or vertical_speed[i] != 0.0 or not ground_support[i]: return false
+	if rope.touching() > 0 or rope_block_substeps > 0 or rope_unwinding or rope_failed: return false
+	var low: float = minf(a.position.y, b.position.y) - CHECKPOINT_CLEAR_BEHIND
+	# 前方窗口从身体前缘算起，窗口内直行不会碰到缺口或障碍边缘。
+	var high: float = maxf(a.position.y, b.position.y) + Motion.RADIUS + CHECKPOINT_SIDE_MARGIN + level_speed() * CHECKPOINT_CLEAR_AHEAD
+	# 恢复后不按键会沿原横向位置直行：固定危险只看两人连同绳段直行扫过的走廊，移动危险不论左右都要远离。
+	var margin: float = Motion.RADIUS + CHECKPOINT_SIDE_MARGIN
+	var left: float = minf(a.position.x, b.position.x) - margin
+	var corridor := Rect2(left, low, maxf(a.position.x, b.position.x) + margin - left, high - low)
+	var far: float = high + level_speed() * CHECKPOINT_MOVING_AHEAD
+	for i in range(obstacles.size()):
+		var sample := hazard_sample(i, elapsed)
+		var rect: Rect2 = sample.get("envelope", sample.rect)
+		var moving: bool = hazard_specs[i].get("front", false) or kinds[i].begins_with("fly_") or kinds[i] in ["drone", "forklift"]
+		if rect.intersects(corridor, true) or (moving and rect.end.y >= low and rect.position.y <= far): return false
+		# 迎面物按相对速度估算到达时间，高速弩箭在更远处也算逼近。
+		if sample.has("ttc") and rect.end.y >= low and sample.ttc < CHECKPOINT_CLEAR_AHEAD + CHECKPOINT_MOVING_AHEAD: return false
+	return true
+
+func update_checkpoint() -> void:
+	if progress() < checkpoint_line or not checkpoint_safe(): return
+	capture_checkpoint()
+	# 下一条存档线是当前进度之后的下一个段落入口；入口不安全时在本段内顺延到首个安全时刻。
+	var passed: float = floorf((progress() - Templates.START_DISTANCE) / Templates.SEGMENT) + 1.0
+	checkpoint_line = Templates.START_DISTANCE + maxf(0.0, passed) * Templates.SEGMENT
+
+# 完整深拷贝对局：危险相位、奖励领取、机关进度、绳索接触和计时全部随快照回到存档时刻。
+func capture_checkpoint() -> void:
+	var excluded: Array = CHECKPOINT_EXCLUDED.duplicate()
+	for property in get_property_list():
+		if str(property.name).begins_with("async_"): excluded.append(property.name)
+	checkpoint = {"run": Templates.object_state(self, excluded), "a": a.position, "b": b.position,
+		"rope": Templates.object_state(rope), "progress": progress()}
+
+# 失败后从最近存档恢复：布局、已领奖励和金币回到存档时刻；存档之后已生成的段落按原样重新安装。
+# 恢复给予短暂无敌，并屏蔽仍按住的旧输入。没有存档时返回 false，由调用方改为整关重试。
+func restore_checkpoint() -> bool:
+	if checkpoint.is_empty() or state != "failed": return false
+	cancel_generation()
+	for name in checkpoint.run:
+		var value = checkpoint.run[name]
+		set(name, value.duplicate(true) if value is Array or value is Dictionary else value)
+	a.position = checkpoint.a
+	b.position = checkpoint.b
+	for name in checkpoint.rope:
+		var value = checkpoint.rope[name]
+		rope.set(name, value.duplicate(true) if value is Array or value is Dictionary else value)
+	# 快照里当前机关是队列内字典的独立副本，需重新指向队列成员，充能才写回同一对象。
+	select_charge_gate()
+	failures += 1
+	checkpoint_restores += 1
+	revision += 1
+	invulnerable_until = maxf(invulnerable_until, elapsed + Levels.INVULNERABILITY)
+	state = "running"
+	reset_input()
+	if streaming: update_stream()
 	return true
 
 func fall(role: int, point: Vector2) -> void:
@@ -1105,12 +1195,13 @@ func update_stream() -> void:
 		if async_enabled:
 			if schedule_generation(base): continue
 			break
-		var block: Dictionary = generator.generate_block(next_segment, difficulty, level_index, self, base)
+		var block: Dictionary = block_history[next_segment].duplicate(true) if block_history.has(next_segment) else generator.generate_block(next_segment, difficulty, level_index, self, base)
 		if block.is_empty():
 			generation_halted = true
 			fail_threat("安全段落验证失败，请重试")
 			return
 		install_block(block, base, "%d:%d" % [level_index, next_segment])
+		block_history[next_segment] = block.duplicate(true)
 		route_segments.append({"number": next_segment, "base": base + world_origin, "block": block})
 		next_segment += 1
 		revision += 1

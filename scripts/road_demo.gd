@@ -1378,6 +1378,10 @@ func primary_action() -> void:
 		run.pause()
 	elif run.state == "complete":
 		run.new_campaign()
+	elif run.state == "failed" and run.restore_checkpoint():
+		# 存档之后领取的奖励已恢复为未领取，清除其播报记录，再次拾取仍有飞币和音效。
+		for reward in run.rewards:
+			if not reward.claimed: announced.erase(reward.id)
 	elif run.state in ["start", "failed"]:
 		run.retry(run.state == "failed")
 	clear_controls()
@@ -1792,8 +1796,8 @@ func update_ui() -> void:
 			primary.text = "继续归航  /  Esc"
 		"failed":
 			title.text = "连接中断"
-			subtitle.text = run.reason + "\n第 %d 关已前进 %.0f 米；已完成总分 %d。\n重试会换一张新的随机地图，清空本关收益和护盾。\n" % [run.level_index + 1, run.progress() / SCALE, run.total_score()] + ("分侧过柱会让绳索绕住柱子；受阻后退回并绕到同一侧可以解围。" if run.rope_failed else ("路两侧没有护栏，一人踩空两人都会被拖下去。" if falling() else "两人协调选择安全走廊，保持地面连接距离。"))
-			primary.text = "两人共同重试  /  R"
+			subtitle.text = run.reason + "\n第 %d 关已前进 %.0f 米；已完成总分 %d。\n%s\n" % [run.level_index + 1, run.progress() / SCALE, run.total_score(), checkpoint_text()] + ("分侧过柱会让绳索绕住柱子；受阻后退回并绕到同一侧可以解围。" if run.rope_failed else ("路两侧没有护栏，一人踩空两人都会被拖下去。" if falling() else "两人协调选择安全走廊，保持地面连接距离。"))
+			primary.text = "从存档点继续  /  Enter" if not run.checkpoint.is_empty() else "两人共同重试  /  R"
 			if run.reason.contains("滚球") or run.reason.contains("滚石") or run.reason.contains("铁刺球"):
 				subtitle.text += "\n滚球应共同同侧避让；接触后及时后撤解围，耗尽长度持续 0.8 秒会失败。"
 
@@ -1809,6 +1813,10 @@ func update_ui() -> void:
 			subtitle.text += "重新开始将清空本轮总成绩。"
 			primary.text = "重新开始三关"
 	update_online_ui()
+
+func checkpoint_text() -> String:
+	if run.checkpoint.is_empty(): return "重试会换一张新的随机地图，清空本关收益和护盾。"
+	return "空格/回车：回到 %.0f 米处存档点，地图不变，金币与护盾回到存档时；R：整关重开并换新地图。" % [run.checkpoint.progress / SCALE]
 
 func update_online_ui() -> void:
 	var online: bool = net.active()
