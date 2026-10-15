@@ -3,6 +3,8 @@ extends RefCounted
 # 20 地面单位为一米；双方使用同一个固定步、连接和高度判定。
 const Motion = preload("res://scripts/link_motion.gd")
 const Templates = preload("res://scripts/road_templates.gd")
+const Terrain = preload("res://scripts/road_terrain.gd")
+const RopePhysics = preload("res://scripts/rope_physics.gd")
 const Rope = preload("res://scripts/rope_solver.gd")
 const Levels = preload("res://scripts/road_levels.gd")
 const Threats = preload("res://scripts/dynamic_threats.gd")
@@ -97,6 +99,10 @@ var obstacle_heights: Array[float] = []
 # 障碍的稳定标识：回收与重定位会改变列表下标，绳索接触按标识保存。
 var obstacle_ids: Array[int] = []
 var next_obstacle_id := 1
+var floor_heights := [0.0, 0.0]
+var death_time := 0.0
+var death_positions := PackedVector3Array()
+var death_velocities := PackedVector3Array()
 var rope = Rope.new()
 var rope_bound := false
 var rope_unwinding := false
@@ -189,7 +195,7 @@ var block_history := {}
 # 联机两端定期比对的状态指纹；不一致说明两台设备的模拟已经分叉。
 func sync_hash() -> int:
 	return var_to_str([state, a.position, b.position, heights, vertical_speed, distance, world_origin, elapsed,
-		coins, prizes, shield, level_index, next_segment, seed_value, obstacles.size(), rope.length, charge_gate,
+		coins, prizes, shield, level_index, next_segment, seed_value, obstacles.size(), rope.length, rope.physical, floor_heights, death_time, death_positions, death_velocities, charge_gate,
 		charge_gates, gate_events, claimed_rewards, checkpoint_line, checkpoint_restores, rescue, rescue_count, move_lock, move_lock_until]).hash()
 
 func level_speed() -> float:
@@ -650,6 +656,10 @@ func retry(count_failure: bool = false) -> void:
 				spec.blocked_time = 0.0
 				spec.travel = 0.0
 	heights = [0.0, 0.0]
+	floor_heights = [0.0, 0.0]
+	death_time = 0.0
+	death_positions.clear()
+	death_velocities.clear()
 	ground_support = [true, true]
 	fallen = [false, false]
 	rescue = {}
@@ -693,6 +703,9 @@ func step(delta: float, input_a: Vector2 = Vector2.ZERO, input_b: Vector2 = Vect
 		return
 	if state == "rescue":
 		rescue_step(delta, jump_a, jump_b)
+		return
+	if state == "failed":
+		death_step(delta)
 		return
 	if state != "running":
 		return
@@ -743,6 +756,15 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 	# 独立教学允许无限等待。停推进中心，不夹推角色；手动前后和跳跃仍按生产规则处理。
 	if charge_gate.active and not charge_gate.open:
 		step_speed = minf(step_speed, maxf(0, charge_gate.receiver.y - distance) / FIXED_STEP)
+	# 开桥后等待桥板真正落平，不能把开启标记当作已存在的地面。
+	for gate in charge_gates:
+		if gate.get("bridge", false) and gate.open and elapsed-gate.get("opened_at", elapsed) < 0.6:
+			step_speed = 0.0
+	for index in range(kinds.size()):
+		if kinds[index] != "lift": continue
+		var platform := terrain_sample(index,elapsed,obstacles[index].get_center())
+		if platform.height > 8.0 and minf(a.position.y,b.position.y) < obstacles[index].position.y+24.0:
+			step_speed = minf(step_speed,maxf(0,obstacles[index].position.y-36.0-distance)/FIXED_STEP)
 	distance += step_speed * FIXED_STEP
 	var circles := rope_circles()
 	var roped: bool = not circles.is_empty() or not rope.contacts.is_empty()
@@ -762,9 +784,10 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 	for substep in range(count):
 		var time_end := elapsed - FIXED_STEP + (substep + 1) * dt
 		var time_start := time_end - dt
+		var old_feet := [foot_height(0), foot_height(1)]
 		var old_heights := heights.duplicate()
-		var old_path: PackedVector2Array = rope.path.duplicate()
-		var old_path_heights: PackedFloat32Array = rope.path_heights()
+		var old_path: PackedVector2Array = rope.physical_path().duplicate()
+		var old_path_heights: PackedFloat32Array = rope.physical_heights()
 		var dynamic_before := advance_threats(dt)
 		circles = rope_circles()
 		roped = not circles.is_empty() or not rope.contacts.is_empty()
@@ -780,8 +803,8 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		circles = rope_circles()
 		var pa := a.position
 		var pb := b.position
-		var rope_a: float = ROPE_HEIGHT + heights[0]
-		var rope_b: float = ROPE_HEIGHT + heights[1]
+		var rope_a: float = ROPE_HEIGHT + foot_height(0)
+		var rope_b: float = ROPE_HEIGHT + foot_height(1)
 		var base := Vector2(0, step_speed * dt)
 		# 被巨岩挡在后边界之后的人：本子步至少随道路推进的位置为下限，可向前追回，不能自行继续掉队。
 		var floor_a := pa.y + base.y
@@ -808,16 +831,27 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			rope_resume = 0.0
 			floor_a = pa.y + base.y
 			floor_b = pb.y + base.y
-		var ca := bounded(pa + base + input_a * LATERAL * dt, floor_a)
-		var cb := bounded(pb + base + input_b * LATERAL * dt, floor_b)
+		var ca := bounded(pa + base + (platform_motion(pa, time_start, time_end) if heights[0]==0 else Vector2.ZERO) + input_a * LATERAL * dt, floor_a)
+		var cb := bounded(pb + base + (platform_motion(pb, time_start, time_end) if heights[1]==0 else Vector2.ZERO) + input_b * LATERAL * dt, floor_b)
+		ca = terrain_move(pa,ca,foot_height(0),time_end)
+		cb = terrain_move(pb,cb,foot_height(1),time_end)
+		# 绳索传递受控牵引，双方地面位移仍受扫掠碰撞及本子步最大速度限制。
+		var requested := rope_span(ca, cb, rope_a, rope_b, circles)
+		if requested > LINK_LIMIT and circles.is_empty() and rope.contacts.is_empty():
+			var correction := (cb - ca).normalized() * minf((requested - LINK_LIMIT) * 0.5, LATERAL * dt * 0.5)
+			var pull_a := bounded(ca + correction, floor_a)
+			var pull_b := bounded(cb - correction, floor_b)
+			if solid_sweep_clear(pa, pull_a, foot_height(0), foot_height(0)) and solid_sweep_clear(pb, pull_b, foot_height(1), foot_height(1)):
+				ca = pull_a
+				cb = pull_b
 		if charge_gate.active and not charge_gate.open:
 			# 全宽高门不允许跳过；保留横向滑行和后撤，最终约束位移还需扫掠复核。
 			var front: float = charge_gate.door.position.y - Motion.RADIUS - 0.01
 			ca.y = minf(ca.y, front)
 			cb.y = minf(cb.y, front)
 		# 巨岩只阻挡不伤人：期望位移先沿岩面滑行或原地停住，道路照常推进。
-		ca = resolve_cargo(pa, ca, old_heights[0], heights[0])
-		cb = resolve_cargo(pb, cb, old_heights[1], heights[1])
+		ca = resolve_cargo(pa, ca, old_feet[0], foot_height(0))
+		cb = resolve_cargo(pb, cb, old_feet[1], foot_height(1))
 		floor_a = minf(floor_a, ca.y)
 		floor_b = minf(floor_b, cb.y)
 		# 免伤不解除实体阻挡；先拒绝穿入柱子的期望位移，再求双方绳索。
@@ -828,7 +862,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 				for i in range(2):
 					var from: Vector2 = pa if i == 0 else pb
 					var to: Vector2 = ca if i == 0 else cb
-					if solid_sweep_hits(index, from, to, old_heights[i], heights[i]):
+					if solid_sweep_hits(index, from, to, old_feet[i], foot_height(i)):
 						if damage(collision_event(index), "%02d 命中%s，两人共同重试" % [i + 1, hazard_name(kinds[index])]): return
 						solid_blocked = true
 		if solid_blocked:
@@ -838,13 +872,13 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			base = Vector2.ZERO
 			ca = bounded(pa + input_a * LATERAL * dt, pa.y)
 			cb = bounded(pb + input_b * LATERAL * dt, pb.y)
-			if not solid_sweep_clear(pa, ca, old_heights[0], heights[0]): ca = pa
-			if not solid_sweep_clear(pb, cb, old_heights[1], heights[1]): cb = pb
+			if not solid_sweep_clear(pa, ca, old_feet[0], foot_height(0)): ca = pa
+			if not solid_sweep_clear(pb, cb, old_feet[1], foot_height(1)): cb = pb
 		if rope_span(ca, cb, rope_a, rope_b, circles) > LINK_LIMIT:
 			var ba := bounded(pa + base, floor_a)
 			var bb := bounded(pb + base, floor_b)
 			# 自动推进基准也必须已通过实体扫掠，禁止从穿入的位置开始绳索二分。
-			if not solid_sweep_clear(pa, ba, old_heights[0], heights[0]) or not solid_sweep_clear(pb, bb, old_heights[1], heights[1]):
+			if not solid_sweep_clear(pa, ba, old_feet[0], foot_height(0)) or not solid_sweep_clear(pb, bb, old_feet[1], foot_height(1)):
 				ba = pa
 				bb = pb
 			var slack := rope_span(ba, bb, rope_a, rope_b, circles)
@@ -856,7 +890,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 					var keep := (LINK_LIMIT - 0.002) / slack
 					ba = middle + (ba - middle) * keep
 					bb = middle + (bb - middle) * keep
-					if not solid_sweep_clear(pa, ba, old_heights[0], heights[0]) or not solid_sweep_clear(pb, bb, old_heights[1], heights[1]):
+					if not solid_sweep_clear(pa, ba, old_feet[0], foot_height(0)) or not solid_sweep_clear(pb, bb, old_feet[1], foot_height(1)):
 						ba = pa
 						bb = pb
 				else:
@@ -899,11 +933,11 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		cb = bodies[1]
 		# 所有约束修正（含边界夹取、二分和舍入收回）均在提交前检查实际扫掠。
 		# 失败时从上一合法位置联合缩短位移，不提交后再拉回角色。
-		if not solid_sweep_clear(pa, ca, old_heights[0], heights[0]) or not solid_sweep_clear(pb, cb, old_heights[1], heights[1]):
+		if not solid_sweep_clear(pa, ca, old_feet[0], foot_height(0)) or not solid_sweep_clear(pb, cb, old_feet[1], foot_height(1)):
 			var solid_hit := false
 			for index in range(kinds.size()):
 				if kinds[index] == "cargo": continue
-				if solid_sweep_hits(index, pa, ca, old_heights[0], heights[0]) or solid_sweep_hits(index, pb, cb, old_heights[1], heights[1]):
+				if solid_sweep_hits(index, pa, ca, old_feet[0], foot_height(0)) or solid_sweep_hits(index, pb, cb, old_feet[1], foot_height(1)):
 					solid_hit = true
 					if damage(collision_event(index), "角色约束位移命中%s，两人共同重试" % hazard_name(kinds[index])): return
 			# 只碰巨岩时道路继续推进，被挡的人落到后边界之后。
@@ -918,7 +952,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 				var t := (low + high) * 0.5
 				var first := pa.lerp(ca, t)
 				var second := pb.lerp(cb, t)
-				if solid_sweep_clear(pa, first, old_heights[0], heights[0]) and solid_sweep_clear(pb, second, old_heights[1], heights[1]) and first.distance_to(bounded(first, low_a)) < 0.01 and second.distance_to(bounded(second, low_b)) < 0.01 and rope_span(first, second, rope_a, rope_b, circles) <= LINK_LIMIT:
+				if solid_sweep_clear(pa, first, old_feet[0], foot_height(0)) and solid_sweep_clear(pb, second, old_feet[1], foot_height(1)) and first.distance_to(bounded(first, low_a)) < 0.01 and second.distance_to(bounded(second, low_b)) < 0.01 and rope_span(first, second, rope_a, rope_b, circles) <= LINK_LIMIT:
 					low = t
 				else: high = t
 			ca = pa.lerp(ca, low)
@@ -930,6 +964,18 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			rope.straight(ca, cb, rope_a, rope_b)
 		a.position = ca
 		b.position = cb
+		for role in range(2):
+			var point: Vector2 = ca if role == 0 else cb
+			var surface := surface_at(point, time_end)
+			if surface.supported:
+				var previous_floor: float = floor_heights[role]
+				floor_heights[role] = surface.height
+				if heights[role] > 0.0 or previous_floor-floor_heights[role] > 8.0:
+					heights[role] = maxf(0, heights[role] + previous_floor - floor_heights[role])
+					if heights[role] == 0: vertical_speed[role] = 0.0
+		rope.height_a = ROPE_HEIGHT + foot_height(0)
+		rope.height_b = ROPE_HEIGHT + foot_height(1)
+		advance_rope(dt)
 		# 巨岩挡住不死；一直被挡到挤出画面下沿才失败，免伤也不能保住画面外的人。
 		for i in range(2):
 			if rear_bound() - (ca.y if i == 0 else cb.y) > SQUEEZE_LIMIT:
@@ -970,12 +1016,12 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		if not rope_bound and rope.contacts.is_empty(): rope_block_substeps = 0
 		for index in range(obstacles.size()):
 			if kinds[index] in Industrial.KINDS:
-				var hit := industrial_hits(index, time_start, time_end, pa, ca, pb, cb, old_heights, old_path, old_path_heights)
+				var hit := industrial_hits(index, time_start, time_end, pa, ca, pb, cb, old_feet, old_path, old_path_heights)
 				if not hit.is_empty():
 					fail_threat("%s命中%s/%s，两人共同重试" % [hit.actor, hazard_name(kinds[index]), hit.part])
 					return
 				continue
-			if kinds[index] in ["road_gap", "cargo"]: continue
+			if kinds[index] in ["road_gap", "cargo"] or kinds[index] in Terrain.KINDS: continue
 			# 静止陷阱离两人和连线都远时跳过：每子步位移远小于 40 单位余量，只省计算不改判定。
 			if kinds[index] in STATIC_KINDS and (obstacles[index].position.y > maxf(maxf(pa.y, ca.y), maxf(pb.y, cb.y)) + 40.0 or obstacles[index].end.y < minf(minf(pa.y, ca.y), minf(pb.y, cb.y)) - 40.0): continue
 			if kinds[index] == "sweeper":
@@ -991,9 +1037,9 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 					var to: Vector2 = ca if i == 0 else cb
 					var hit: bool
 					if Threats.is_ball(kinds[index]):
-						hit = Threats.sphere_body(from, to, old_heights[i], heights[i], previous.get_center(), current.get_center(), current.size.x * 0.5, BODY_HEIGHT, Motion.RADIUS)
+						hit = Threats.sphere_body(from, to, old_feet[i], foot_height(i), previous.get_center(), current.get_center(), current.size.x * 0.5, BODY_HEIGHT, Motion.RADIUS)
 					else:
-						hit = swept_body_hits(from, to - (current.position - previous.position), old_heights[i], heights[i], previous.grow(Motion.RADIUS), spec.bottom, obstacle_heights[index])
+						hit = swept_body_hits(from, to - (current.position - previous.position), old_feet[i], foot_height(i), previous.grow(Motion.RADIUS), spec.bottom, obstacle_heights[index])
 					if hit and damage(collision_event(index), "%02d 命中%s，两人共同重试" % [i + 1, hazard_name(kinds[index])]):
 						return
 				if not Threats.is_ball(kinds[index]) and front_rope_hits(index, previous, current, old_path, old_path_heights):
@@ -1011,7 +1057,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			for i in range(2):
 				var from: Vector2 = pa if i == 0 else pb
 				var to: Vector2 = ca if i == 0 else cb
-				if timed_hazard_hits(index, time_start, time_end, from, to, old_heights[i], heights[i]):
+				if timed_hazard_hits(index, time_start, time_end, from, to, old_feet[i], foot_height(i)):
 					if damage(collision_event(index), "%02d 命中%s，两人共同重试" % [i + 1, hazard_name(kinds[index])]): return
 		collect_rewards(pa, pb)
 		if charge_gate.active:
@@ -1022,8 +1068,13 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 					ground_support[0] and old_heights[0] == 0.0 and heights[0] == 0.0 and vertical_speed[0] == 0.0,
 					ground_support[1] and old_heights[1] == 0.0 and heights[1] == 0.0 and vertical_speed[1] == 0.0, dt)
 			else:
-				ChargeGate.advance(charge_gate, rope.path, rope.path_heights(), rope_tension(), charge_path_clear(), dt)
+				if charge_gate.get("winch", false):
+					var bound: bool = not rope.physical.is_empty() and rope.physical.bound[0] and rope.physical.bound[1]
+					ChargeGate.advance(charge_gate, rope.physical_path(), rope.physical_heights(), rope_tension(), bound and charge_path_clear(), dt)
+				else:
+					ChargeGate.advance(charge_gate, rope.path, rope.path_heights(), rope_tension(), charge_path_clear(), dt)
 			if not was_open and charge_gate.open:
+				charge_gate.opened_at = elapsed
 				gate_events.append({"id": charge_gate.id, "event": "opened", "distance": total_distance()})
 		if rope_block_substeps >= ROPE_BLOCK_SUBSTEPS:
 			state = "failed"
@@ -1031,6 +1082,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			actions = ["Hit", "Hit"]
 			reason = ("滚球带绳持续接触且约束耗尽 %.1f 秒，两人共同重试" if ball_contact() else "绳索绕柱受阻 %.1f 秒未解围，两人共同重试") % ROPE_BLOCK_LIMIT
 			reset_input()
+			begin_death()
 			return
 	if not rope_bound: rope_resume = minf(1.0, rope_resume + FIXED_STEP / ROPE_RESUME_TIME)
 	if streaming: update_stream()
@@ -1042,7 +1094,7 @@ func rope_span(p: Vector2, q: Vector2, rope_a: float, rope_b: float, circles: Ar
 		rope.solved_contacts = 0
 		rope.solved_blocking = 0
 		rope.solved_valid = true
-		return p.distance_to(q)
+		return surface_rope_length(p,q,rope_a,rope_b)
 	return rope.solve(p, q, rope_a, rope_b, circles, false)
 
 # 只削减本子步内“朝对方靠近”的位移分量，按各自靠近量分摊；不推动静止的队友，也不拉回已有间距。
@@ -1055,7 +1107,10 @@ func separate_bodies(pa: Vector2, pb: Vector2, ca: Vector2, cb: Vector2, floor_a
 	if normal == Vector2.ZERO: normal = Vector2.RIGHT
 	var ma := maxf(0.0, (ca - pa).dot(normal))
 	var mb := maxf(0.0, (pb - cb).dot(normal))
-	if ma + mb < 0.00001: return [pa, pb]
+	if ma + mb < 0.00001:
+		# 接触处的浮点残差不能取消共同自动推进，否则两人会无障碍掉队。
+		var shared := ((ca-pa)+(cb-pb))*0.5
+		return [bounded(pa+shared,floor_a),bounded(pb+shared,floor_b)]
 	var overlap := floor_gap - gap
 	return [bounded(ca - normal * overlap * ma / (ma + mb), floor_a), bounded(cb + normal * overlap * mb / (ma + mb), floor_b)]
 
@@ -1169,6 +1224,11 @@ func begin_fall(role: int, point: Vector2) -> void:
 	var rate: float = RESCUE_RATES[difficulty] * pow(RESCUE_ESCALATION, rescue_count)
 	rescue = {"role": role, "point": point, "hang": hang_point(point, last_support[role]), "progress": 0.0, "time": 0.0, "rate": rate,
 		"gain": (1.0 / RESCUE_TIME + RESCUE_DECAY) / rate, "presses": [0, 0]}
+	rescue.body=Vector3(point.x,foot_height(role),point.y)
+	var outward:Vector2=(rescue.hang-last_support[role]).normalized()
+	rescue.normal=outward
+	rescue.rim=rescue.hang-outward*8.0
+	rescue.velocity=Vector3(outward.x*40.0,vertical_speed[role],outward.y*40.0)
 	state = "rescue"
 	actions[role] = "Hang"
 	reset_input()
@@ -1211,7 +1271,9 @@ func rescue_step(delta: float, jump_a: bool, jump_b: bool) -> void:
 		if rescue.has("climb"):
 			rescue.climb += FIXED_STEP
 			if rescue.climb >= RESCUE_CLIMB_TIME - 0.000001: finish_rescue()
+			if state == "rescue": advance_rescue_rope()
 			continue
+		advance_rescue_rope()
 		rescue.time += FIXED_STEP
 		rescue.progress = maxf(0.0, rescue.progress - RESCUE_DECAY * FIXED_STEP)
 		if rescue.time >= RESCUE_TIME - 0.000001:
@@ -1274,6 +1336,7 @@ func fail_threat(message: String) -> void:
 	actions = ["Hit", "Hit"]
 	reason = message
 	reset_input()
+	begin_death()
 
 # 分部盒可在同一子步内平移或升降；以相对三维坐标做连续检测。
 # 绳索按新旧折线路程合并切分，保持每段真实高度，不使用端点高度包络。
@@ -1283,12 +1346,12 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 	var actors := Rect2(pa, Vector2.ZERO)
 	for point in [ca, pb, cb]: actors = actors.expand(point)
 	for point in old_path: actors = actors.expand(point)
-	for point in rope.path: actors = actors.expand(point)
+	for point in rope.physical_path(): actors = actors.expand(point)
 	# 包括两帧全部绳接触点及角色半径；只有二维保守包络完全分离才省略昂贵分片。
 	if not actors.grow(Motion.RADIUS + 1.0).intersects(industrial_sweep_bounds(index, start, end), true): return {}
 	var old_f := path_fractions(old_path)
-	var new_z: PackedFloat32Array = rope.path_heights()
-	var new_f := path_fractions(rope.path)
+	var new_z: PackedFloat32Array = rope.physical_heights()
+	var new_f := path_fractions(rope.physical_path())
 	var cuts: Array = old_f.duplicate()
 	for fraction in new_f:
 		if not cuts.has(fraction): cuts.append(fraction)
@@ -1325,7 +1388,7 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 				var from: Vector2 = pa if role == 0 else pb
 				var to: Vector2 = ca if role == 0 else cb
 				var a0 := Vector3(from.x, from.y, old_heights[role])
-				var a1 := Vector3(to.x, to.y, heights[role])
+				var a1 := Vector3(to.x, to.y, foot_height(role))
 				if Threats.line_box(a0.lerp(a1, f0) - shift0, a0.lerp(a1, f1) - shift1,
 						Vector3(-half.x - Motion.RADIUS, -half.y - Motion.RADIUS, -BODY_HEIGHT),
 						Vector3(half.x + Motion.RADIUS, half.y + Motion.RADIUS, top)):
@@ -1333,8 +1396,8 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 			for i in range(cuts.size() - 1):
 				var p0 := path_at(old_path, old_z, old_f, cuts[i])
 				var q0 := path_at(old_path, old_z, old_f, cuts[i + 1])
-				var p1 := path_at(rope.path, new_z, new_f, cuts[i])
-				var q1 := path_at(rope.path, new_z, new_f, cuts[i + 1])
+				var p1 := path_at(rope.physical_path(), new_z, new_f, cuts[i])
+				var q1 := path_at(rope.physical_path(), new_z, new_f, cuts[i + 1])
 				if Threats.rope_box_sweep(p0.lerp(p1, f0) - shift0, q0.lerp(q1, f0) - shift0,
 						p0.lerp(p1, f1) - shift1, q0.lerp(q1, f1) - shift1,
 						Vector3(-half.x - 1, -half.y - 1, -1), Vector3(half.x + 1, half.y + 1, top + 1)):
@@ -1419,22 +1482,22 @@ func advance_threats(dt: float) -> Dictionary:
 			delta *= fraction
 			spec.offset = old + delta
 			var circles := rope_circles()
-			var length: float = rope.solve(a.position, b.position, ROPE_HEIGHT + heights[0], ROPE_HEIGHT + heights[1], circles, false)
+			var length: float = rope.solve(a.position, b.position, ROPE_HEIGHT + foot_height(0), ROPE_HEIGHT + foot_height(1), circles, false)
 			if length > LINK_LIMIT or not rope.solved_valid:
 				var low := 0.0
 				var high := 1.0
 				for iteration in range(20):
 					var middle := (low + high) * 0.5
 					spec.offset = old + delta * middle
-					if rope.solve(a.position, b.position, ROPE_HEIGHT + heights[0], ROPE_HEIGHT + heights[1], rope_circles(), false) <= LINK_LIMIT and rope.solved_valid: low = middle
+					if rope.solve(a.position, b.position, ROPE_HEIGHT + foot_height(0), ROPE_HEIGHT + foot_height(1), rope_circles(), false) <= LINK_LIMIT and rope.solved_valid: low = middle
 					else: high = middle
 				spec.offset = old + delta * low
 				spec.blocked = true
 				spec.travel += delta.length() * low
-				rope.solve(a.position, b.position, ROPE_HEIGHT + heights[0], ROPE_HEIGHT + heights[1], rope_circles(), true)
+				rope.solve(a.position, b.position, ROPE_HEIGHT + foot_height(0), ROPE_HEIGHT + foot_height(1), rope_circles(), true)
 				break
 			spec.travel += delta.length()
-			rope.solve(a.position, b.position, ROPE_HEIGHT + heights[0], ROPE_HEIGHT + heights[1], circles, true)
+			rope.solve(a.position, b.position, ROPE_HEIGHT + foot_height(0), ROPE_HEIGHT + foot_height(1), circles, true)
 	return previous
 
 func ball_contact_fraction(index: int, offset: Vector2, delta: Vector2) -> float:
@@ -1458,8 +1521,8 @@ func front_rope_hits(index: int, previous: Rect2, current: Rect2, old_path: Pack
 	var spec: Dictionary = hazard_specs[index]
 	var c0 := previous.get_center()
 	var c1 := current.get_center()
-	var new_path: PackedVector2Array = rope.path
-	var new_z: PackedFloat32Array = rope.path_heights()
+	var new_path: PackedVector2Array = rope.physical_path()
+	var new_z: PackedFloat32Array = rope.physical_heights()
 	var old_f := path_fractions(old_path)
 	var new_f := path_fractions(new_path)
 	var cuts: Array = old_f.duplicate()
@@ -1511,7 +1574,7 @@ func rope_circles() -> Array:
 		if Threats.is_ball(kinds[index]):
 			# 球体在绳段实际高度区间内的最大水平截面；随独立跳跃同步变化。
 			var sphere := obstacles[index].size.x * 0.5
-			var near_height := clampf(sphere, minf(ROPE_HEIGHT + heights[0], ROPE_HEIGHT + heights[1]), maxf(ROPE_HEIGHT + heights[0], ROPE_HEIGHT + heights[1]))
+			var near_height := clampf(sphere, minf(ROPE_HEIGHT + foot_height(0), ROPE_HEIGHT + foot_height(1)), maxf(ROPE_HEIGHT + foot_height(0), ROPE_HEIGHT + foot_height(1)))
 			radius = sqrt(maxf(0, sphere * sphere - pow(near_height - sphere, 2))) + ROPE_CLEARANCE
 		if rope.has_contact(obstacle_ids[index]) or minf(center.distance_to(a.position), center.distance_to(b.position)) <= LINK_LIMIT + radius + 8.0:
 			var bottom: float = hazard_specs[index].get("bottom", 0.0) if index < hazard_specs.size() else 0.0
@@ -1606,6 +1669,7 @@ func install_block(block: Dictionary, base: float, prefix: String) -> void:
 			var gate: Dictionary = gates[slot].duplicate(true)
 			ChargeGate.relocate(gate, base)
 			gate.id = id
+			gate.opened_at = -1.0
 			charge_gates.append(gate)
 			gate_events.append({"id": id, "event": "installed", "distance": total_distance()})
 			select_charge_gate()
@@ -1617,8 +1681,13 @@ func install_block(block: Dictionary, base: float, prefix: String) -> void:
 		obstacle_ids.append(next_obstacle_id)
 		next_obstacle_id += 1
 		kinds.append(kind)
-		obstacle_heights.append(Threats.CONFIG[kind].top if Threats.CONFIG.has(kind) else (SURFACE_TOPS[kind] if SURFACE_TOPS.has(kind) else HAZARD_TOPS[kind]))
+		obstacle_heights.append(Threats.CONFIG[kind].top if Threats.CONFIG.has(kind) else (SURFACE_TOPS[kind] if SURFACE_TOPS.has(kind) else HAZARD_TOPS.get(kind, 0.0)))
 		var spec: Dictionary = Threats.spec(kind, Templates.DIFFICULTIES[difficulty].front_warning) if Threats.CONFIG.has(kind) else {"bottom": HAZARD_BOTTOMS.get(kind, 0.0)}
+		if kind in Terrain.KINDS:
+			spec = hazard.duplicate(true)
+			if hazard.has("gate_slot"): spec.gate_id = prefix + ":gate"
+			spec.bottom = 0.0
+			spec.start_distance = base
 		if kind in Industrial.KINDS:
 			spec = Industrial.spec(kind, hazard.get("side", 1.0), base)
 			spec.phase = hazard.get("phase", 0.0)
@@ -1633,9 +1702,12 @@ func install_block(block: Dictionary, base: float, prefix: String) -> void:
 			spec.angular_speed = hazard.get("angular_speed", Surfaces.ANGULAR_SPEED)
 		if hazard.get("filler", false): spec.filler = true
 		if hazard.get("extra", false): spec.extra = true
+		if kind in ["active_spikes", "steam"]:
+			for key in ["period", "warning", "active", "phase"]:
+				if hazard.has(key): spec[key] = hazard[key]
 		if kind == "active_spikes":
 			spec.phase = hazard.get("phase", 0.0)
-			spec.warning = Templates.DIFFICULTIES[difficulty].warning
+			spec.warning = hazard.get("warning", Templates.DIFFICULTIES[difficulty].warning)
 		if hazard.get("timed_launch", false):
 			# 以当前关速重算迎面起点，给最前角色保留 5 米前后调节余量。
 			obstacles[-1].position.y = base + (speed() - spec.velocity.y) * (spec.warning + 0.05) + RELATIVE_RANGE + Motion.RADIUS
@@ -1705,7 +1777,7 @@ func gate_side_feedback(gate: Dictionary) -> Array[Dictionary]:
 func gate_hint(gate: Dictionary) -> String:
 	if not gate.get("active", false): return ""
 	var plates: bool = gate.get("kind", "charge") == "sync_plates"
-	var heading := "同步踏板" if plates else "双人充能"
+	var heading := ("双人压板吊桥" if plates else "麻绳牵引绞盘") if gate.get("bridge", false) else ("同步踏板" if plates else "双人充能")
 	var text := ""
 	if gate.open:
 		text = "%s通路已开启 · 共同前进" % heading
@@ -1723,9 +1795,11 @@ func gate_hint(gate: Dictionary) -> String:
 		else:
 			if not result.get("positioned", false): missing.append("分别站左右绿区（道路外侧） · 可交换角色")
 			if not result.get("taut", false):
-				missing.append("张紧不足：两人向外拉开 · 绳 %.1f/%.1fm" % [rope.required / 20.0, LINK_LIMIT * ChargeGate.TENSION / 20.0])
+				missing.append("张紧不足：两人向外拉开 · 绳 %.1f/%.1fm" % [rope.required / 20.0, LINK_LIMIT * (0.98 if gate.get("winch", false) else ChargeGate.TENSION) / 20.0])
 			if not result.get("clear", true): missing.append("绳路受阻 · 回撤调整")
-			if not result.get("crosses", false):
+			if gate.get("winch", false):
+				missing.append("两人向外拉紧麻绳，持续牵引绞盘")
+			elif not result.get("crosses", false):
 				missing.append("让绳路穿过中心接收器")
 			elif not result.get("at_height", false): missing.append("绳路高度需对准接收器 · 落地调整")
 			if result.get("ready", false): missing.append("持续充能 %.1f 秒" % duration)
@@ -1756,6 +1830,9 @@ func hazard_sample(index: int, time: float) -> Dictionary:
 	if kind == "sweeper":
 		var geometry := Surfaces.sweeper(rect.get_center(), time, spec)
 		return {"rect": rect, "bottom": 0.0, "top": Surfaces.ARM_TOP, "active": true, "warning": rect.position.y - maxf(a.position.y, b.position.y) <= speed() * 2.4, "stage": "rotate", "geometry": geometry}
+	if kind in Terrain.KINDS:
+		var surface := terrain_sample(index, time, rect.get_center())
+		return {"rect": surface.rect, "bottom": surface.height - 6.0, "top": surface.height, "active": false, "warning": false, "stage": kind, "surface": surface}
 	if kind == "road_gap":
 		return {"rect": rect, "bottom": 0.0, "top": 0.0, "active": false, "warning": true, "stage": "unsupported"}
 	if spec.get("front", false):
@@ -1894,11 +1971,12 @@ func plank_assist(point: Vector2, input: Vector2) -> Vector2:
 	return input
 
 func has_ground_support(point: Vector2, time: float = -1.0) -> bool:
-	return absf(point.x) <= EDGE + 0.00001 and Surfaces.supported(point, Motion.RADIUS, ground_gaps(time))
+	return surface_at(point, elapsed if time < 0 else time, Motion.RADIUS).supported
 
 func ground_sweep_supported(from: Vector2, to: Vector2, time: float = -1.0) -> bool:
 	# 圆形脚底与矩形缺口的精确胶囊相交；每条边和内部均参与检测。
 	for gap in ground_gaps(time):
+		if terrain_supports_sweep(from, to, elapsed if time < 0 else time): return true
 		if gap.has_point(from) or gap.has_point(to): return false
 		var corners := [gap.position, Vector2(gap.end.x, gap.position.y), gap.end, Vector2(gap.position.x, gap.end.y)]
 		for i in range(4):
@@ -1908,14 +1986,14 @@ func ground_sweep_supported(from: Vector2, to: Vector2, time: float = -1.0) -> b
 func sweeper_rope_hits(index: int, start: float, end: float, old_path: PackedVector2Array, old_z: PackedFloat32Array) -> bool:
 	var center := obstacles[index].get_center()
 	# 旧/新真实绕障绳段及高度，旋转期间的连续包络包括绳段移动余量。
-	var current_z := rope.path_heights()
+	var current_z := rope.physical_heights()
 	var movement_margin := 0.0
-	if old_path.size() == rope.path.size():
-		for n in range(old_path.size()): movement_margin = maxf(movement_margin, old_path[n].distance_to(rope.path[n]))
+	if old_path.size() == rope.physical_path().size():
+		for n in range(old_path.size()): movement_margin = maxf(movement_margin, old_path[n].distance_to(rope.physical_path()[n]))
 	else:
 		movement_margin = (speed() + LATERAL) * (end - start)
 	for pass_index in range(2):
-		var path: PackedVector2Array = old_path if pass_index == 0 else rope.path
+		var path: PackedVector2Array = old_path if pass_index == 0 else rope.physical_path()
 		var z: PackedFloat32Array = old_z if pass_index == 0 else current_z
 		# 高度变化的连续余量不能使低于当前绳高的结构漏判。
 		var conservative_z := z.duplicate()
@@ -1926,7 +2004,7 @@ func sweeper_rope_hits(index: int, start: float, end: float, old_path: PackedVec
 
 # floor 为该角色本子步允许的最低纵向位置；只有被巨岩挡在后边界之后的人才低于后边界。
 func bounded(p: Vector2, floor: float = INF) -> Vector2:
-	var rear := minf(rear_bound(), floor)
+	var rear := minf(rear_bound(), floor) if kinds.has("cargo") else rear_bound()
 	return Vector2(clampf(p.x, -EDGE - FALL_REACH, EDGE + FALL_REACH), clampf(p.y, rear, distance + RELATIVE_RANGE))
 
 func rear_bound() -> float:
@@ -1960,3 +2038,231 @@ static func segment_hits(from: Vector2, to: Vector2, rect: Rect2) -> bool:
 			if low > high:
 				return false
 	return true
+
+func foot_height(role: int) -> float:
+	return floor_heights[role] + heights[role]
+
+func terrain_sample(index: int, time: float, point: Vector2) -> Dictionary:
+	var spec: Dictionary = hazard_specs[index]
+	if kinds[index] == "drawbridge":
+		spec=spec.duplicate()
+		var gate_open := charge_gates.any(func(g): return g.id == spec.get("gate_id", "") and g.open)
+		var opened_at: float = -1.0
+		for gate in charge_gates:
+			if gate.id == spec.get("gate_id", ""): opened_at = gate.get("opened_at", -1.0)
+		spec.opening = clampf((time - opened_at) / 0.6, 0, 1) if gate_open and opened_at >= 0 else 0.0
+	return Terrain.sample(kinds[index], obstacles[index], spec, time, point)
+
+func surface_at(point: Vector2, time: float, radius: float = 0.0) -> Dictionary:
+	var surface := {"supported": absf(point.x) <= EDGE, "height": 0.0, "normal": Vector3.UP, "friction": 0.8, "velocity": Vector3.ZERO}
+	for gap in ground_gaps(time):
+		if gap.grow(radius).has_point(point): surface.supported = false
+	for i in range(kinds.size()):
+		if kinds[i] not in Terrain.KINDS: continue
+		var sample := terrain_sample(i, time, point)
+		if sample.supported and sample.rect.grow(-radius).has_point(point): surface = sample
+	return surface
+
+func terrain_supports_sweep(from: Vector2, to: Vector2, time: float) -> bool:
+	for i in range(kinds.size()):
+		if kinds[i] not in Terrain.KINDS: continue
+		var sample := terrain_sample(i, time, to)
+		if sample.supported and sample.rect.grow(-Motion.RADIUS).has_point(from) and sample.rect.grow(-Motion.RADIUS).has_point(to): return true
+	return false
+
+func platform_motion(point: Vector2, start: float, end: float) -> Vector2:
+	for i in range(kinds.size()):
+		if kinds[i] not in Terrain.MOVING: continue
+		var first := terrain_sample(i, start, point)
+		if not first.rect.has_point(point): continue
+		var last := terrain_sample(i, end, point)
+		return last.rect.position - first.rect.position
+	return Vector2.ZERO
+
+func rope_floor(point: Vector2) -> float:
+	var surface := surface_at(point, elapsed)
+	return surface.height if surface.supported else -INF
+
+func rope_colliders() -> Array:
+	var result: Array = []
+	var bounds := Rect2(a.position, Vector2.ZERO).expand(b.position).grow(LINK_LIMIT * 0.5)
+	for i in range(kinds.size()):
+		var sample := hazard_sample(i, elapsed)
+		if not bounds.intersects(sample.rect, true): continue
+		if kinds[i] in ["pillar", "stone_ball", "iron_ball"]:
+			result.append({"center": sample.rect.get_center(), "radius": sample.rect.size.x * 0.5, "bottom": 0.0, "top": obstacle_heights[i]})
+		elif kinds[i] == "cargo":
+			result.append({"low": Vector3(sample.rect.position.x, 0, sample.rect.position.y), "high": Vector3(sample.rect.end.x, obstacle_heights[i], sample.rect.end.y)})
+	# 缺口边缘的实体断面允许绳索绕过崖沿，不能从地面下方穿回路基。
+	for gap in ground_gaps(elapsed):
+		if not bounds.intersects(gap,true): continue
+		var walls := [Rect2(gap.position-Vector2(4,0),Vector2(4,gap.size.y)),Rect2(Vector2(gap.end.x,gap.position.y),Vector2(4,gap.size.y)),Rect2(gap.position-Vector2(0,4),Vector2(gap.size.x,4)),Rect2(Vector2(gap.position.x,gap.end.y),Vector2(gap.size.x,4))]
+		for wall in walls:
+			# 相邻缺口的公共边没有石壁，只有真正有路面的一侧才生成接触面。
+			var center:Vector2 = wall.get_center()
+			if not surface_at(center,elapsed).supported: continue
+			result.append({"low":Vector3(wall.position.x,-1400,wall.position.y),"high":Vector3(wall.end.x,0,wall.end.y)})
+	for gate in charge_gates:
+		if gate.get("winch",false) and gate.active:
+			result.append({"low":Vector3(gate.receiver.x-8,24,gate.receiver.y-4),"high":Vector3(gate.receiver.x+8,32,gate.receiver.y+4)})
+	return result
+
+func advance_rope(dt: float) -> void:
+	var first := Vector3(a.position.x, ROPE_HEIGHT + foot_height(0), a.position.y)
+	var last := Vector3(b.position.x, ROPE_HEIGHT + foot_height(1), b.position.y)
+	if rope.physical.is_empty(): rope.physical = RopePhysics.create(first, last, LINK_LIMIT)
+	RopePhysics.advance(rope.physical, first, last, dt, rope_floor_query(), rope_colliders(), surface_rope_guide())
+
+# 死亡后仍运行固定步；绳子绑定身体或脱扣后的自由端都由同一求解器推进。
+func begin_death() -> void:
+	death_time = 0.0
+	death_positions = PackedVector3Array([Vector3(a.position.x, foot_height(0), a.position.y), Vector3(b.position.x, foot_height(1), b.position.y)])
+	death_velocities = PackedVector3Array([Vector3.ZERO, Vector3.ZERO])
+	if rope.physical.is_empty(): advance_rope(FIXED_STEP)
+
+func death_step(delta: float) -> void:
+	if death_positions.is_empty(): begin_death()
+	accumulator += clampf(delta, 0, 0.1)
+	while accumulator >= FIXED_STEP:
+		accumulator -= FIXED_STEP
+		death_time += FIXED_STEP
+		# 撞击倒地后腰扣松脱；坠崖与救援仍保持绑定和牵引。
+		if not fallen.has(true) and death_time>=0.65:
+			detach_rope(0)
+			detach_rope(1)
+		for role in range(2):
+			var falling_body: bool = fallen.has(true)
+			if falling_body:
+				death_velocities[role].y -= GRAVITY * FIXED_STEP
+				death_positions[role] += death_velocities[role] * FIXED_STEP
+				death_ground_contact(role)
+			else:
+				# 倒地时腰部挂点降到地面，绳索继续绑在身体上。
+				death_positions[role].y = floor_heights[role] - minf(20.0, death_time * 32.0)
+		if not rope.physical.is_empty() and rope.physical.bound[0] and rope.physical.bound[1]:
+			var offset: Vector3 = death_positions[1]-death_positions[0]
+			if offset.length() > LINK_LIMIT:
+				var correction := offset.normalized()*(offset.length()-LINK_LIMIT)*0.5
+				death_positions[0] += correction
+				death_positions[1] -= correction
+				var normal := offset.normalized()
+				var separating: float = (death_velocities[1]-death_velocities[0]).dot(normal)
+				if separating > 0:
+					death_velocities[0] += normal*separating*0.5
+					death_velocities[1] -= normal*separating*0.5
+		if fallen.has(true):
+			for role in range(2): death_ground_contact(role)
+		# 身体受重力、地面与绳长共同约束，队友何时被拖离由实际支撑决定。
+		var first := death_positions[0] + Vector3(0, ROPE_HEIGHT, 0)
+		var last := death_positions[1] + Vector3(0, ROPE_HEIGHT, 0)
+		var guide := PackedVector3Array([first, last])
+		RopePhysics.advance(rope.physical, first, last, FIXED_STEP, rope_floor_query(), rope_colliders(), guide)
+
+func detach_rope(role: int) -> void:
+	RopePhysics.release(rope.physical, role)
+
+func rescue_body_position(role: int) -> Vector3:
+	var point: Vector2 = a.position if role == 0 else b.position
+	if rescue.is_empty() or role != rescue.role: return Vector3(point.x,foot_height(role),point.y)
+	var body:Vector3=rescue.get("body",Vector3(rescue.hang.x,-40,rescue.hang.y))
+	if rescue.has("climb"):
+		var t := clampf(rescue.climb/RESCUE_CLIMB_TIME,0,1)
+		var anchor: Vector2=rescue.anchor
+		var surface := surface_at(anchor,elapsed)
+		body = body.lerp(Vector3(anchor.x,surface.height,anchor.y),smoothstep(0.0,1.0,t))
+		body.y += sin(t*PI)*10.0
+	return body
+
+func advance_rescue_rope() -> void:
+	if not rescue.has("climb"):
+		var role:int=rescue.role
+		var partner:Vector2=b.position if role==0 else a.position
+		var rim:Vector2=rescue.rim
+		var hinge:=Vector3(rim.x,rope_floor(rim) if is_finite(rope_floor(rim)) else floor_heights[1-role],rim.y)
+		var available:=maxf(24.0,LINK_LIMIT-partner.distance_to(rim))
+		var remaining:=lerpf(available,18.0,rescue.progress)
+		var velocity:Vector3=rescue.velocity
+		var body:Vector3=rescue.body
+		velocity.y-=GRAVITY*FIXED_STEP
+		body+=velocity*FIXED_STEP
+		var offset:=body-hinge
+		if offset.length()>remaining:
+			var direction:=offset.normalized()
+			body=hinge+direction*remaining
+			velocity-=direction*maxf(0,velocity.dot(direction))
+		# 崖壁的半平面碰撞，不让吊挂者摆入石壁。
+		var normal:Vector2=rescue.normal
+		var horizontal:=Vector2(body.x,body.z)-rim
+		var clearance:=horizontal.dot(normal)
+		if clearance<8.0 and body.y<hinge.y:
+			var correction:=normal*(8.0-clearance)
+			body.x+=correction.x
+			body.z+=correction.y
+			var inward:=Vector2(velocity.x,velocity.z).dot(normal)
+			if inward<0:
+				velocity.x-=normal.x*inward
+				velocity.z-=normal.y*inward
+		rescue.body=body
+		rescue.velocity=velocity*exp(-0.7*FIXED_STEP)
+	var first := rescue_body_position(0)+Vector3(0,ROPE_HEIGHT,0)
+	var last := rescue_body_position(1)+Vector3(0,ROPE_HEIGHT,0)
+	if rope.physical.is_empty(): rope.physical=RopePhysics.create(first,last,LINK_LIMIT)
+	RopePhysics.advance(rope.physical,first,last,FIXED_STEP,rope_floor_query(),rope_colliders(),PackedVector3Array([first,last]))
+
+# 高于正常台阶的侧面必须跳上或等平台降下，禁止把角色直接抬到高台上。
+func terrain_move(from: Vector2, to: Vector2, foot: float, time: float) -> Vector2:
+	var surface := surface_at(to,time)
+	if surface.supported and surface.height > foot+8.0: return from
+	return to
+
+# 每个物理子步只收集一次地面环境，质点迭代不重复扫描全部机关或分配缺口数组。
+func rope_floor_query() -> Callable:
+	var gaps := ground_gaps(elapsed)
+	var patches: Array=[]
+	for index in range(kinds.size()):
+		if kinds[index] in Terrain.KINDS:
+			var sample := terrain_sample(index,elapsed,obstacles[index].get_center())
+			patches.append({"index":index,"rect":sample.rect,"supported":sample.supported})
+	return func(point: Vector2) -> float:
+		var supported := absf(point.x)<=EDGE
+		for gap in gaps:
+			if gap.has_point(point): supported=false
+		for patch in patches:
+			if patch.rect.has_point(point) and patch.supported: return terrain_sample(patch.index,elapsed,point).height
+		return 0.0 if supported else -INF
+
+func surface_rope_length(p: Vector2, q: Vector2, h0: float, h1: float) -> float:
+	var distance := Vector2(p.distance_to(q),h1-h0).length()
+	if not kinds.any(func(kind): return kind in Terrain.KINDS): return distance
+	var previous := Vector3(p.x,h0,p.y)
+	var total := 0.0
+	for i in range(1,13):
+		var t := float(i)/12
+		var point := p.lerp(q,t)
+		var height := lerpf(h0,h1,t)
+		if i<12: height=maxf(height,rope_floor(point)+RopePhysics.RADIUS)
+		var current := Vector3(point.x,height,point.y)
+		total += previous.distance_to(current)
+		previous=current
+	return maxf(total,distance)
+
+func surface_rope_guide() -> PackedVector3Array:
+	var guide := rope.guide3d()
+	if not kinds.any(func(kind): return kind in Terrain.KINDS): return guide
+	var result := PackedVector3Array([guide[0]])
+	for i in range(1,guide.size()):
+		var count := maxi(1,ceili(guide[i-1].distance_to(guide[i])/12.0))
+		for step in range(1,count+1):
+			var point := guide[i-1].lerp(guide[i],float(step)/count)
+			if i<guide.size()-1 or step<count: point.y=maxf(point.y,rope_floor(Vector2(point.x,point.z))+RopePhysics.RADIUS)
+			result.append(point)
+	return result
+
+func death_ground_contact(role:int)->void:
+	var point:Vector3=death_positions[role]
+	var surface:=surface_at(Vector2(point.x,point.z),elapsed)
+	if surface.supported and point.y<surface.height:
+		death_positions[role].y=surface.height
+		death_velocities[role].y=maxf(0,death_velocities[role].y)
+		death_velocities[role].x*=0.9
+		death_velocities[role].z*=0.9

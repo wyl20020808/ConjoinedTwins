@@ -27,8 +27,8 @@ static func relocate(gate: Dictionary, offset: float) -> void:
 
 static func route_input(run, gate: Dictionary) -> Array:
 	# 合法按键逼近 ±65（绿区内缘外侧），半步死区仍落在绿区内，不吸附角色位置。
-	return [run.Templates.keyboard_direction(Vector2(-65, gate.receiver.y) - run.a.position),
-		run.Templates.keyboard_direction(Vector2(65, gate.receiver.y) - run.b.position), false, false]
+	return [run.Templates.keyboard_direction(Vector2(-74.0 if gate.get("winch", false) else -65, gate.receiver.y) - run.a.position),
+		run.Templates.keyboard_direction(Vector2(74.0 if gate.get("winch", false) else 65, gate.receiver.y) - run.b.position), false, false]
 
 static func advance(gate: Dictionary, path: PackedVector2Array, heights: PackedFloat32Array,
 		tension: float, clear: bool, delta: float) -> void:
@@ -60,9 +60,9 @@ static func conditions(gate: Dictionary, path: PackedVector2Array, heights: Pack
 				crosses = true
 			if segment_crosses_receiver(from, to, heights[i-1], heights[i], gate.receiver):
 				at_height = true
-	return {"positioned": positioned, "side_present": side_present, "taut": tension >= TENSION, "clear": clear,
+	return {"positioned": positioned, "side_present": side_present, "taut": tension >= (0.98 if gate.get("winch", false) else TENSION), "clear": clear,
 		"crosses": crosses, "at_height": at_height,
-		"ready": clear and tension >= TENSION and positioned and at_height}
+		"ready": clear and tension >= (0.98 if gate.get("winch", false) else TENSION) and positioned and (at_height or gate.get("winch", false))}
 
 static func segment_crosses_receiver(from: Vector2, to: Vector2, h0: float, h1: float, receiver: Vector2) -> bool:
 	# 先取绳段位于接收圆盘内的区间，再与有效绳高区间求交。

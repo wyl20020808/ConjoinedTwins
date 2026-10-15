@@ -81,7 +81,7 @@ func _init(templates, candidate: Dictionary, mode: String, stage: int, entrance:
 	corridor = []
 	duration = maxf(0.0, absolute_base + rules.SEGMENT - run.total_distance())
 	# 预算包含每个预加载机关的充能及调整；不改变生产固定步。
-	tick_limit = int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size()
+	tick_limit = int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size() + int(ceil(block.get("wait_budget",0.0)/run.FIXED_STEP))
 
 func _advance_one() -> void:
 	if rules.canceled():

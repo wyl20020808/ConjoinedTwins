@@ -24,7 +24,7 @@ const PISTON_PERIOD := 1.8
 const STEAM_PRESSURE := 0.4
 const STEAM_JET := 0.8
 const STEAM_FADE := 0.3
-const STEAM_SAFE := 2.1
+const STEAM_SAFE := 0.65
 
 static func spec(kind: String, side: float, base: float) -> Dictionary:
 	return {"bottom": 0.0, "industrial": true, "start_distance": base,
@@ -59,7 +59,7 @@ static func time_cuts(kind: String, state: Dictionary, start: float, end: float)
 	if kind == "collapse":
 		boundaries = [trigger + 0.75, trigger + state.grace]
 	elif kind == "steam":
-		var cycle: float = state.warning + STEAM_PRESSURE + STEAM_JET + STEAM_FADE + STEAM_SAFE
+		var cycle: float = state.get("period", state.warning + STEAM_PRESSURE + STEAM_JET + STEAM_FADE + STEAM_SAFE)
 		var phases := [0.0, state.warning, state.warning + STEAM_PRESSURE,
 			state.warning + STEAM_PRESSURE + STEAM_JET, cycle - STEAM_SAFE]
 		var origin: float = trigger + state.phase
@@ -123,7 +123,7 @@ static func sample(kind: String, rect: Rect2, state: Dictionary, time: float) ->
 		warning = stage in ["crack", "grace"]
 		parts.append(part("floor", rect, -4, 0, false))
 	elif kind == "steam":
-		var cycle := fposmod(maxf(0, age - state.phase), state.warning + STEAM_PRESSURE + STEAM_JET + STEAM_FADE + STEAM_SAFE)
+		var cycle := fposmod(maxf(0, age - state.phase), state.get("period", state.warning + STEAM_PRESSURE + STEAM_JET + STEAM_FADE + STEAM_SAFE))
 		stage = "warning"
 		var jet_top := 100.0
 		if cycle >= state.warning and cycle < state.warning + STEAM_PRESSURE: stage = "pressure"

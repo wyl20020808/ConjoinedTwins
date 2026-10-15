@@ -71,3 +71,26 @@ Quaternius 官网 Animated Men / Women 与 RPG Characters 的公共 Drive 目录
 | `assets/fonts/NotoSansSC-web-subset.otf` | Noto Sans SC Regular：https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf（源文件 8,331,336 字节，SHA256 前 16 位 `faa6c9df652116dd`），由 `build-tools/make_web_font.py` 截取 ASCII、常用标点、GB2312 一级汉字和项目源码中出现的字符 | 1,022,080 | `45dec88092aa33c3` |
 
 OFL 允许随游戏分发和修改（含子集化），须附带许可原文；Noto CJK 的保留字体名为 “Source”，子集文件名与字体名不含该词。对外正式发布前复核。
+
+
+## 2026-10-15 麻绳与合作地形
+
+麻绳三股捻纹、纤维法线和圆管轮廓由 `scripts/rope_view.gd` 确定性生成；腰带、绳扣、绞盘、配重和木平台由程序生成，不新增第三方素材或下载依赖。坡面、石阶和斜桥复用已记录的 `monastery_stone_floor`。桌面和 Label3D 复用已有 `NotoSansSC-web-subset.otf` 及其 OFL 许可，解决 Mac 默认字体缺字；字体文件本轮未修改。
+
+
+## 2026-10-15 连续旅程素材与 Blender 动画
+
+新增扫描贴图由 Poly Haven 提供，官方资源页面标注 CC0：
+
+- Rob Tuytel / [Forest Leaves 02](https://polyhaven.com/a/forest_leaves_02)：林地落叶、苔藓与枝屑；1K diffuse、OpenGL normal、roughness，用于新入口森林与草地路面。
+- Amal Kumar / [Wood Planks](https://polyhaven.com/a/wood_planks)：风化木板；1K diffuse、OpenGL normal、roughness，用于 Blender 房屋、推车、水车、桥、围栏及机关。
+
+实际下载 URL、字节和 SHA-256 见 `build-tools/journey/material-sources.json`；可重跑 `build-tools/journey/download_materials.py`。仅下载六张 1K JPEG，没有下载整套高分辨率资源。
+
+Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三种村舍、野猪、推车、可倒伏树、水车、木栅门、吊桥、围栏与路牌，共 11 个 GLB。几何由项目脚本制作，扫描贴图继续保持原 CC0 许可。按材质与父节点合并静态网格，保留动作铰点；未执行复杂渲染或动力学模拟。生成文件与 SHA-256 见 `build-tools/journey/generated-assets.json`。
+
+`build-tools/journey/make_villager_actions.py` 导入既有 Quaternius `assets/humans/Adventurer_B.glb`（原来源与 CC0 许可见前文），新增 Throw 与 Push 骨骼动作，导出 `assets/journey/villager_actions.glb`。这是对原角色的动画改作，原资源保持不变；字节、哈希见 `build-tools/journey/villager-actions.json`。
+
+上述资源均由 `scripts/journey_view.gd` 实际加载。野猪 Charge、车轮 WheelTurn、村民 Throw/Push、门 GateOpen 与桥 BridgeLower 按生产时间采样，暂停与存档恢复不依赖独立动画时钟。倒树使用 Blender 网格和游戏倒伏相位驱动旋转，Fall 动作同时保留在资产中。
+
+风、河水与鸟鸣是本项目的轻量合成音源，非自然实录。更真实的动物、村民、植被与环境音需求见 `docs/JOURNEY_ASSET_BRIEF.md`。游戏内 F1 提供来源摘要。Blender 联系表仅是资产预览，不是 Godot 运行截图。

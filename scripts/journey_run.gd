@@ -1,0 +1,252 @@
+extends "res://scripts/road_run.gd"
+
+# 主动前进的连续旅程。位置是固定世界坐标；镜头进度不驱动物理。
+const CHAPTERS := [
+	{"name":"穿林入村", "length":38400.0, "zones":["林外小径","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["meadow","forest","broken","edge","village","village"]},
+	{"name":"水车河道", "length":30000.0, "zones":["村外田野","农田小路","河岸渡口","水车栈道","旧桥防线","河谷出口"], "themes":["farm","farm","river","river","village","river"]},
+	{"name":"矿道归航", "length":30000.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
+]
+const WALK_SPEED := 160.0
+const EVENT_NAMES := {"tree":"树木即将倒下：一起离开标记区", "boar":"野猪冲锋：共同避开直线路径", "stone":"村民投掷：离开落点", "cart":"推车横穿：观察轨迹再前进", "swing":"水车摆臂：等待或从侧面通过"}
+var journey_events: Array[Dictionary] = []
+var visited_zones: Array[int] = []
+var region_checkpoint := -1
+var event_serial := 0
+var last_floor := [0.0,0.0]
+
+func _init() -> void:
+	super(false, false)
+
+func speed() -> float:
+	return 0.0
+
+func level_speed() -> float:
+	return WALK_SPEED
+
+func finish_distance() -> float:
+	return CHAPTERS[level_index].length
+
+func update_stream() -> void:
+	# 仅跟随落后者的实际前进；无输入时世界和镜头都不推进。
+	distance = maxf(distance, minf(a.position.y,b.position.y))
+	select_charge_gate()
+
+func bounded(point: Vector2, floor: float = INF) -> Vector2:
+	var forward := maxf(point.y,0.0 if is_inf(floor) else floor)
+	if charge_gate.get("active",false) and not charge_gate.open:
+		var hold: float=charge_gate.receiver.y+(46.0 if charge_gate.get("kind","")=="sync_plates" else 15.0)
+		forward=minf(forward,hold)
+	return Vector2(clampf(point.x,-EDGE+Motion.RADIUS,EDGE-Motion.RADIUS),forward)
+
+func retry(count_failure: bool = false) -> void:
+	generation_enabled = false
+	async_enabled = false
+	charge_tutorial = false
+	streaming = true
+	super(count_failure)
+	journey_events.clear()
+	visited_zones.clear()
+	region_checkpoint = -1
+	event_serial = 0
+	build_journey()
+	checkpoint = {}
+	update_checkpoint()
+
+func zone_index() -> int:
+	return clampi(int(progress()/finish_distance()*6.0),0,5)
+
+func zone_name() -> String:
+	return CHAPTERS[level_index].zones[zone_index()]
+
+func theme_at(y: float) -> String:
+	return CHAPTERS[level_index].themes[clampi(int(y/finish_distance()*6.0),0,5)]
+
+func add_hazard(kind: String, rect: Rect2) -> int:
+	var index := kinds.size()
+	install_block({"hazards":[{"kind":kind,"rect":rect}],"rewards":[]},0,"journey:%d"%index)
+	return index
+
+func add_event(kind: String, y: float, side: float, combined: bool = false) -> void:
+	var x := side*125.0
+	var width := 240.0 if kind=="tree" else (32.0 if kind=="boar" else (140.0 if kind=="cart" else (80.0 if kind=="swing" else 24.0)))
+	var rect := Rect2(x-width/2,y-50 if kind=="tree" else y-35,width,100 if kind=="tree" else 70)
+	var index := -1
+	if kind=="tree":
+		# 倒下之后成为实心树干。砸下阶段另做伤害扫掠。
+		index = add_hazard("cargo",Rect2(x-width/2,y-50 if kind=="tree" else y-35,width,100 if kind=="tree" else 70))
+		obstacles[index].position.x = EDGE+1000
+		obstacle_heights[index] = 52.0
+	journey_events.append({"id":event_serial,"kind":kind,"y":y,"side":side,"rect":rect,"trigger":-1.0,"phase":"ready","previous":rect,"sample":rect,"bottom":0.0,"top":60.0,"obstacle":index,"combined":combined,"locked_x":x})
+	event_serial += 1
+
+func add_gate(y: float, plates: bool, suffix: String) -> void:
+	var gate := SyncPlates.make_tutorial() if plates else ChargeGate.make_tutorial()
+	# 所有站位区延伸至门前，越过中心后仍可侧向修正，无需后退。
+	gate.receiver = Vector2(0,y)
+	gate.left = Rect2(-71 if plates else -94,y-60,52 if plates else 42,160)
+	gate.right = Rect2(19 if plates else 52,y-60,52 if plates else 42,160)
+	gate.door = Rect2(-EDGE-20,y+120,EDGE*2+40,12)
+	gate.id = suffix
+	gate.title = "双人踏板 · 持续站稳" if plates else "连接供能 · 两侧站位拉紧绳索"
+	gate.active = true
+	gate.open = false
+	gate.opened_at = -1.0
+	# 同步踏板的两个圆心与供能区保留明确物理语义。
+	if plates:
+		gate.left = Rect2(-71,y+20,52,52)
+		gate.right = Rect2(19,y+20,52,52)
+	charge_gates.append(gate)
+
+func build_journey() -> void:
+	var zone_length := finish_distance()/6.0
+	for zone in range(6):
+		var start := zone*zone_length
+		var theme: String = CHAPTERS[level_index].themes[zone]
+		# 每段入口保留至少 8 秒无主要危险的过渡和存档空间。
+		var count := 3 if zone in [0,3] else 4
+		for n in range(count):
+			var y := start+1500+n*1000.0
+			if y>start+zone_length-600: continue
+			# 最后两道机关前留出完整攻击结束与重新站位的安全区。
+			if zone==5 and y>finish_distance()-3500:continue
+			var side := -1.0 if (n+zone+level_index)%2==0 else 1.0
+			if theme in ["meadow","farm"]:
+				if n==0: add_hazard("rail",Rect2(-80,y,160,12))
+				else: add_event("cart" if theme=="farm" else "tree",y,side)
+			elif theme in ["forest","edge"]:
+				add_event("boar" if n%2==1 else "tree",y,side)
+			elif theme=="broken":
+				var index := add_hazard("collapse",Rect2(-180,y,360,80))
+				hazard_specs[index].grace = 2.8
+				if n%2==1: add_hazard("road_gap",Rect2(side*190-70,y+280,140,110))
+			elif theme in ["village","facility"]:
+				add_event(["stone","cart","swing","stone"][n],y,side,zone==5 and n==0)
+				if zone==5 and n==0: add_event("cart",y+240,-side,true)
+			elif theme=="river":
+				if n%2==0:
+					# 中央桥宽 7 米，可并排或前后通过；绳长内有侧向修正空间。
+					add_hazard("road_gap",Rect2(-EDGE,y,EDGE-70,240))
+					add_hazard("road_gap",Rect2(70,y,EDGE-70,240))
+				else: add_event("swing",y,side)
+			else:
+				add_event("cart" if n%2==0 else "stone",y,side)
+			# 金币引导向当前危险的另一侧；奖品与护盾共享且实例稳定。
+			for k in range(4):
+				rewards.append({"id":"j:%d:%d:%d"%[zone,n,k],"kind":"coin","position":Vector2(-side*100,y-220+k*40),"radius":22.0,"claimed":false})
+		if zone in [1,4]: rewards.append({"id":"shield:%d"%zone,"kind":"shield","position":Vector2(0,start+800),"radius":28.0,"claimed":false})
+		if zone in [2,4]: rewards.append({"id":"prize:%d"%zone,"kind":"prize","position":Vector2(0,start+900),"radius":50.0,"claimed":false,"staggered":false})
+	# 一关两阶段出口：供能、双板、吊桥，机关附近不叠加攻击。
+	add_gate(finish_distance()-1900,false,"waterwheel")
+	add_gate(finish_distance()-1000,true,"drawbridge")
+	var bridge_y:float=charge_gates[-1].door.position.y+60
+	add_hazard("road_gap",Rect2(-EDGE,bridge_y,EDGE*2,160))
+	var bridge_index:=add_hazard("drawbridge",Rect2(-70,bridge_y-26,140,212))
+	hazard_specs[bridge_index].gate_id="drawbridge"
+	select_charge_gate()
+	revision += 1
+
+func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
+	input_a.y=maxf(0,input_a.y)
+	input_b.y=maxf(0,input_b.y)
+	last_floor=[a.position.y,b.position.y]
+	var previous := [a.position,b.position]
+	advance_events(FIXED_STEP)
+	if state!="running": return
+	super(input_a*(WALK_SPEED/LATERAL),input_b*(WALK_SPEED/LATERAL))
+	if state!="running": return
+	# 任何物理修正也不得把玩家送往身后；父求解器已按本子步 floor 扫掠约束。
+	for role in range(2):
+		var pos: Vector2 = a.position if role==0 else b.position
+		if pos.distance_to(previous[role])<0.001 and heights[role]==0.0: actions[role]="Idle"
+	check_event_hits(previous)
+
+func event_sample(event: Dictionary,time: float) -> Dictionary:
+	var kind: String=event.kind
+	var age: float=time-event.trigger
+	var rect: Rect2=event.rect
+	var phase := "ready"
+	var bottom := 0.0
+	var top := 60.0
+	if event.trigger>=0:
+		phase="warning" if age<2.8 else "active"
+		var flight:=maxf(0,age-2.8)
+		if kind=="tree":
+			phase="warning" if age<2.8 else ("falling" if flight<0.65 else "fallen")
+			top=26.0 if phase=="fallen" else 160.0
+		elif kind=="boar":
+			rect.position.y-=flight*240
+			top=34.0
+			if flight>4: phase="spent"
+		elif kind=="cart":
+			rect=Rect2(Vector2(-event.side*440+event.side*220*flight,event.y-25),Vector2(140,50))
+			top=64.0
+			if flight>4.5: phase="spent"
+		elif kind=="stone":
+			rect=Rect2(event.locked_x-12,event.y-12,24,24)
+			bottom=maxf(0,160-flight*400)
+			top=bottom+20
+			if flight>0.65: phase="spent"
+		elif kind=="swing":
+			rect.position.x=sin(flight*2.0)*180-40
+			top=80
+	return {"rect":rect,"phase":phase,"bottom":bottom,"top":top}
+
+func advance_events(_dt: float) -> void:
+	for event in journey_events:
+		# 以最快合法前进速度预留 >2.8 秒；锁定后不跟踪改道。
+		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-620:
+			event.trigger=elapsed
+			if event.kind=="stone": event.locked_x=clampf((a.position.x+b.position.x)*0.5,-EDGE+30,EDGE-30)
+			event.warning_positions=[a.position,b.position]
+		var sample:=event_sample(event,elapsed+FIXED_STEP)
+		event.previous=event.sample
+		event.sample=sample.rect
+		event.phase=sample.phase
+		event.bottom=sample.bottom
+		event.top=sample.top
+		if event.kind=="tree" and event.phase=="fallen": obstacles[event.obstacle]=event.rect
+
+func check_event_hits(previous: Array) -> void:
+	for event in journey_events:
+		if event.phase not in ["active","falling"]: continue
+		var old: Rect2=event.previous
+		var current: Rect2=event.sample
+		if current.position.y>maxf(a.position.y,b.position.y)+700 or current.end.y<minf(a.position.y,b.position.y)-700: continue
+		for role in range(2):
+			var point: Vector2=a.position if role==0 else b.position
+			var motion: Vector2=current.position-old.position
+			if swept_body_hits(previous[role],point-motion,foot_height(role),foot_height(role),old.grow(Motion.RADIUS),event.bottom,event.top):
+				if damage("journey:%d"%event.id,"%02d %s，两人共同重试"%[role+1,EVENT_NAMES[event.kind]]): return
+		# 野猪/推车/摆臂会撞击实际绳段；地面落石仅伤身体。
+		if event.kind in ["boar","cart","swing","tree"]:
+			var path:=rope.physical_path()
+			var z:=rope.physical_heights()
+			for n in range(1,path.size()):
+				if minf(z[n-1],z[n])<=event.top and maxf(z[n-1],z[n])>=event.bottom and segment_hits(path[n-1],path[n],current):
+					fail_threat("绳索被%s命中，两人共同重试"%EVENT_NAMES[event.kind].split("：")[0])
+					return
+
+func update_checkpoint() -> void:
+	if journey_events.is_empty(): return
+	var zone:=zone_index()
+	if zone not in visited_zones: visited_zones.append(zone)
+	if region_checkpoint==zone or progress()<zone*finish_distance()/6.0+60: return
+	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return
+	# 入口 8 秒缓冲内存档，不把活跃攻击或塌陷危险保存到脚下。
+	for event in journey_events:
+		if event.trigger>=0 and event.phase not in ["spent","fallen"] and absf(event.y-progress())<800: return
+	for i in range(kinds.size()):
+		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return
+	region_checkpoint=zone
+	capture_checkpoint()
+
+func check_finish() -> void:
+	if charge_gates.any(func(gate): return not gate.open): return
+	super()
+
+func active_hint() -> String:
+	if charge_gate.active and not charge_gate.open and charge_gate.receiver.y-progress()<800:
+		return charge_gate.title+" · "+gate_hint(charge_gate)
+	for event in journey_events:
+		if event.phase=="warning": return EVENT_NAMES[event.kind]
+	return ["主动前进，松开按键即可停下；两人保持同侧","注意树干与草丛的预警","裂纹地面会塌陷，提前选择落脚点","看见村庄了，整理站位后前进","观察村民抬手和推车轨迹","前方供能装置与双人踏板需要合作"][zone_index()]
