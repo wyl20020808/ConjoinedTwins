@@ -10,6 +10,7 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 	var theme: String = chapter.themes[clampi(int(start*20.0/chapter.length*6.0),0,5)]
 	var forest := theme in ["forest","broken","edge","meadow"]
 	var village := theme in ["village","farm"]
+	var dressing:={}
 	for side in [-1.0,1.0]:
 		items.append(["land",Vector3(side*(edge/20.0+24),-0.65,-start-40),Vector3(48,1,80),theme,forest])
 		if theme=="river": items.append(["water",Vector3(side*30,-2.2,-start-40),Vector3(26,0.15,80)])
@@ -25,14 +26,17 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 				if theme=="ruins" and n%2==0: items.append(["model","Column",Vector3(side*18,0,z),6.5,0.0,0.0])
 		if village:
 			for n in range(3):
-				items.append(["asset","house_%d"%posmod(number+n,3),Vector3(side*23,0,-start-n*27-10),rng.randf_range(8,11),-side*PI/2])
-				items.append(["asset","fence",Vector3(side*17,0,-start-n*27-18),1.6,0.0])
+				preload("res://scripts/journey_landscape.gd").add_instance(dressing,"house_%d"%posmod(number+n,3),Vector3(side*24,0,-start-n*27-10),rng.randf_range(.9,1.1),-side*PI/2)
+				items.append(["asset","fence",Vector3(side*17.6,0,-start-n*27-18),1.6,PI/2])
 				items.append(["asset","cart",Vector3(side*19,0,-start-n*27-3),2.3,side*PI/2])
 		if theme=="facility":
 			for n in range(3): items.append(["building",Vector3(side*27,0,-start-n*28),side*PI/2])
 	if theme=="farm":
 		for n in range(12): items.append(["farm",Vector3(25,-0.05,-start-n*6)])
 	if theme=="river": items.append(["asset","waterwheel",Vector3(19,-1,-start-40),8.0,PI/2])
+	if village:
+		preload("res://scripts/journey_landscape.gd").decorate(dressing,number,level,true)
+		for kind in dressing:items.append(["landscape_batch",kind,dressing[kind]])
 	var zone_length: float = chapter.length/6.0
 	for zone in range(6):
 		var y: float = zone*zone_length/20.0

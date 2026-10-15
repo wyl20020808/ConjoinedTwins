@@ -34,16 +34,16 @@ for species, seed in [('oak_7', 7), ('oak_17', 17), ('birch', 31)]:
         birch = species == 'birch'
         height = 14 if birch else 13
         branch((0, 0, 0), (.3, -.2, height-1), .24 if birch else .48)
-        for n in range(13):
+        for n in range(24):
             angle = n*2.399+seed
-            z = 5+n*.55
-            reach = (2.1 if birch else 3.1)*(1-.45*n/13)
+            z = 5.5+n*.29
+            reach = (1.7 if birch else 2.8)*(1-.35*n/24)
             center = (math.cos(angle)*reach, math.sin(angle)*reach, z)
             branch((.1, 0, z-1.8), center, .09)
             bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1 if lod else 2, radius=1, location=center)
             node = bpy.context.object
-            node.scale = (rng.uniform(1.3, 1.9) if birch else rng.uniform(2.0, 2.7),
-                          rng.uniform(1.5, 2.2), rng.uniform(1.2, 1.8))
+            node.scale = (rng.uniform(.8, 1.3) if birch else rng.uniform(1.1, 1.75),
+                          rng.uniform(1.0, 1.6), rng.uniform(.65, 1.2))
             node.rotation_euler.z = angle
             # 叶簇起伏保留轮廓，连续面积降低闪烁和几何负担。
             for vertex in node.data.vertices:

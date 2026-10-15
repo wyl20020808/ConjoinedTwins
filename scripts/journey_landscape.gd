@@ -48,10 +48,16 @@ func _init(owner_game)->void:
 	palette.Wood.albedo_texture=load("res://assets/journey/wood_planks_diff.jpg")
 	palette.Wood.uv1_triplanar=true;palette.Wood.uv1_scale=Vector3.ONE*.5
 	palette.Cloth=game.material("landscape_cloth",Color("b9a883"));palette.Cloth.cull_mode=BaseMaterial3D.CULL_DISABLED
-	palette.Plaster=game.tex_material("landscape_plaster","rock_face_03",.4,Color("c3bea8"))
-	palette.Roof=game.material("landscape_roof",Color("604638"))
-	palette.Window=game.material("landscape_window",Color("242d2b"))
+	palette.Plaster=ShaderMaterial.new();palette.Plaster.shader=preload("res://scripts/journey_plaster.gdshader")
+	palette.Roof=game.material("landscape_roof",Color("865346"))
+	palette.Window=game.material("landscape_window",Color("393a2c"),.08)
 	palette.Iron=game.material("landscape_iron",Color("434a45"))
+	for entry in [["Moss","435a2c"],["Endgrain","b69a6e"],["ClothRed","9c5343"],["ClothCream","c9b685"],["Clay","aa7154"],["Produce","cc963f"],["Soil","483b2a"]]:
+		palette[entry[0]]=game.material("dressing_"+entry[0],Color(entry[1]))
+		palette[entry[0]].roughness=.92
+	for cloth in ["ClothRed","ClothCream"]:palette[cloth].cull_mode=BaseMaterial3D.CULL_DISABLED
+	palette.Glow=game.material("dressing_glow",Color("ffd79b"),.8)
+	palette.GroundShade=ShaderMaterial.new();palette.GroundShade.shader=preload("res://scripts/journey_contact.gdshader")
 
 func set_chapter(chapter:int)->void:terrain.set_shader_parameter("chapter",chapter)
 
@@ -165,18 +171,18 @@ static func plan(number:int,chapter:int)->Array:
 	var start:=number*WIDTH
 	for side:float in [-1.0,1.0]:
 		# 近处有独立树干与林下层，深处林带封住地平线。密度逐米过渡。
-		for n in range(115):
+		for n in range(85):
 			var meters:=start+rng.randf()*WIDTH
 			var p:=profile(meters,chapter)
-			var forest_density:=p.y+p.z*.18
+			var forest_density:=p.y+p.z*.10
 			if rng.randf()>forest_density:continue
-			var x:=side*(18+pow(rng.randf(),1.65)*100)
+			var x:=side*(lerpf(24.0,49.0,p.z)+pow(rng.randf(),1.65)*88)
 			var kind:="grove_birch" if n%5==0 else ("grove_oak_7" if n%2==0 else "grove_oak_17")
 			var scale:=rng.randf_range(.75,1.3)
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),scale,rng.randf()*TAU)
-		for n in range(650):
+		for n in range(420):
 			var meters:=start+rng.randf()*WIDTH;var p:=profile(meters,chapter)
-			if rng.randf()>p.y+p.z*.45:continue
+			if rng.randf()>p.y+p.z*.12:continue
 			var x:=side*rng.randf_range(16.2,55)
 			var kind:="fern" if n%4==0 else ("shrub" if n%5==0 else "grass")
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),rng.randf_range(.7,1.6),rng.randf()*TAU)
@@ -194,8 +200,8 @@ static func plan(number:int,chapter:int)->Array:
 			if p.z<.05 or rng.randf()>p.z:continue
 			# 两排住宅形成有纵深的院落；生活物件位于道路外，不影响物理。
 			if n%2==0:
-				add_instance(batches,"house_%d"%((number+n+300)%3),Vector3(side*24,0,-meters),rng.randf_range(.8,1.0),-side*PI/2)
-				add_instance(batches,"fence",Vector3(side*17.6,0,-meters-5),.7,0)
+				add_instance(batches,"house_%d"%((number+n+300)%3),Vector3(side*23,height_at(side*23,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
+				add_instance(batches,"fence",Vector3(side*17.6,0,-meters-5),.7,PI/2)
 				add_instance(batches,"washing_line",Vector3(side*22,0,-meters+5),1,0)
 				add_instance(batches,"barrel",Vector3(side*18.8,0,-meters+1.8),1.1,0)
 				add_instance(batches,"woodpile",Vector3(side*19.5,0,-meters-3),1,side*.3)
@@ -204,6 +210,7 @@ static func plan(number:int,chapter:int)->Array:
 			for k in range(4):
 				var plantx:=side*(19+k*.7)
 				add_instance(batches,"shrub",Vector3(plantx,0,-meters-6),.8,0)
+	decorate(batches,number,chapter)
 	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
 	return items
 
@@ -213,3 +220,39 @@ static func add_instance(batches:Dictionary,kind:String,point:Vector3,size:float
 	if kind in ["grove_oak_7","grove_oak_17","grove_birch"]:
 		basis=Basis(Vector3.BACK,signf(point.x)*0.12)*basis
 	batches[kind].append(Transform3D(basis.scaled(Vector3.ONE*size),point))
+
+# 布景与物理完全分离，最靠近道路的模型边缘也在道路外；独立随机源不改变关卡。
+static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool=false)->void:
+	var rng:=RandomNumberGenerator.new();rng.seed=number*197+chapter*1297+819
+	var start:=number*WIDTH
+	for side:float in [-1.0,1.0]:
+		for n in range(8):
+			var meters:=start+n*10+5
+			var p:=profile(meters,chapter)
+			if not village_only and p.y>.3:
+				var x:=side*rng.randf_range(19.7,23.5)
+				var kind:="detail_moss_rocks" if n%3==0 else ("detail_deadwood" if n%3==1 else "detail_fern_bed")
+				add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),rng.randf_range(.85,1.15),rng.randf()*TAU)
+				if n%2==0:add_instance(batches,"detail_fern_bed",Vector3(side*18.7,height_at(side*18.7,meters+3,chapter),-meters-3),.8,rng.randf()*TAU)
+		for n in range(3):
+			var meters:=start+19.2+n*26.4
+			if not village_only and profile(meters,chapter).z<.45:continue
+			var kind:="detail_market" if n%2==0 else "detail_garden"
+			var x:=side*20.5
+			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1.0,-side*PI/2)
+			add_instance(batches,"detail_lantern",Vector3(side*18.4,0,-meters+4),1.0,-side*PI/2)
+	# 门廊只跟随实际生成的首排住宅，不在过渡带生成孤立门廊。
+	for kind in batches.keys():
+		if not kind.begins_with("house_"):continue
+		for house:Transform3D in batches[kind]:
+			if absf(house.origin.x)>30:continue
+			var size:=house.basis.get_scale().x
+			var side:=signf(house.origin.x)
+			add_instance(batches,"detail_porch",house.origin+Vector3(-side*3.6*size,0,0),.85*size,-side*PI/2)
+	# 接触暗部使用低成本透明网格，不恢复 Web 端整片树林的动态阴影。
+	for kind in batches.keys():
+		if kind not in ["grove_oak_7","grove_oak_17","grove_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks"]:continue
+		for transform:Transform3D in batches[kind]:
+			if absf(transform.origin.x)>52:continue
+			var point:=transform.origin+Vector3(0,.035,0)
+			add_instance(batches,"detail_contact",point,3.8 if kind.begins_with("house") else 1.7,0)

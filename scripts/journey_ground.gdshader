@@ -16,28 +16,30 @@ void fragment(){
  if(chapter==1){land=1.0;village=.7;} else if(chapter==2){land=.25;village=.05;}
  float natural=land*(1.0-village);
  float mottled=noise2(world.xz);
- float path=1.0-smoothstep(4.0+mottled*1.3,9.5+mottled*2.0,abs(world.x));
- vec3 paving=texture(stone,world.xz*.25).rgb*vec3(.78,.75,.69);
- vec3 leaves=texture(soil,world.xz*.3).rgb;
- vec3 dirt=leaves*vec3(.83,.67,.48);
- vec3 woodland=mix(leaves*vec3(.66,.76,.53),dirt,path*.84);
+ float path=1.0-smoothstep(5.0+mottled,12.0+mottled,abs(world.x));
+ // 中央是踩实的泥土，落叶留在路肩；稍偏低分辨率采样减轻远处细纹闪烁。
+ vec3 paving=texture(stone,world.xz*.22,1.0).rgb*vec3(.87,.84,.76);
+ vec3 leaves=texture(soil,world.xz*.22,1.5).rgb;
+ vec3 dirt=mix(vec3(.24,.185,.12),leaves*vec3(.72,.62,.44),.36);
+ vec3 litter=mix(leaves*vec3(.65,.72,.45),vec3(.16,.20,.095),.25);
+ vec3 woodland=mix(litter,dirt,path);
  vec3 base=mix(paving,woodland,land);
- float worn=smoothstep(.25,.72,mottled)*smoothstep(8.0,17.0,abs(world.x));
- base=mix(base,mix(paving*.9,leaves,.35),village*(1.0-worn*.6));
- // 山脊石板在林缘被落叶逐渐覆盖；林中与两侧土地使用同一世界坐标贴图。
+ float verge=smoothstep(9.5,15.8,abs(world.x));
+ vec3 village_road=mix(paving*.95,dirt,.22+mottled*.18);
+ base=mix(base,mix(village_road,litter,verge*.65),village);
  float outside=smoothstep(15.8,16.4,abs(world.x));
- vec3 outside_color=mix(texture(rock,world.xz*.12).rgb*.6,leaves*vec3(.72,.84,.62),land);
+ vec3 outside_color=mix(texture(rock,world.xz*.12,1.0).rgb*.6,litter,land);
  base=mix(base,outside_color,outside);
- // 车辙、潮湿土斑与细碎铺石缝提供近景材质层次，远处仍保持低对比。
- float tracks=exp(-pow((abs(world.x)-2.4)*2.5,2.0))*land;
- float damp=smoothstep(.57,.82,noise2(world.xz*2.8))*natural*path;
+ float tracks=exp(-pow((abs(world.x)-2.4)*2.0,2.0))*land;
+ float damp=smoothstep(.65,.81,noise2(world.xz*2.3))*natural*path;
  vec2 tile=abs(fract(world.xz*vec2(.7,.5))-.5);
  float seam=smoothstep(.46,.495,max(tile.x,tile.y))*(1.0-land*.8);
- ALBEDO=base*(.95+mottled*.16)*(1.0-tracks*.16-damp*.12-seam*.18);
- ROUGHNESS=mix(.93,.62,damp);
- AO=1.0-seam*.24-tracks*.12;
- vec3 detail=mix(texture(stone_normal,world.xz*.25).rgb,texture(soil_normal,world.xz*.3).rgb,land);
- // 地面法线以世界 X/Z 为切线，避免不同区块三角形的 UV 切线不一致。
- vec3 n=normalize(vec3((detail.r-.5)*.5,1.0,(detail.g-.5)*.5));
+ // 林下宽缓的斑驳遮光与根部接触暗部配合，不增加全景动态阴影开销。
+ float canopy=(.80+.20*noise2(world.xz*3.2))*natural+(1.0-natural);
+ ALBEDO=base*(.94+mottled*.12)*(1.0-tracks*.12-damp*.18-seam*.13)*canopy;
+ ROUGHNESS=mix(.93,.35,damp);
+ AO=1.0-seam*.18-tracks*.08;
+ vec3 detail=mix(texture(stone_normal,world.xz*.22,1.0).rgb,texture(soil_normal,world.xz*.22,1.5).rgb,land);
+ vec3 n=normalize(vec3((detail.r-.5)*.35,1.0,(detail.g-.5)*.35));
  NORMAL=normalize((VIEW_MATRIX*vec4(n,0.0)).xyz);
 }

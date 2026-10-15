@@ -113,3 +113,9 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 ### 2026-10-15 区域怪物与反馈
 
 树皮小怪、村庄掠袭者、矿道石卫由 `scripts/journey_enemy_view.gd` 使用 Godot 内置低面数球体、盒体和圆柱组合生成，属于本项目原创程序几何；没有新增第三方下载素材或外部服务。血条与命中火花使用 QuadMesh，命中提示音复用项目已有合成 `buckle.wav`。野猪、原投掷者及原有素材的署名保持不变。
+
+### 2026-10-15 森林与村庄细节
+
+- 新增 `assets/landscape/detail_*.glb` 共八件：枯木树桩、苔石、蕨类蘑菇、遮阳摊位、门廊、菜圃、灯笼及接触暗部平面。均为项目原创程序几何，由 `build-tools/journey/make_set_dressing.py` 使用 Blender 后台生成，无新下载素材、内嵌贴图或新增第三方许可。合计 342,932 字节；逐件大小、三角形与 SHA-256 见 `build-tools/journey/set-dressing-assets.json`。
+- 六份 `grove_*` 树冠更新为较小的 24 组叶簇，近景 2,520 三角形、远景 1,080 三角形，合计 475,520 字节。当前值及哈希见 `canopy-assets.json`；前文 1,376 / 596 为上一版记录。密度上限从每侧每区块 115 棵调为 85 棵，继续使用距离 LOD、空间批次和缓存，不承诺单项改动降低 GPU 开销。
+- 地面、树皮继续使用已记录的共享纹理；灰泥墙与接触暗部使用项目 Shader，灯笼使用自发光材质而非新增动态灯。房屋、瓦顶和门廊均在生产区块路径中加载。截图来自实际 Godot WebAssembly 渲染，见 `build-tools/journey/evidence/atmosphere/`。

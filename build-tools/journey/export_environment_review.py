@@ -5,7 +5,7 @@ import argparse
 parser=argparse.ArgumentParser()
 parser.add_argument("--fixture",default="environment_review")
 args=parser.parse_args()
-if args.fixture not in ["environment_review","polish_review","monster_review"]:parser.error("unknown fixture")
+if args.fixture not in ["environment_review","polish_review","monster_review","atmosphere_review"]:parser.error("unknown fixture")
 ROOT=Path(__file__).resolve().parents[2]
 STAGE=ROOT/'build-tools/cache'/args.fixture.replace('_','-')
 STAGE.mkdir(parents=True,exist_ok=True)

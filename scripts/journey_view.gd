@@ -27,7 +27,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-monster-encounters-20261015"
+const WEB_BUILD:="journey-forest-village-detail-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -92,7 +92,7 @@ func _ready() -> void:
 	world_environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
 	world_environment.ambient_light_color=Color("b8c5d0")
 	world_environment.ambient_light_energy=0.85
-	world_environment.sky.sky_material.energy_multiplier=0.18
+	world_environment.sky.sky_material.energy_multiplier=0.12
 	for node in get_children():
 		if node is DirectionalLight3D: canopy_light=node
 	canopy_light.directional_shadow_max_distance=65 if landscape.mobile else 110
@@ -240,7 +240,7 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	var pieces:Array=[Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)]
 	for gap:Rect2 in gaps: pieces=subtract_floor(pieces,gap)
 	var theme: String=run.theme_at(y0)
-	if run.level_index==0 and not run.combat_trial:
+	if (run.level_index==0 and not run.combat_trial) or theme in ["village","farm"]:
 		landscape.ground(floor_node,pieces,run.level_index)
 	else:
 		landscape.ground(floor_node,pieces,run.level_index,ground_material(theme))
@@ -299,7 +299,9 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 			var cliff:Material=tex_material("cliff_face","rock_face_03",.11,Color("a89a90"))
 			var mesh:Mesh=rock_mesh("ridge_spire",44,8,2.8,70,.2) if item[3] else rock_mesh("ridge_buttress",60,3.6,1.8,24,.24)
 			rock(chunk,mesh,cliff,item[1],item[2],item[4])
-		"land": box(chunk,item[1],item[2],material("land_"+item[3],Color("48513b") if item[4] else Color("77765b")))
+		"land":
+			var surface:Material=landscape.terrain if item[3] in ["village","farm"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			box(chunk,item[1],item[2],surface)
 		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
 		"model":
 			var node := model("res://assets/decor/%s.glb"%item[1],chunk,item[2],item[3],item[4],item[5])
@@ -884,13 +886,13 @@ func sync_view() -> void:
 	camera.position.z=camera_home.origin.z-run.distance/SCALE
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
-	canopy_light.light_energy=lerpf(1.35,0.95,forest_weight)
-	canopy_light.light_color=Color("ffcfaa").lerp(Color("dbe4ba"),forest_weight)
-	world_environment.ambient_light_energy=lerpf(0.85,0.78,forest_weight)
-	world_environment.fog_density=lerpf(0.0026,0.007,forest_weight)
+	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)
+	canopy_light.light_color=Color("ffe2bd").lerp(Color("e7edce"),forest_weight)
+	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)
+	world_environment.fog_density=lerpf(0.0032,0.0065,forest_weight)
 	world_environment.fog_sky_affect=forest_weight*.85
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
-	world_environment.fog_light_color=Color("8b8589").lerp(Color("687461"),forest_weight)
+	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
 	for chunk in world_chunks.values():
 		for node in chunk.get_children():
 			if node.has_meta("wind"):node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008

@@ -1,38 +1,38 @@
 [
   {
     "file": "assets/landscape/grove_oak_7.glb",
-    "bytes": 55472,
-    "triangles": 1376,
-    "sha256": "6d8d144a2c0e406737a754ef87eb9efb9fe38d7b6728f8e49699b4e960b8209b"
+    "bytes": 99312,
+    "triangles": 2520,
+    "sha256": "4a17eff2c6e8a8f0f8836fae13d890d7bada36eaf96159ffa243fd6c82cfad5b"
   },
   {
     "file": "assets/landscape/grove_oak_7_lod.glb",
-    "bytes": 33740,
-    "triangles": 596,
-    "sha256": "d67313f99d112a8a97faf64760f9931e6437c148d4c30377be4690ebd3731aa4"
+    "bytes": 59180,
+    "triangles": 1080,
+    "sha256": "94dfaf1556403539f24c83abca0d11793b9088402022e8ddb8c98d825ea3796a"
   },
   {
     "file": "assets/landscape/grove_oak_17.glb",
-    "bytes": 55476,
-    "triangles": 1376,
-    "sha256": "70ad698f10c83062f1e5939aaafe6389fe740710edfe2f02aa77269e8bedd781"
+    "bytes": 99312,
+    "triangles": 2520,
+    "sha256": "ff9f8f6aec994b45f628d793153d8fdca76c93d4504d1f4ae1ccb757316d0fce"
   },
   {
     "file": "assets/landscape/grove_oak_17_lod.glb",
-    "bytes": 33740,
-    "triangles": 596,
-    "sha256": "49f428b3e1c61ddc453851bcb48a84ad2abf17e6cbd96c12ab57907fd95eb1db"
+    "bytes": 59180,
+    "triangles": 1080,
+    "sha256": "ccb51530bd552d3391bf56310f502e0ec7cfc9147b3fe7905d0900d827513c1d"
   },
   {
     "file": "assets/landscape/grove_birch.glb",
-    "bytes": 55496,
-    "triangles": 1376,
-    "sha256": "d8587fd3971715cac9b64f18c72c2a3a8977ee37740b6c149fa34099b569865e"
+    "bytes": 99336,
+    "triangles": 2520,
+    "sha256": "3f3c7537ad9090e14f932cbdbd0af09faaf92109ca2e8639f8a4391ce0aee8b7"
   },
   {
     "file": "assets/landscape/grove_birch_lod.glb",
-    "bytes": 33760,
-    "triangles": 596,
-    "sha256": "2ffbb8dd0b0f833dde00deac7b22565336dc1bf89a431cab82b65a34b4ec0093"
+    "bytes": 59200,
+    "triangles": 1080,
+    "sha256": "fdada84d8a1a31f6adc275c0c05ccabc1f694e5f713cec5694ae3a55ecbefa2e"
   }
 ]
