@@ -109,3 +109,7 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 - 六份网格合计约 262 KiB。每棵近景树为 1,376 个三角形，远景为 596 个；尺寸、三角形数量及 SHA-256 记录在 `build-tools/journey/canopy-assets.json`。替换连续森林实例的叶片树冠，旧模型继续保留用于历史与倒树事件。
 - 新树干、断口岩壁、横木端面继续引用本清单已有的树皮、岩石和木板材质，未复制新的扫描贴图。断口网格由真实地面切片生成，沿深度增加顶点颜色，不使用独立的假碰撞地形。
 - 六个新资源均已进入生产路径 `journey_landscape.gd`、区块预加载列表与对应 LOD，实际 Web 渲染证据位于 `build-tools/journey/evidence/polish/`。这些是游戏运行截图，不是 Blender 预览。
+
+### 2026-10-15 区域怪物与反馈
+
+树皮小怪、村庄掠袭者、矿道石卫由 `scripts/journey_enemy_view.gd` 使用 Godot 内置低面数球体、盒体和圆柱组合生成，属于本项目原创程序几何；没有新增第三方下载素材或外部服务。血条与命中火花使用 QuadMesh，命中提示音复用项目已有合成 `buckle.wav`。野猪、原投掷者及原有素材的署名保持不变。

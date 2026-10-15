@@ -3,7 +3,7 @@ extends Node
 # 两台客户端按同一种子、同一帧序列各自模拟，因此画面与判定完全一致（帧同步）。
 # 同时监听两种传输：ENet（UDP，原生客户端）和 WebSocket（TCP，网页版客户端），两种连接进同一个房间。
 
-const PROTOCOL := 5
+const PROTOCOL := 6
 const DEFAULT_PORT := 24680
 const DEFAULT_WS_PORT := 24681
 const TICK := 1.0 / 60.0

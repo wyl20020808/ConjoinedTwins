@@ -80,10 +80,11 @@ static func collect(run, previous: Array) -> void:
 		run.combat.pickups.erase(pickup)
 
 static func enemy_position(event: Dictionary) -> Vector2:
+	if event.kind=="monster": return event.origin
 	return Vector2(event.side*360.0,event.y) if event.kind=="stone" else event.sample.get_center()
 
 static func enemy_height(event: Dictionary) -> float:
-	return 38.0 if event.kind=="stone" else 17.0
+	return 38.0 if event.kind in ["stone","monster"] else 17.0
 
 # 线段进入实体的区间与同区间枪线高度相交才挡弹，低栏不会挡住头顶枪线。
 static func box_blocks(from: Vector2, to: Vector2, from_height: float, to_height: float, rect: Rect2, top: float) -> bool:
@@ -109,6 +110,9 @@ static func visible_target(run, role: int, event: Dictionary) -> bool:
 	if delta.length()>RANGE or delta.y<0 or (delta.length()>0.01 and delta.y/delta.length()<0.5): return false
 	var gun_height: float=run.foot_height(role)+36.0
 	var target_height := enemy_height(event)
+	return line_of_sight(run,from,to,gun_height,target_height)
+
+static func line_of_sight(run, from: Vector2, to: Vector2, gun_height: float, target_height: float) -> bool:
 	for i in range(run.kinds.size()):
 		if run.kinds[i] in ["cargo","pillar","rail"] and box_blocks(from,to,gun_height,target_height,run.obstacles[i],run.obstacle_heights[i]): return false
 	for gate in run.charge_gates:
@@ -175,12 +179,14 @@ static func tick(run, previous: Array) -> void:
 		var to: Vector2=enemy_position(target) if not target.is_empty() else from+Vector2(0,RANGE)
 		if target.is_empty(): to=blind_shot_end(run,from,to,run.foot_height(role)+36.0)
 		run.combat.shot_serial+=1
-		run.combat.shots[role]={"id":run.combat.shot_serial,"from":from,"to":to,"height":run.foot_height(role)+36.0,"target_height":enemy_height(target) if not target.is_empty() else run.foot_height(role)+36.0,"time":run.elapsed}
+		run.combat.shots[role]={"id":run.combat.shot_serial,"from":from,"to":to,"height":run.foot_height(role)+36.0,"target_height":enemy_height(target) if not target.is_empty() else run.foot_height(role)+36.0,"time":run.elapsed,"hit":not target.is_empty()}
 		if not target.is_empty():
 			target.hp=maxi(0,target.hp-10)
+			target.hit_damage=(target.get("hit_damage",0) if target.get("hit_at",-1.0)==run.elapsed else 0)+10
 			target.hit_at=run.elapsed
 			if target.hp==0:
 				target.phase="spent"
+				target.defeated_at=run.elapsed
 				run.combat.kills+=1
 				run.combat.notice="敌人已击退"
 		if weapon.ammo==0: start_reload(run,role)

@@ -27,7 +27,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-terrain-polish-20261015"
+const WEB_BUILD:="journey-monster-encounters-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -477,10 +477,11 @@ func build_event(event: Dictionary) -> Node3D:
 			if player:
 				for clip in player.get_animation_list():
 					if "Charge" in clip: player.play(clip)
-	elif kind=="stone":
+	elif kind in ["stone","monster"]:
+		if kind=="monster": CombatView.EnemyView.make_monster(self,root,event.archetype)
 		var ball:=MeshInstance3D.new()
 		ball.mesh=SphereMesh.new()
-		ball.scale=Vector3.ONE*1.2
+		ball.scale=Vector3.ONE*(.65 if kind=="monster" else 1.2)
 		ball.material_override=ground_material("ruins")
 		body.add_child(ball)
 	elif kind=="cart": asset(body,"cart",Vector3.ZERO,3.2,PI/2)
@@ -551,7 +552,8 @@ func sync_events() -> void:
 		if event.kind=="cart": sample_animation(body,"WheelTurn",maxf(0,run.elapsed-event.trigger-2.8)*2.0)
 		var warning:Node3D=view.get_node("Warning")
 		warning.visible=event.phase in ["warning","falling"]
-		warning.position.x=event.locked_x/SCALE if event.kind=="stone" else event.rect.get_center().x/SCALE
+		warning.position.x=event.locked_x/SCALE if event.kind in ["stone","monster"] else event.rect.get_center().x/SCALE
+		if event.kind=="monster": warning.position.z=-(event.landing.y-event.y)/SCALE
 		view.get_node("Hint").visible=event.phase=="warning"
 		if view.has_node("Villager"):
 			var actor:Node3D=view.get_node("Villager")

@@ -10,13 +10,14 @@ const WALK_SPEED := 160.0
 # 镜头只前进；允许在可见后沿前后调整，不把玩家夹回上一帧位置。
 const RETREAT_DISTANCE := 200.0
 const Combat = preload("res://scripts/journey_combat.gd")
+const Monsters = preload("res://scripts/journey_monsters.gd")
 const TRIAL_ZONES := ["拾取与射击","单只冲锋兽","换弹与补给","交替应敌","护盾与医疗","共同抵达"]
 var combat: Dictionary = {}
 # 模拟默认兼容既有双输入夹具；新生产界面仅向单人入口提供输入。
 var solo_control := false
 var external_companion := false
 var combat_trial := false
-const EVENT_NAMES := {"tree":"树木即将倒下：一起离开标记区", "boar":"野猪冲锋：共同避开直线路径", "stone":"村民投掷：离开落点", "cart":"推车横穿：观察轨迹再前进", "swing":"水车摆臂：等待或从侧面通过"}
+const EVENT_NAMES := {"monster":"怪物蓄力：射击打倒或离开落点", "tree":"树木即将倒下：一起离开标记区", "boar":"野猪冲锋：共同避开直线路径", "stone":"村民投掷：离开落点", "cart":"推车横穿：观察轨迹再前进", "swing":"水车摆臂：等待或从侧面通过"}
 var terrain_index_signature:=0
 var terrain_index_epoch:=-INF
 var terrain_index_revision:=-1
@@ -81,6 +82,7 @@ func retry(count_failure: bool = false) -> void:
 	if combat_trial: build_combat_trial()
 	else:
 		build_journey()
+		Monsters.populate(self)
 		for zone in range(6):
 			var start: float=zone*finish_distance()/6.0
 			Combat.add_pickup(self,"gun",Vector2(-42,start+200))
@@ -161,6 +163,7 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	check_event_hits(previous)
 
 func event_sample(event: Dictionary,time: float) -> Dictionary:
+	if event.kind=="monster": return Monsters.sample(event,time)
 	var kind: String=event.kind
 	var age: float=time-event.trigger
 	var rect: Rect2=event.rect
@@ -196,6 +199,9 @@ func advance_events(_dt: float) -> void:
 		if event.has("hp") and event.hp<=0:
 			event.phase="spent"
 			continue
+		if event.kind=="monster":
+			Monsters.advance(self,event)
+			continue
 		# 以最快合法前进速度预留 >2.8 秒；锁定后不跟踪改道。
 		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-620:
 			event.trigger=elapsed
@@ -219,7 +225,11 @@ func check_event_hits(previous: Array) -> void:
 			var point: Vector2=a.position if role==0 else b.position
 			var motion: Vector2=current.position-old.position
 			if swept_body_hits(previous[role],point-motion,foot_height(role),foot_height(role),old.grow(Motion.RADIUS),event.bottom,event.top):
-				if event.kind in ["boar","stone"]:
+				if event.kind=="monster":
+					if Combat.line_of_sight(self,event.origin,point,38.0,foot_height(role)+24):
+						Combat.hit(self,role,"monster:%d"%event.id,15)
+					if state!="running": return
+				elif event.kind in ["boar","stone"]:
 					Combat.hit(self,role,"journey:%d"%event.id)
 					if state!="running": return
 				elif damage("journey:%d"%event.id,"%02d %s，两人共同重试"%[role+1,EVENT_NAMES[event.kind]]): return
@@ -240,6 +250,8 @@ func update_checkpoint() -> void:
 	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return
 	# 入口 8 秒缓冲内存档，不把活跃攻击或塌陷危险保存到脚下。
 	for event in journey_events:
+		# 新怪物只有预警与落弹期间阻止安全存档；冷却时恢复会重新给出完整预警。
+		if event.kind=="monster" and event.phase not in ["warning","active"]: continue
 		if event.trigger>=0 and event.phase not in ["spent","fallen"] and absf(event.y-progress())<800: return
 	for i in range(kinds.size()):
 		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return

@@ -1,6 +1,7 @@
 extends Node3D
 
 # 仅呈现模拟数据，不参与伤害、拾取或锁敌判定。
+const EnemyView=preload("res://scripts/journey_enemy_view.gd")
 var game
 var pickup_views := {}
 var guns: Array[Node3D] = []
@@ -122,6 +123,10 @@ func sync() -> void:
 		guns[role].get_node("Flash").visible=recent
 		beams[role].visible=recent
 		if recent:
+			if int(weapon.get("reload",0))==0:
+				var recoil:float=1.0-clampf((run.elapsed-shot.time)/.065,0,1)
+				guns[role].position+=guns[role].basis.z*.12*recoil
+				guns[role].rotate_object_local(Vector3.RIGHT,.07*recoil)
 			var from := Vector3(shot.from.x/20,shot.height/20,-shot.from.y/20)
 			var to := Vector3(shot.to.x/20,shot.target_height/20,-shot.to.y/20)
 			beams[role].position=(from+to)/2
@@ -134,21 +139,8 @@ func sync() -> void:
 	if run.shield_uses>previous_shield_uses: game.sfx.play("shield_break",-6.0)
 	previous_shield_uses=run.shield_uses
 	for event in run.journey_events:
-		if not event.has("hp") or not game.event_views.has(event.id): continue
-		var view: Node3D=game.event_views[event.id]
-		if event.hp<=0:
-			view.hide()
-			continue
-		view.show()
-		if not view.has_node("EnemyHealth"):
-			game.add_sign(view,"",Vector3.ZERO,23).name="EnemyHealth"
-		var sign: Label3D=view.get_node("EnemyHealth")
-		var point: Vector2=run.Combat.enemy_position(event)
-		sign.global_position=Vector3(point.x/20,3.4,-point.y/20)
-		var locked: bool=run.combat.weapons.any(func(w): return not w.is_empty() and w.target==event.id)
-		sign.text=("[锁定] " if locked else "")+"%d / %d"%[event.hp,event.max_hp]
-		sign.modulate=Color("ffe18b") if locked else Color("e8ebe2")
-		sign.visible=event.phase!="spent"
+		if event.has("hp") and game.event_views.has(event.id):
+			EnemyView.sync(game,game.event_views[event.id],event)
 
 # 无 Tween、无墙钟时间：暂停、联机、重试和丢枪都直接服从武器剩余帧数。
 # 从固定背后视角能看到抬枪、倾斜弹匣口、抽出/插入弹匣和拉栓归位。
