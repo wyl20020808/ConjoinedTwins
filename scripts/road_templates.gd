@@ -7,7 +7,7 @@ const BEHIND := 240.0
 const MAX_HAZARDS := 32
 const MAX_SCENE_NODES := 6000
 const START_DISTANCE := 500.0
-const NEW_KINDS := ["sweeper", "road_gap", "drone", "forklift", "press", "hammer", "collapse", "steam"]
+const NEW_KINDS := ["sweeper", "road_gap", "drone", "forklift", "press", "hammer", "collapse", "steam", "shuttle", "piston"]
 const COMBINATIONS := {"pillar_press": ["pillar", "press"], "low_steam": ["fly_low", "steam"]}
 # 横排巨岩：每段在主障碍所在位置把路面横向封死，只留下 open 里的区间（按 side=+1 书写，另一侧镜像）。
 # 留空的是主障碍自身占的位置和合法通道；迎面物用 depth 较长的岩墙夹出一条峡谷，不能提前或推后侧身躲开。
@@ -36,7 +36,13 @@ const ROWS := {
 	"collapse": {"y": 525, "depth": 50, "open": [[-80, ROAD_HALF_WIDTH]]}, "steam": {"y": 555, "depth": 50, "open": [[-60, ROAD_HALF_WIDTH]]},
 	"drone": {"y": 250, "depth": 350, "open": [[-62, ROAD_HALF_WIDTH]]}, "press": {"y": 560, "depth": 50, "open": [[-100, ROAD_HALF_WIDTH]]},
 	# 摆锤与矿车原先靠路边封住外侧；加宽后用巨岩补上，不能从新增路面绕过整个摆幅或矿车起点。
+	"shuttle": {"y": 530, "depth": 170, "open": [[-170,180]]},
+	"piston": {"y": 530, "depth": 170, "open": [[-100,180]]},
+	"sweep_pair": {"y": 300, "depth": 320, "open": [[-80,180]]},
 	"hammer": {"y": 420, "depth": 56, "open": [[-215, 240]]}, "forklift": {"y": 570, "depth": 68, "open": [[-215, ROAD_HALF_WIDTH]]}}
+const DYNAMIC_ROUTES := ["stone_ball", "ball", "rocket", "body", "double", "low_jump", "hammer", "steam", "drone", "forklift", "press", "shuttle", "piston", "sweep_pair", "sweep_bypass", "sweep_single", "sweep_double"]
+const TERRAIN_ROUTES := ["narrow", "narrow_dual", "narrow_triple", "gap_bypass", "gap_long", "gap_single", "gap_double", "collapse"]
+const GATE_ROUTES := ["charge_cargo", "sync_cargo", "charge_sync_relay"]
 const DIFFICULTIES := {
 	"简单": {"speed": 280.0, "cap": 280.0, "density": 1, "density_cap": 2, "fly_frequency": 0.15, "fly_cap": 0.25, "warning": 1.5, "front_warning": 1.9, "complexity": 1},
 	"普通": {"speed": 330.0, "cap": 330.0, "density": 2, "density_cap": 3, "fly_frequency": 0.3, "fly_cap": 0.4, "warning": 1.25, "front_warning": 1.6, "complexity": 2},
@@ -108,6 +114,7 @@ func reset(seed_value: int) -> void:
 func candidate_block(number: int, level: int) -> Dictionary:
 	if bag.is_empty() or bag_level != level:
 		bag = LEVEL_ROUTES[level].duplicate()
+		bag.append_array(["shuttle", "piston", "sweep_pair", "narrow_dual", "narrow_triple"])
 		bag.append("charge_cargo")
 		bag.append("sync_cargo")
 		bag.append("charge_sync_relay")
@@ -122,23 +129,30 @@ func candidate_block(number: int, level: int) -> Dictionary:
 			var held = bag[0]
 			bag[0] = bag.back()
 			bag[bag.size() - 1] = held
-		# 有限关卡未必抽完整袋；教学之后的前八段内必有一次踏板合作。
-		var plates_index := bag.find("sync_cargo")
-		if plates_index < bag.size() - 8:
-			var early_index := rng.randi_range(bag.size() - 8, bag.size() - (2 if last_kind == "sync_cargo" else 1))
-			bag[plates_index] = bag[early_index]
-			bag[early_index] = "sync_cargo"
-		# 接力也须在有限关卡内出现；不能挤走前八段的踏板或造成连抽。
-		var relay_index := bag.find("charge_sync_relay")
-		if relay_index < bag.size() - 12:
-			var slots: Array = []
-			for slot in range(bag.size() - 12, bag.size()):
-				if bag[slot] != "sync_cargo" and not (slot == bag.size() - 1 and last_kind == "charge_sync_relay"):
-					slots.append(slot)
-			var early_index: int = slots[rng.randi_range(0, slots.size() - 1)]
-			bag[relay_index] = bag[early_index]
-			bag[early_index] = "charge_sync_relay"
-	var kind: String = bag.pop_back()
+	# 分类交错抽取；仍只消费当前袋内的种类，不因调整节奏反复塞入同一障碍。
+	# 合作机关分别在第 4、8、12 段保留位置，其余位置不连续堆放等待型机关。
+	var preferred := "dynamic" if number % 2 == 0 else ("terrain" if number % 6 in [1, 5] else "ordinary")
+	var requested_gate := "sync_cargo" if number % 12 == 3 else ("charge_sync_relay" if number % 12 == 7 else ("charge_cargo" if number % 12 == 11 else ""))
+	var selected := bag.find(requested_gate) if not requested_gate.is_empty() else -1
+	# 新类型在首轮的前 18 段内出现，并分散到不同位置，不集中塞在开场。
+	var introduction := {4:"shuttle", 5:"narrow_dual", 10:"piston", 16:"sweep_pair", 17:"narrow_triple"}
+	if selected < 0 and introduction.has(number): selected = bag.find(introduction[number])
+	if selected < 0:
+		for i in range(bag.size()-1, -1, -1):
+			var route: String = bag[i]
+			if route == last_kind or route in GATE_ROUTES: continue
+			var category := "dynamic" if route in DYNAMIC_ROUTES else ("terrain" if route in TERRAIN_ROUTES else "ordinary")
+			if category == preferred:
+				selected = i
+				break
+	if selected < 0:
+		for i in range(bag.size()-1, -1, -1):
+			if bag[i] != last_kind and bag[i] not in GATE_ROUTES:
+				selected = i
+				break
+	if selected < 0: selected = bag.size()-1
+	var kind: String = bag[selected]
+	bag.remove_at(selected)
 	last_kind = kind
 	return candidate_of(kind, level)
 
@@ -148,7 +162,9 @@ func candidate_of(kind: String, level: int) -> Dictionary:
 	if kind == "left": side = -1.0
 	if kind == "right": side = 1.0
 	var block := decorate(make_block(kind, side, level), kind, side)
+	var cycle_phase := rng.randf_range(0.0, 1.6) if kind in ["shuttle", "piston"] else 0.0
 	for hazard in block.hazards:
+		if hazard.kind in ["shuttle", "piston"]: hazard.phase += cycle_phase
 		if hazard.kind in ["hammer", "sweeper"]: hazard.phase = rng.randf_range(0.0, TAU)
 	# 护盾和合作奖品不再每段都有；前后站位段的奖品就是该段玩法本身，保留。
 	block.rewards = block.rewards.filter(func(reward):
@@ -176,16 +192,19 @@ static func extra_size(kind: String, picker: RandomNumberGenerator) -> Vector2:
 
 static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumberGenerator, difficulty: String, level: int) -> Array:
 	# 接力两处等待、换位和完整出口全宽安全，不叠加散布危险。
-	if block.route == "charge_sync_relay": return []
+	if block.route == "charge_sync_relay" or block.route.begins_with("narrow") or block.route in ["shuttle", "piston", "sweep_pair"]: return []
 	var weights: Dictionary = EXTRA_WEIGHTS[clampi(level, 0, EXTRA_WEIGHTS.size() - 1)]
 	var total := 0
 	for kind in weights: total += weights[kind]
-	# 加宽路面多放一个，避免宽阔路面显得空旷；仍须通过带陷阱复证。
-	var wanted: int = 3 + DIFFICULTIES[difficulty].complexity + level + picker.randi_range(0, 2)
+	# 按难度限定 2/3/4 个纵向位置；每个位置独立尝试，不因前一处放不下就留下整段空白。
+	var wanted: int = mini(4, 1 + DIFFICULTIES[difficulty].complexity)
 	var placed: Array = []
 	var others: Array = block.hazards.duplicate()
+	var filled_slots := {}
 	for attempt in range(wanted * 14):
 		if placed.size() >= wanted: break
+		var slot := int(attempt / 14)
+		if filled_slots.has(slot): continue
 		var roll := picker.randi_range(1, total)
 		var kind := ""
 		for name in weights:
@@ -194,7 +213,7 @@ static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumb
 				kind = name
 				break
 		var size := extra_size(kind, picker)
-		var position := Vector2(picker.randf_range(-ROAD_HALF_WIDTH + 8, ROAD_HALF_WIDTH - 8 - size.x), picker.randf_range(60, 790 - size.y))
+		var position := Vector2(picker.randf_range(-ROAD_HALF_WIDTH + 8, ROAD_HALF_WIDTH - 8 - size.x), lerpf(100.0, 720.0 - size.y, float(slot) / maxf(1, wanted - 1)) + picker.randf_range(-20, 20))
 		var rect := Rect2(position, size)
 		# 全宽保护到达、观察、操作和门后归队空间。
 		if block.has("gate") and rect.grow(EXTRA_CLEARANCE).intersects(Rect2(-ROAD_HALF_WIDTH - 40, 0, ROAD_HALF_WIDTH * 2 + 80, 350)): continue
@@ -206,6 +225,7 @@ static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumb
 			hazard.side = 1.0
 			hazard.phase = picker.randf_range(0.0, 4.0)
 		placed.append(hazard)
+		filled_slots[slot] = true
 		others.append(hazard)
 	return placed
 
@@ -299,6 +319,24 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 			"hazards": [{"kind": "cargo", "rect": Rect2(-45, 430, 90, 65)}],
 			"rewards": [{"kind": "coin", "position": Vector2(side * 110.0 - 25, 380), "radius": 20.0},
 				{"kind": "coin", "position": Vector2(side * 110.0 + 25, 520), "radius": 20.0}]}
+	if kind in ["narrow_dual", "narrow_triple"]:
+		var lanes := [-48.0, 48.0] if kind == "narrow_dual" else [-88.0, 0.0, 88.0]
+		var lane: float = side * 48.0 if kind == "narrow_dual" else 0.0
+		var hazards: Array = []
+		var cursor := -ROAD_HALF_WIDTH - 40.0
+		for center in lanes:
+			hazards.append({"kind":"road_gap", "rect":Rect2(cursor, NARROW_START, center - NARROW_PLANK/2 - cursor, NARROW_LENGTH), "narrow":true})
+			cursor = center + NARROW_PLANK/2
+		hazards.append({"kind":"road_gap", "rect":Rect2(cursor, NARROW_START, ROAD_HALF_WIDTH + 40 - cursor, NARROW_LENGTH), "narrow":true})
+		return {"route":kind, "lane":lane, "hazards":hazards, "rewards":[]}
+	if kind in ["shuttle", "piston", "sweep_pair"]:
+		var hazards: Array = []
+		for n in range(2):
+			if kind == "sweep_pair":
+				hazards.append({"kind":"sweeper", "rect":Rect2(-side*30-26, 300+n*280, 52,52), "phase":n*PI, "angular_speed":4.6})
+			else:
+				hazards.append({"kind":kind, "rect":Rect2(-side*50-19, 540+n*110, 38,32) if kind == "shuttle" else Rect2(-60,540+n*110,120,32), "side":side, "phase":n*0.45})
+		return {"route":kind, "lane":side*110.0, "hazards":hazards, "rewards":[]}
 	if kind == "narrow":
 		# 两侧断崖一直延伸到路外，桥面偏向随机一侧；只放桥上金币，不放需两人并排到位的奖品。
 		var plank := side * 40.0
@@ -314,7 +352,7 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 	if kind == "sweep_single": lane = side * 50.0
 	var hazards: Array = []
 	if kind in ["drone", "forklift", "press", "hammer", "collapse", "steam"]:
-		lane = (-side if kind == "hammer" else side) * 140.0
+		lane = -side * 160.0 if kind == "hammer" else side * 140.0
 		# 摆锤吊在路面上方的龙门架上，在横跨道路的竖直平面里来回摆；支点偏向 side 一侧。
 		# 摆到 -side 一侧最高处时锤头高过头顶，那一侧路边留一条窄安全带，其余位置要掐时机穿过。
 		if kind == "hammer": hazards.append({"kind": kind, "rect": Rect2(side * 60 - 6, 442, 12, 12), "side": side})
@@ -369,10 +407,11 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	var return_at := minf(450.0, SEGMENT - run.speed() * (absf(lane) / run.LATERAL + 0.10))
 	if block.route == "gap_long": return_at = 660.0
 	if block.route in ["drone", "forklift", "press", "collapse", "steam"]: return_at = 650.0
-	if block.route == "hammer": return_at = 650.0
+	if block.route == "hammer": return_at = 600.0
+	if block.route in ["shuttle", "piston", "sweep_pair"]: return_at = 650.0
 	if block.route in ["charge_cargo", "sync_cargo"]: return_at = 570.0
 	# 后方角色完全离开桥尾断崖后才回中。
-	if block.route == "narrow": return_at = NARROW_START + NARROW_LENGTH + NARROW_SPACING + 30.0
+	if block.route.begins_with("narrow"): return_at = NARROW_START + NARROW_LENGTH + NARROW_SPACING + 30.0
 	# 分部危险的最后端必须落在双方及绳段后方才可回中。
 	for i in range(run.kinds.size()):
 		if not run.hazard_specs[i].get("industrial", false) or run.hazard_specs[i].get("extra", false): continue
@@ -393,14 +432,14 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	var stagger: bool = block.route == "stagger" and d >= 230 and d < 410
 	var jump_stagger: bool = block.route in ["sweep_double", "gap_double"] and d >= 100 and d < 410
 	# 窄桥：01 在前、02 在后排成单列，沿桥面中线通过。
-	var single_file: bool = block.route == "narrow" and d >= 0 and d < return_at
+	var single_file: bool = block.route.begins_with("narrow") and d >= 0 and d < return_at
 	var width := 0.0 if stagger or single_file else 25.0
 	var offset := 30.0 if stagger else (NARROW_SPACING if single_file else (18.0 if jump_stagger else 0.0))
 	var first_error := Vector2(center - width - run.a.position.x, run.distance + offset - run.a.position.y)
 	var second_error := Vector2(center + width - run.b.position.x, run.distance - offset - run.b.position.y)
 	# 普通段危险接近时只共同横移，避免为半步残差突然前进改变 TTC。
 	# 前后合作段正常使用纵向按键；其余段在危险已通过的出口区修正残差。
-	if block.route not in ["stagger", "narrow"] and not jump_stagger and d < 450:
+	if block.route != "stagger" and not block.route.begins_with("narrow") and not jump_stagger and d < 450:
 		first_error.y = 0
 		second_error.y = 0
 	# 出口先完成横移再修正前后残差，避免对角归一化吃掉回中余量。

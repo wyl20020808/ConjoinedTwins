@@ -750,13 +750,19 @@ func build_industrial_model(chunk: Node3D, index: int) -> void:
 		return
 	for p in sample.parts:
 		# 会伤人的活动部件统一高亮红橙；支架、立柱用深色钢，不与浅色厂房混在一起。
-		var danger: bool = p.name in ["head", "plate", "jet", "drone_body"]
+		var danger: bool = p.name in ["head", "plate", "jet", "drone_body", "ram"]
 		var color := Color("ff4d2e") if danger else (Color("a8552c") if kind == "forklift" else Color("5b5148"))
 		if p.name == "load": color = Color("3f3a37")
 		if p.name.begins_with("fork_"): color = Color("c9c2b6")
+		if p.name in ["track", "shaft"]: color = Color("a8b7bc")
 		if p.name == "nozzle": color = Color("ffb347")
 		var body := box(chunk, Vector3.ZERO, Vector3.ONE, material("industrial_" + kind + p.name, color, 0.7 if danger else 0.0))
 		body.name = p.name
+		if kind in ["shuttle", "piston"] and p.name in ["ram", "plate"]:
+			# 实体上的横向金属条帮助辨认运动方向，装饰保持在碰撞盒内部。
+			for stripe in range(3):
+				var span: float = p.rect.size.x / SCALE
+				box(body, Vector3((stripe-1)*span*0.28, 0, p.rect.size.y/SCALE*0.49), Vector3(span*0.08, 0.8, 0.02), material("mechanical_stripe", Color("ffcf72")))
 		if p.name == "floor":
 			# 每块地板的阶段颜色独立变化，避免共享材质覆盖其他板的预警。
 			body.material_override = body.material_override.duplicate()
@@ -800,7 +806,7 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 		var size: Vector2 = p.get("size", p.rect.size)
 		body.mesh.size = Vector3(size.x / SCALE, (p.top - p.bottom) / SCALE, size.y / SCALE)
 		body.rotation.y = p.get("angle", 0.0)
-		body.visible = p.active or run.kinds[index] == "drone" or p.name == "nozzle" or (p.name == "floor" and sample.supported)
+		body.visible = p.active or run.kinds[index] == "drone" or p.name in ["nozzle", "track"] or (p.name == "floor" and sample.supported)
 		if p.name == "floor":
 			body.position.y = 0.26
 			body.mesh.size.y = 0.02
