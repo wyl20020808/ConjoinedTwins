@@ -1,4 +1,4 @@
-﻿# Godot 推荐统一 LF 换行
+# Godot 推荐统一 LF 换行
 * text=auto eol=lf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf

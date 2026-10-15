@@ -32,7 +32,7 @@ const ROWS := {
 	"body": {"y": 250, "depth": 370, "open": [[-52, 180]]}, "rocket": {"y": 250, "depth": 370, "open": [[-52, 180]]},
 	"double": {"y": 250, "depth": 370, "open": [[-52, 180]]},
 	"sweep_bypass": {"y": 290, "depth": 50, "open": [[-40, 180]]}, "sweep_single": {"y": 290, "depth": 50, "open": [[-40, 120]]},
-	"sweep_double": {"y": 290, "depth": 50, "open": [[-55, 55]]},
+	"sweep_double": {"y": 290, "depth": 50, "open": [[-100, 100]]},
 	"gap_bypass": {"y": 290, "depth": 50, "open": [[-80, 200]]}, "gap_single": {"y": 290, "depth": 50, "open": [[-80, 80]]},
 	"gap_double": {"y": 290, "depth": 50, "open": [[-80, 80]]}, "gap_long": {"y": 300, "depth": 60, "open": [[-80, ROAD_HALF_WIDTH]]},
 	"collapse": {"y": 525, "depth": 50, "open": [[-80, ROAD_HALF_WIDTH]]}, "steam": {"y": 555, "depth": 50, "open": [[-60, ROAD_HALF_WIDTH]]},
@@ -57,11 +57,11 @@ const SyncPlates = preload("res://scripts/road_sync_plates.gd")
 # 保留历史测试的常量接口；当前生成不再按此间隔调度。
 const PILLAR_EVERY := 4
 const ROUTES := ["left", "right", "jump", "pillar", "ball", "low_jump", "stagger", "double"]
-# 独立身体高度教学和两种球先在第二关出现，双威胁只在第三关出现。
-const LEVEL_ROUTES := [
-	["ridge_turn", "offset_bridge", "slope_path", "chain_collapse", "steam_corridor", "pressure_bridge", "stone_ball", "hammer", "sweep_single", "gap_single", "pillar", "jump", "narrow", "shuttle"],
-	["fork_islands", "steps_path", "tilt_path", "ferry_crossing", "steam_corridor", "winch_bridge", "pressure_bridge", "stone_ball", "ball", "drone", "forklift", "press", "hammer", "sweep_double", "gap_double", "narrow_dual"],
-	["fork_islands", "lift_crossing", "ferry_crossing", "hammer_collapse", "steam_corridor", "winch_bridge", "pressure_bridge", "double", "ball", "piston", "sweep_pair", "narrow_triple", "hammer", "gap_double", "steps_path", "tilt_path"]]
+# 三关共享全部生产内容，关号只影响速度等参数，不限制机关种类。
+const SHARED_ROUTES := Challenges.ROUTES + ["stone_ball", "hammer", "sweep_single", "gap_single", "pillar", "jump", "narrow", "shuttle",
+	"ball", "drone", "forklift", "press", "sweep_double", "gap_double", "narrow_dual", "double", "piston", "sweep_pair", "narrow_triple"]
+# 保留历史目录查询接口，生成器与旧检查均读取同一共享池。
+const LEVEL_ROUTES := [SHARED_ROUTES, SHARED_ROUTES, SHARED_ROUTES]
 
 # 一个生产固定步的最大轴向手动位移；段尾只允许正常按键步距残差。
 const MANUAL_SPEED := 380.0
@@ -137,9 +137,6 @@ func candidate_block(number: int, level: int) -> Dictionary:
 	var preferred := "dynamic" if number % 2 == 0 else ("terrain" if number % 6 in [1, 5] else "ordinary")
 	var requested_gate := "sync_cargo" if number % 12 == 3 else ("charge_sync_relay" if number % 12 == 7 else ("charge_cargo" if number % 12 == 11 else ""))
 	var selected := bag.find(requested_gate) if not requested_gate.is_empty() else -1
-	# 新类型在首轮的前 18 段内出现，并分散到不同位置，不集中塞在开场。
-	var introduction := {0:Challenges.POOLS[level][0], 1:Challenges.POOLS[level][1], 4:Challenges.POOLS[level][2], 5:Challenges.POOLS[level][3], 8:Challenges.POOLS[level][4], 9:Challenges.POOLS[level][5]}
-	if introduction.has(number): selected = bag.find(introduction[number])
 	if selected < 0:
 		for i in range(bag.size()-1, -1, -1):
 			var route: String = bag[i]
@@ -303,7 +300,7 @@ static func combination_allowed(block: Dictionary) -> bool:
 	return true
 
 static func make_block(kind: String, side: float, level: int) -> Dictionary:
-	if Challenges.POOLS.any(func(pool): return kind in pool): return Challenges.make_block(kind, side)
+	if kind in Challenges.ROUTES: return Challenges.make_block(kind, side)
 	if kind == "charge_sync_relay":
 		var charge := ChargeGate.make_tutorial()
 		ChargeGate.relocate(charge, 60.0)
@@ -356,6 +353,8 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 	if kind in ["gap_bypass", "gap_long", "drone", "forklift", "press"]: lane = side * 130.0
 	if kind in ["sweep_double", "gap_double", "gap_single"]: lane = 0.0
 	if kind == "sweep_single": lane = side * 50.0
+	# 石球外侧留出身体半径，同时为第三关高速下的回中保留足够路程。
+	if kind == "stone_ball" or (kind == "ball" and level == 0): lane = side * 90.0
 	var hazards: Array = []
 	if kind in ["drone", "forklift", "press", "hammer", "collapse", "steam"]:
 		lane = -side * 160.0 if kind == "hammer" else side * 140.0
@@ -394,6 +393,12 @@ static func make_block(kind: String, side: float, level: int) -> Dictionary:
 		{"kind": "coin", "position": Vector2(lane + 25, 410), "radius": 20.0},
 		{"kind": "prize", "position": Vector2(lane, 370), "radius": 26.0 if staggered else 44.0, "staggered": staggered},
 		{"kind": "shield", "position": Vector2(lane - 25, 440), "radius": 20.0}]
+	if kind == "sweep_double":
+		rewards[0].position.x = -74.0
+		rewards[1].position.x = 74.0
+		# 拉紧跳过扫杆后回中领取合作奖品，不把奖品放在无法共同到位的横向站距内。
+		rewards[2].position.y = 600.0
+		rewards[3].position.y = 630.0
 	if kind == "gap_long":
 		# 奖励不放在失去支撑范围；先保持同侧，再在缺口完全通过后归队。
 		rewards[1].position.y = 600.0
@@ -437,10 +442,12 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	var center := lane if d < return_at else 0.0
 	if d < 0: center = 0.0
 	var stagger: bool = block.route == "stagger" and d >= 230 and d < 410
-	var jump_stagger: bool = block.route in ["sweep_double", "gap_double"] and d >= 100 and d < 410
+	var jump_stagger: bool = block.route == "gap_double" and d >= 100 and d < 410
 	# 窄桥：01 在前、02 在后排成单列，沿桥面中线通过。
 	var single_file: bool = block.route.begins_with("narrow") and d >= 0 and d < return_at
 	var width := 0.0 if stagger or single_file else 25.0
+	# 双人扫杆先拉紧麻绳，再同步跳跃，避免松绳仍拖在低杆和支座上。
+	if block.route == "sweep_double" and d >= 0 and d < return_at: width = 74.0
 	var offset := 30.0 if stagger else (NARROW_SPACING if single_file else (18.0 if jump_stagger else 0.0))
 	var first_error := Vector2(center - width - run.a.position.x, run.distance + offset - run.a.position.y)
 	var second_error := Vector2(center + width - run.b.position.x, run.distance - offset - run.b.position.y)

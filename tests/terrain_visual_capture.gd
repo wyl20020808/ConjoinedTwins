@@ -48,11 +48,12 @@ func capture()->void:
 	for route in ["ridge_turn","steps_path","tilt_path","ferry_crossing","steam_corridor","pressure_bridge","winch_bridge"]:
 		fixture()
 		var block:Dictionary=game.run.Templates.make_block(route,1,1)
-		game.run.install_block(block,0,route)
+		var base:float=game.run.speed()*1.6 if route=="steam_corridor" else 0.0
+		game.run.install_block(block,base,route)
 		game.run.revision+=1
-		var target:=310.0 if not route.ends_with("bridge") else 110.0
+		var target:float=base+(310.0 if not route.ends_with("bridge") else 110.0)
 		for tick in range(2600):
-			var input:Array=game.run.Templates.route_input(game.run,block,0)
+			var input:Array=game.run.Templates.route_input(game.run,block,base)
 			game.run.step(game.run.FIXED_STEP,input[0],input[1],input[2],input[3])
 			if tick%12==0:
 				game.sync_view()

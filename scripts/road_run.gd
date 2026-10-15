@@ -739,8 +739,13 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 	var forward_speed := speed() if streaming else FORWARD
 	for index in range(hazard_specs.size()):
 		var spec: Dictionary = hazard_specs[index]
-		if spec.get("industrial", false) and kinds[index] != "collapse" and spec.trigger < 0 and maxf(a.position.y, b.position.y) >= spec.start_distance:
+		var activation:float=spec.get("start_distance",0.0) - (forward_speed*1.5 if spec.get("encounter",false) else 0.0)
+		if spec.get("industrial", false) and kinds[index] != "collapse" and spec.trigger < 0 and maxf(a.position.y, b.position.y) >= activation:
 			spec.trigger = elapsed
+			if kinds[index]=="steam" and spec.get("encounter",false):
+				# 提前启动预热，锁定实际到达附近的喷射窗口，之后不追踪玩家。
+				var arrival:float=(obstacles[index].get_center().y-maxf(a.position.y,b.position.y))/forward_speed
+				spec.phase=maxf(0,arrival-spec.warning-Industrial.STEAM_PRESSURE-0.25)
 			var maximum_forward := level_speed() + LATERAL
 			var lane: float = spec.side * (-160 if kinds[index] == "hammer" else (110 if kinds[index] in ["shuttle", "piston"] else 140))
 			var joint_change := maxf(absf(a.position.x - (lane - 25)), absf(b.position.x - (lane + 25))) / LATERAL
@@ -1691,6 +1696,7 @@ func install_block(block: Dictionary, base: float, prefix: String) -> void:
 		if kind in Industrial.KINDS:
 			spec = Industrial.spec(kind, hazard.get("side", 1.0), base)
 			spec.phase = hazard.get("phase", 0.0)
+			spec.encounter=hazard.get("encounter",false)
 			if kind == "forklift":
 				# 矿车按关速掐点出发：全速前进的两人刚通过它才冲到通道，慢一拍就会被撞上。
 				spec.warning = maxf(0.8, (rect.end.y - base + 24.0) / (level_speed() if streaming else FORWARD) - 0.85)

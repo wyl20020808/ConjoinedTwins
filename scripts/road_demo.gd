@@ -764,6 +764,27 @@ func build_industrial_model(chunk: Node3D, index: int) -> void:
 		if p.name == "nozzle": color = Color("ffb347")
 		var body := box(chunk, Vector3.ZERO, Vector3.ONE, material("industrial_" + kind + p.name, color, 0.7 if danger else 0.0))
 		body.name = p.name
+		if p.name == "jet":
+			# 危险体只驱动范围，喷流用多股渐隐锥柱表达，避免把气体显示成实心方块。
+			body.material_override=zone_material("hidden_steam_volume",Color(0,0,0,0))
+			var plume_material:=ShaderMaterial.new()
+			var shader:=Shader.new()
+			shader.code="""shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never;
+uniform float flow_time=0.0;
+void fragment(){
+ float wave=sin(UV.y*35.0+UV.x*19.0-flow_time*13.0)*0.5+0.5;
+ float fade=smoothstep(0.0,0.18,UV.y)*smoothstep(1.0,0.3,UV.y);
+ ALBEDO=mix(vec3(1.0,0.35,0.08),vec3(1.0,0.88,0.56),wave);
+ EMISSION=ALBEDO*0.7;
+ ALPHA=fade*(0.16+wave*0.4);
+}"""
+			plume_material.shader=shader
+			body.set_meta("plume_material",plume_material)
+			for plume_index in range(10):
+				var plume:=cylinder(body,Vector3.ZERO,0.5,1.0,plume_material)
+				plume.mesh.top_radius=0.08
+				plume.set_meta("plume_index",plume_index)
 		if kind in ["shuttle", "piston"] and p.name in ["ram", "plate"]:
 			# 实体上的横向金属条帮助辨认运动方向，装饰保持在碰撞盒内部。
 			for stripe in range(3):
@@ -817,6 +838,13 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 		body.mesh.size = Vector3(size.x / SCALE, (p.top - p.bottom) / SCALE, size.y / SCALE)
 		body.rotation.y = p.get("angle", 0.0)
 		body.visible = p.active or run.kinds[index] == "drone" or p.name in ["nozzle", "track"] or (p.name == "floor" and sample.supported)
+		if p.name=="jet":
+			body.get_meta("plume_material").set_shader_parameter("flow_time",run.elapsed)
+			for plume in body.get_children():
+				var n:int=plume.get_meta("plume_index")
+				var pulse:float=0.85+sin(run.elapsed*11.0+n*2.1)*0.15
+				plume.position=Vector3((float(n)/9.0-0.5)*size.x/SCALE*0.9,0,sin(n*2.0)*size.y/SCALE*0.12)
+				plume.scale=Vector3(size.x/SCALE/8.0,(p.top-p.bottom)/SCALE*pulse,size.y/SCALE*0.8)
 		if p.name == "floor":
 			body.position.y = 0.01
 			body.mesh.size.y = 0.02
