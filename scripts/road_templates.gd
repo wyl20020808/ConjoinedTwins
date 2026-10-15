@@ -1,5 +1,7 @@
 extends RefCounted
 
+const Challenges = preload("res://scripts/road_challenges.gd")
+
 const SEGMENT := 840.0
 # 一段预加载已覆盖最高关速的共同预警；避免每次同步重演四段造成长停顿。
 const AHEAD := 840.0
@@ -40,9 +42,9 @@ const ROWS := {
 	"piston": {"y": 530, "depth": 170, "open": [[-100,180]]},
 	"sweep_pair": {"y": 300, "depth": 320, "open": [[-80,180]]},
 	"hammer": {"y": 420, "depth": 56, "open": [[-215, 240]]}, "forklift": {"y": 570, "depth": 68, "open": [[-215, ROAD_HALF_WIDTH]]}}
-const DYNAMIC_ROUTES := ["stone_ball", "ball", "rocket", "body", "double", "low_jump", "hammer", "steam", "drone", "forklift", "press", "shuttle", "piston", "sweep_pair", "sweep_bypass", "sweep_single", "sweep_double"]
-const TERRAIN_ROUTES := ["narrow", "narrow_dual", "narrow_triple", "gap_bypass", "gap_long", "gap_single", "gap_double", "collapse"]
-const GATE_ROUTES := ["charge_cargo", "sync_cargo", "charge_sync_relay"]
+const DYNAMIC_ROUTES := ["steam_corridor", "stone_ball", "ball", "rocket", "body", "double", "low_jump", "hammer", "steam", "drone", "forklift", "press", "shuttle", "piston", "sweep_pair", "sweep_bypass", "sweep_single", "sweep_double"]
+const TERRAIN_ROUTES := ["ridge_turn", "offset_bridge", "slope_path", "steps_path", "tilt_path", "fork_islands", "ferry_crossing", "lift_crossing", "chain_collapse", "hammer_collapse", "narrow", "narrow_dual", "narrow_triple", "gap_bypass", "gap_long", "gap_single", "gap_double", "collapse"]
+const GATE_ROUTES := ["pressure_bridge", "winch_bridge", "charge_cargo", "sync_cargo", "charge_sync_relay"]
 const DIFFICULTIES := {
 	"简单": {"speed": 280.0, "cap": 280.0, "density": 1, "density_cap": 2, "fly_frequency": 0.15, "fly_cap": 0.25, "warning": 1.5, "front_warning": 1.9, "complexity": 1},
 	"普通": {"speed": 330.0, "cap": 330.0, "density": 2, "density_cap": 3, "fly_frequency": 0.3, "fly_cap": 0.4, "warning": 1.25, "front_warning": 1.6, "complexity": 2},
@@ -57,9 +59,10 @@ const PILLAR_EVERY := 4
 const ROUTES := ["left", "right", "jump", "pillar", "ball", "low_jump", "stagger", "double"]
 # 独立身体高度教学和两种球先在第二关出现，双威胁只在第三关出现。
 const LEVEL_ROUTES := [
-	["stone_ball", "rocket", "hammer", "body", "collapse", "steam", "drone", "forklift", "press", "ball", "sweep_bypass", "gap_bypass", "double", "sweep_single", "gap_single", "stagger", "sweep_double", "gap_double", "rocket", "gap_long", "pillar", "low_jump", "jump", "ball", "left", "right", "body", "double", "narrow", "narrow"],
-	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right", "narrow", "narrow"],
-	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "double", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right", "narrow", "narrow"]]
+	["ridge_turn", "offset_bridge", "slope_path", "chain_collapse", "steam_corridor", "pressure_bridge", "stone_ball", "hammer", "sweep_single", "gap_single", "pillar", "jump", "narrow", "shuttle"],
+	["fork_islands", "steps_path", "tilt_path", "ferry_crossing", "steam_corridor", "winch_bridge", "pressure_bridge", "stone_ball", "ball", "drone", "forklift", "press", "hammer", "sweep_double", "gap_double", "narrow_dual"],
+	["fork_islands", "lift_crossing", "ferry_crossing", "hammer_collapse", "steam_corridor", "winch_bridge", "pressure_bridge", "double", "ball", "piston", "sweep_pair", "narrow_triple", "hammer", "gap_double", "steps_path", "tilt_path"]]
+
 # 一个生产固定步的最大轴向手动位移；段尾只允许正常按键步距残差。
 const MANUAL_SPEED := 380.0
 const FIXED_STEP := 1.0 / 120.0
@@ -114,7 +117,7 @@ func reset(seed_value: int) -> void:
 func candidate_block(number: int, level: int) -> Dictionary:
 	if bag.is_empty() or bag_level != level:
 		bag = LEVEL_ROUTES[level].duplicate()
-		bag.append_array(["shuttle", "piston", "sweep_pair", "narrow_dual", "narrow_triple"])
+		bag.append_array([])
 		bag.append("charge_cargo")
 		bag.append("sync_cargo")
 		bag.append("charge_sync_relay")
@@ -135,8 +138,8 @@ func candidate_block(number: int, level: int) -> Dictionary:
 	var requested_gate := "sync_cargo" if number % 12 == 3 else ("charge_sync_relay" if number % 12 == 7 else ("charge_cargo" if number % 12 == 11 else ""))
 	var selected := bag.find(requested_gate) if not requested_gate.is_empty() else -1
 	# 新类型在首轮的前 18 段内出现，并分散到不同位置，不集中塞在开场。
-	var introduction := {4:"shuttle", 5:"narrow_dual", 10:"piston", 16:"sweep_pair", 17:"narrow_triple"}
-	if selected < 0 and introduction.has(number): selected = bag.find(introduction[number])
+	var introduction := {0:Challenges.POOLS[level][0], 1:Challenges.POOLS[level][1], 4:Challenges.POOLS[level][2], 5:Challenges.POOLS[level][3], 8:Challenges.POOLS[level][4], 9:Challenges.POOLS[level][5]}
+	if introduction.has(number): selected = bag.find(introduction[number])
 	if selected < 0:
 		for i in range(bag.size()-1, -1, -1):
 			var route: String = bag[i]
@@ -197,7 +200,7 @@ static func extra_hazards(block: Dictionary, corridor: Array, picker: RandomNumb
 	var total := 0
 	for kind in weights: total += weights[kind]
 	# 按难度限定 2/3/4 个纵向位置；每个位置独立尝试，不因前一处放不下就留下整段空白。
-	var wanted: int = mini(4, 1 + DIFFICULTIES[difficulty].complexity)
+	var wanted: int = 0 # 新生产目录只使用明确设计并验证的机关组合。
 	var placed: Array = []
 	var others: Array = block.hazards.duplicate()
 	var filled_slots := {}
@@ -269,6 +272,7 @@ static func decorate(block: Dictionary, kind: String, side: float) -> Dictionary
 		block.hazards.append({"kind": "press", "rect": Rect2(-side * 140 - 40, 560, 80, 50), "side": side})
 		block.combination = "pillar_press"
 	# 低空飞石段两侧已是岩墙，原先放在路边的蒸汽喷口会埋进墙里，不再附加。
+	# 用真实道路缺口限定通道，替代横排填充巨岩。
 	if ROWS.has(kind):
 		var row: Dictionary = ROWS[kind]
 		var cursor := -ROAD_HALF_WIDTH
@@ -278,7 +282,7 @@ static func decorate(block: Dictionary, kind: String, side: float) -> Dictionary
 			# 不足 1 米的碎条不生成，免得出现看不清的细石片。
 			if span[0] - cursor >= 20.0:
 				var left: float = cursor if side > 0 else -float(span[0])
-				block.hazards.append({"kind": "cargo", "rect": Rect2(left, row.y, span[0] - cursor, row.depth), "filler": true})
+				block.hazards.append({"kind": "road_gap", "rect": Rect2(left, row.y, span[0] - cursor, row.depth), "terrain_edge": true})
 			cursor = maxf(cursor, span[1])
 	return block
 
@@ -287,9 +291,10 @@ static func combination_allowed(block: Dictionary) -> bool:
 	var has_new := false
 	for hazard in block.hazards:
 		# 封路巨岩和随机散布陷阱不算一种组合机制。
-		if hazard.get("filler", false) or hazard.get("extra", false): continue
+		if hazard.get("filler", false) or hazard.get("extra", false) or hazard.get("terrain_edge", false): continue
 		if hazard.kind not in kinds: kinds.append(hazard.kind)
 		has_new = has_new or hazard.kind in NEW_KINDS
+	if block.get("challenge", false): return true
 	if not has_new or kinds.size() <= 1: return true
 	var allowed: Array = COMBINATIONS.get(block.get("combination", ""), [])
 	if kinds.size() != allowed.size(): return false
@@ -298,6 +303,7 @@ static func combination_allowed(block: Dictionary) -> bool:
 	return true
 
 static func make_block(kind: String, side: float, level: int) -> Dictionary:
+	if Challenges.POOLS.any(func(pool): return kind in pool): return Challenges.make_block(kind, side)
 	if kind == "charge_sync_relay":
 		var charge := ChargeGate.make_tutorial()
 		ChargeGate.relocate(charge, 60.0)
@@ -401,10 +407,11 @@ static func route_input(run, block: Dictionary, base: float) -> Array:
 	if run.charge_gate.active and not run.charge_gate.open and run.distance >= run.charge_gate.receiver.y - 100:
 		if run.charge_gate.get("kind", "charge") == "sync_plates": return SyncPlates.route_input(run, run.charge_gate)
 		return ChargeGate.route_input(run, run.charge_gate)
+	if block.get("challenge", false): return Challenges.route_input(run, block, base)
 	var d: float = run.distance - base
 	var lane: float = block.lane
 	# 提速后仍按真实横移速度预留返回中央所需时间，不能依赖旧 150 单位出口。
-	var return_at := minf(450.0, SEGMENT - run.speed() * (absf(lane) / run.LATERAL + 0.10))
+	var return_at := minf(450.0, SEGMENT - run.speed() * (absf(lane) / run.LATERAL + 0.20))
 	if block.route == "gap_long": return_at = 660.0
 	if block.route in ["drone", "forklift", "press", "collapse", "steam"]: return_at = 650.0
 	if block.route == "hammer": return_at = 600.0
@@ -572,6 +579,11 @@ func generate_block(number: int, difficulty: String, level: int, source_run = nu
 	var block := candidate_block(number, level)
 	var entrance: Dictionary = capture_state(source_run) if source_run != null else {}
 	var result := generate_candidate(block, number, difficulty, level, entrance, base, source_run != null)
+	# 同步入口也按后台入口的规则尝试同类型变体；不以空路替代必需内容。
+	for attempt in range(2):
+		if not result.is_empty() or canceled(): break
+		block=candidate_of(block.route,level)
+		result=generate_candidate(block,number,difficulty,level,entrance,base,source_run!=null)
 	source_override = previous_binding
 	return result
 
@@ -596,7 +608,7 @@ func generate_candidate(block: Dictionary, number: int, difficulty: String, leve
 	# 首轮教学必须实际出现；拒绝时保留证据并停生，不能用安全空段吞掉教学。
 	if number < LEVEL_ROUTES[level].size() and not block.get("injected", false):
 		rejection_evidence.append({"segment": number, "route": block.route, "reason": reason,
-			"source_entry_hash": rejected_source, "exit": rejected_exit, "fallback": "teaching_rejected_generation_stopped"})
+			"source_entry_hash": rejected_source, "exit": rejected_exit, "fallback": "teaching_candidate_rejected"})
 		return {}
 	fallbacks += 1
 	var fallback := make_block("safe", 0, level)

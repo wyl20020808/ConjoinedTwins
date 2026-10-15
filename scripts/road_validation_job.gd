@@ -45,6 +45,9 @@ func _init(templates, candidate: Dictionary, mode: String, stage: int, entrance:
 		run.retry()
 		run.a.position = Vector2(-25, 0)
 		run.b.position = Vector2(25, 0)
+		if candidate.hazards.any(func(hazard): return hazard.get("encounter",false)):
+			# 独立目录证明也从真实预热距离前开始，避免在已逼近喷口处生成角色。
+			base+=run.speed()*1.6
 		run.rope.reset(run.a.position, run.b.position)
 		run.step(0)
 	else: run = rules.clone_state(entrance)
@@ -81,7 +84,7 @@ func _init(templates, candidate: Dictionary, mode: String, stage: int, entrance:
 	corridor = []
 	duration = maxf(0.0, absolute_base + rules.SEGMENT - run.total_distance())
 	# 预算包含每个预加载机关的充能及调整；不改变生产固定步。
-	tick_limit = int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size()
+	tick_limit = int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size() + int(ceil(block.get("wait_budget",0.0)/run.FIXED_STEP))
 
 func _advance_one() -> void:
 	if rules.canceled():

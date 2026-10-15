@@ -27,6 +27,8 @@ func _ready() -> void:
 	streams.warning = render(0.3, func(t): return blip(t, 0.0, 0.1, 880.0) * 0.6 + blip(t, 0.15, 0.25, 880.0) * 0.6)
 	streams.whoosh = render(0.45, whoosh_wave)
 	streams.clear = render(0.9, clear_wave)
+	streams.rope = render(0.23, func(t): return (0.2*triangle(t*(145.0+sin(t*35)*20)) + 0.15*(noise.randf()*2-1))*envelope(t,0.23,0.03))
+	streams.buckle = render(0.08, func(t): return (0.3*sin(t*TAU*1700)+0.2*sin(t*TAU*2300))*exp(-t*65))
 	streams.click = render(0.05, func(t): return 0.4 * square(t * 660.0) * exp(-t * 70.0))
 
 func prize_wave(t: float) -> float:

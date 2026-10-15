@@ -71,3 +71,8 @@ Quaternius 官网 Animated Men / Women 与 RPG Characters 的公共 Drive 目录
 | `assets/fonts/NotoSansSC-web-subset.otf` | Noto Sans SC Regular：https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf（源文件 8,331,336 字节，SHA256 前 16 位 `faa6c9df652116dd`），由 `build-tools/make_web_font.py` 截取 ASCII、常用标点、GB2312 一级汉字和项目源码中出现的字符 | 1,022,080 | `45dec88092aa33c3` |
 
 OFL 允许随游戏分发和修改（含子集化），须附带许可原文；Noto CJK 的保留字体名为 “Source”，子集文件名与字体名不含该词。对外正式发布前复核。
+
+
+## 2026-10-15 麻绳与合作地形
+
+麻绳三股捻纹、纤维法线和圆管轮廓由 `scripts/rope_view.gd` 确定性生成；腰带、绳扣、绞盘、配重和木平台由程序生成，不新增第三方素材或下载依赖。坡面、石阶和斜桥复用已记录的 `monastery_stone_floor`。桌面和 Label3D 复用已有 `NotoSansSC-web-subset.otf` 及其 OFL 许可，解决 Mac 默认字体缺字；字体文件本轮未修改。

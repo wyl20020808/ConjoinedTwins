@@ -1,5 +1,8 @@
 # 当前生产设计：短绳合作避险与分关推进
 
+> 2026-10-15：绳索与地形已升级。下文平面绳路、无松弛仿真及旧目录作为历史契约保留；当前以 [绳索与地形报告](PHYSICAL_ROPE_TERRAIN_REPORT.md) 和 README 为准。
+
+
 日期：2026-10-13。对应 `scenes/road_demo.tscn` 及 `scripts/road_run.gd`、`road_demo.gd`、`rope_solver.gd`、`dynamic_threats.gd`、`road_levels.gd`、`road_templates.gd`。这是当前实现契约；早期白盒、450 米 Demo、无限道路及固定同侧走廊说明仅保留历史意义。验证结果和人工边界另见 [t06 实施报告](SHORT_ROPE_T06_REPORT.md)。
 
 ## 移动、跳跃与镜头

@@ -22,3 +22,6 @@ tests/short-rope-t05-result.json
 .claude/settings.local.json
 Thumbs.db
 .DS_Store
+
+# 本轮实际渲染、键盘、回放与历史基线诊断证据，仅保留本地。
+build-tools/rope-terrain-evidence/
