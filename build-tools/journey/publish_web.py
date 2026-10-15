@@ -28,7 +28,13 @@ def sha(path):
 def reload_service(plist, label):
     domain = 'gui/' + str(os.getuid())
     subprocess.run(['launchctl', 'bootout', domain + '/' + label], check=True)
-    subprocess.run(['launchctl', 'bootstrap', domain, str(plist)], check=True)
+    # launchd may finish unloading asynchronously; retry only this service's bootstrap.
+    for attempt in range(10):
+        result = subprocess.run(['launchctl', 'bootstrap', domain, str(plist)], capture_output=True, text=True)
+        if result.returncode == 0:
+            return
+        time.sleep(0.5)
+    raise RuntimeError('Relay bootstrap failed: ' + result.stderr.strip())
 
 
 def main():
