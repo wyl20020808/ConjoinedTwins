@@ -81,7 +81,7 @@ const CHECKPOINT_SIDE_MARGIN := 30.0
 const CHECKPOINT_MOVING_AHEAD := 1.5
 # 快照不保存的属性：对象句柄单独保存；跨存档累计的统计、运行模式和生成调度不随恢复回退。
 const CHECKPOINT_EXCLUDED := ["a", "b", "rope", "generator", "checkpoint", "checkpoint_line", "checkpoint_restores",
-	"block_history", "failures", "results", "revision", "proven_blocks", "lockstep", "random_seed", "streaming",
+	"cooperative_job", "block_history", "failures", "results", "revision", "proven_blocks", "lockstep", "random_seed", "streaming",
 	"generation_enabled", "async_enabled", "charge_tutorial"]
 # 已证明布局按候选内容缓存，只在主线程读写；重试同种子时直接复用。
 static var proven_blocks := {}
@@ -136,9 +136,12 @@ var async_epoch := 0
 var async_events: Array = []
 var async_peak_poll_usec := 0
 # 教学期间只证明、不安装。影子抽签器不消耗正式对局的随机序列。
-const TUTORIAL_PRELOAD_SEGMENTS := 4
+const STREAM_PRELOAD_SEGMENTS := 4
 const PRELOAD_SLICE_USEC := 2000
 var async_preload_started := false
+var async_preload_cursor := -1
+var async_nonblocking := false
+var async_prepare_waits := 0
 var async_preload_requests := {}
 var async_preload_tasks := {}
 var async_preload_order: Array = []
@@ -322,6 +325,8 @@ func cancel_generation() -> void:
 	async_preload_requests.clear()
 	async_preload_order.clear()
 	async_preload_started = false
+	async_preload_cursor = -1
+	async_prepare_waits = 0
 	async_deadline_steps = 0
 	async_preload_peak_usec = 0
 	async_epoch += 1
@@ -356,6 +361,13 @@ static func verification_worker(job: Dictionary, cancellation) -> Dictionary:
 func schedule_generation(base: float) -> bool:
 	if async_thread != null or cooperative_job != null: return false
 	if block_history.has(next_segment):
+		if async_nonblocking:
+			async_job = {"epoch": async_epoch, "number": next_segment, "base": base + world_origin,
+				"difficulty": difficulty, "level": level_index,
+				"key": var_to_str([block_history[next_segment], difficulty, level_index]).sha256_text()}
+			async_cancel = Templates.Cancellation.new()
+			cooperative_job = preload("res://scripts/road_generation_job.gd").new(async_job, async_cancel, block_history[next_segment])
+			return false
 		async_job = {"number": next_segment, "base": base + world_origin}
 		install_generated(block_history[next_segment].duplicate(true), "checkpoint_history")
 		return true
@@ -395,20 +407,32 @@ func generation_request(picker, number: int, absolute_base: float) -> Dictionary
 
 func warm_tutorial_generation() -> void:
 	if not generation_enabled or not async_enabled or not streaming or state != "running": return
-	var teaching := charge_tutorial and level_index == 0 and charge_gates.any(func(gate):
-		return gate.id in ["tutorial", "sync_tutorial"] and not gate.open)
-	if not async_preload_started and teaching:
+	# 兼容旧调用名；现在对所有关卡持续维护前方四段，不再只预热开场教学。
+	var first_number := next_segment + (0 if async_job.is_empty() else 1)
+	if first_number != async_preload_cursor:
 		async_preload_started = true
+		async_preload_cursor = first_number
+		var wanted: Array = []
 		var picker = Templates.new()
 		picker.rng.state = generator.rng.state
 		picker.bag = generator.bag.duplicate()
 		picker.bag_level = generator.bag_level
 		picker.last_kind = generator.last_kind
-		for number in range(next_segment, next_segment + TUTORIAL_PRELOAD_SEGMENTS):
+		for number in range(first_number, first_number + STREAM_PRELOAD_SEGMENTS):
 			var request := generation_request(picker, number, Templates.START_DISTANCE + number * Templates.SEGMENT)
 			var key := str(number) + ":" + str(request.key)
-			async_preload_requests[key] = request
-			async_preload_order.append(key)
+			wanted.append(key)
+			if request.base >= finish_distance() - Templates.SEGMENT: break
+			if not async_preload_requests.has(key):
+				async_preload_requests[key] = request
+				async_preload_order.append(key)
+		for key in async_preload_requests.keys():
+			if wanted.has(key): continue
+			if async_preload_tasks.has(key):
+				async_preload_tasks[key].dispose()
+				async_preload_tasks.erase(key)
+			async_preload_requests.erase(key)
+			async_preload_order.erase(key)
 	if async_preload_order.is_empty(): return
 	var started := Time.get_ticks_usec()
 	var key: String = async_preload_order[0]
@@ -421,6 +445,29 @@ func warm_tutorial_generation() -> void:
 		task.advance(1)
 	if task.done: async_preload_order.pop_front()
 	async_preload_peak_usec = maxi(async_preload_peak_usec, Time.get_ticks_usec() - started)
+
+# 生产场景在消费联机帧/移动之前调用。来不及时只等待这一帧，不同步跑完整段证明。
+# 验证速度仅影响真实等待时间；帧编号、命令、输入、地图安装时点均不变。
+func generation_due() -> bool:
+	if async_job.is_empty(): return false
+	if lockstep: return total_distance() + LOCKSTEP_LEAD >= async_job.base
+	return maxf(a.position.y, b.position.y) + world_origin + level_speed() * LATE_MARGIN >= async_job.base
+
+func generation_ready() -> bool:
+	if cooperative_job != null: return cooperative_job.done
+	return async_thread == null or not async_thread.is_alive()
+
+func prepare_frame() -> bool:
+	async_nonblocking = true
+	warm_tutorial_generation()
+	if cooperative_job != null and not cooperative_job.done:
+		var started := Time.get_ticks_usec()
+		for index in range(GENERATION_STEPS_PER_POLL):
+			if cooperative_job.done or Time.get_ticks_usec() - started >= PRELOAD_SLICE_USEC: break
+			cooperative_job.advance(1)
+	var ready := not generation_due() or generation_ready()
+	if not ready: async_prepare_waits += 1
+	return ready
 
 func install_generated(block: Dictionary, source: String, detail: String = "") -> void:
 	var job: Dictionary = async_job
@@ -443,13 +490,15 @@ func start_cooperative_generation() -> void:
 
 func poll_cooperative_generation() -> void:
 	var started := Time.get_ticks_usec()
-	cooperative_job.advance(GENERATION_STEPS_PER_POLL)
+	if not async_nonblocking: cooperative_job.advance(GENERATION_STEPS_PER_POLL)
 	if lockstep:
 		# 与原生 worker 完全相同的模拟安装时点；能力/帧率不能决定地图出现在哪一帧。
 		if total_distance() + LOCKSTEP_LEAD < async_job.base: return
 	elif not cooperative_job.done:
 		var leading: float = maxf(a.position.y, b.position.y) + world_origin
 		if leading + level_speed() * LATE_MARGIN < async_job.base: return
+	if async_nonblocking and not cooperative_job.done: return
+	# 兼容直接驱动Run的旧验证入口；生产场景已在prepare_frame分帧等待，不走集中补算。
 	# 到达既定安装时点时只补完剩余证明，不因为平台没有 Thread 就吞掉障碍。
 	while not cooperative_job.done:
 		async_deadline_steps += 256
@@ -460,6 +509,8 @@ func poll_cooperative_generation() -> void:
 	async_cancel = null
 	if proven.canceled or proven.block.is_empty():
 		install_generated(Templates.make_block("safe", 0, level_index), "safe_rejected", proven.reason)
+	elif proven.get("source", "") == "checkpoint_history":
+		install_generated(proven.block, "checkpoint_history")
 	else:
 		if not lockstep:
 			if proven_blocks.size() > 256: proven_blocks.clear()
@@ -476,6 +527,7 @@ func poll_generation() -> void:
 	var started := Time.get_ticks_usec()
 	if lockstep:
 		if total_distance() + LOCKSTEP_LEAD < async_job.base: return
+		if async_nonblocking and async_thread.is_alive(): return
 		var proven: Dictionary = async_thread.wait_to_finish()
 		async_thread = null
 		async_cancel = null
@@ -616,7 +668,7 @@ func section() -> int:
 	return clampi(int(progress() / 3000.0), 0, 2)
 
 func step(delta: float, input_a: Vector2 = Vector2.ZERO, input_b: Vector2 = Vector2.ZERO, jump_a: bool = false, jump_b: bool = false) -> void:
-	warm_tutorial_generation()
+	if not async_nonblocking: warm_tutorial_generation()
 	poll_generation()
 	if state == "settlement":
 		confirm_step(jump_a, jump_b)

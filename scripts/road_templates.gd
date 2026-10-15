@@ -445,7 +445,7 @@ static func object_state(object, excluded: Array = []) -> Dictionary:
 
 # 包括输入边沿、跳跃缓冲、绳接触、活动危险及全部相位；禁止只保存角色坐标。
 static func capture_state(run) -> Dictionary:
-	var excluded: Array = ["a", "b", "rope", "generator"]
+	var excluded: Array = ["a", "b", "rope", "generator", "cooperative_job"]
 	# 调度句柄不属于物理入口，不跨线程分享 Thread、取消对象或主线程日志。
 	for property in run.get_property_list():
 		if str(property.name).begins_with("async_"): excluded.append(property.name)

@@ -13,11 +13,15 @@ var done := false
 var result: Dictionary = {}
 var started := Time.get_ticks_usec()
 
-func _init(request: Dictionary, cancellation) -> void:
+func _init(request: Dictionary, cancellation, completed_block = null) -> void:
 	job = request.duplicate(true)
 	verifier.source_override = "runtime"
 	verifier.cancellation = cancellation
-	_begin_candidate()
+	if completed_block is Dictionary:
+		done = true
+		result = {"epoch": job.epoch, "number": job.number, "block": completed_block.duplicate(true),
+			"canceled": false, "reason": "", "source": "checkpoint_history", "elapsed_usec": 0}
+	else: _begin_candidate()
 
 func _begin_candidate() -> void:
 	if candidate_index >= job.candidates.size() or verifier.canceled():
