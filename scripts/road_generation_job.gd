@@ -3,6 +3,8 @@ extends RefCounted
 const Templates = preload("res://scripts/road_templates.gd")
 var job: Dictionary
 var verifier = Templates.new()
+var cancellation:
+	get: return verifier.cancellation
 var validation
 var candidate_index := 0
 var block: Dictionary = {}

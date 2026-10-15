@@ -11,8 +11,13 @@ let browser,lastPage;
  page.on('pageerror',e=>errors.push(String(e)));
  page.on('console',m=>{if(m.text().includes('SCRIPT ERROR')||m.text().includes('ERROR:')){errors.push(m.text());console.error(m.text())}});
  await page.goto((process.env.JOURNEY_URL||'http://127.0.0.1:8766/')+'?verify=1',{waitUntil:'domcontentloaded'});
- await page.waitForFunction(()=>window.__ctJourney?.build==='journey-combat-20261015',{timeout:180000});
+ await page.waitForFunction(()=>window.__ctJourney?.build==='journey-combat-loading-20261015',{timeout:180000});
+ // 启动页异步创建菜单后，等待布局和首轮资源预热完成再读取按钮坐标。
+ await page.waitForFunction(()=>window.__ctJourney?.fps>5);
+ await page.waitForTimeout(1000);
  let state=await page.evaluate(()=>window.__ctJourney);
+ console.log('MENU',JSON.stringify(state));
+ await page.screenshot({path:path.join(out,'mobile-menu.png')});
  const canvas=await page.locator('canvas').boundingBox();
  function point(x,y){const scale=Math.min(canvas.width/state.viewport[0],canvas.height/state.viewport[1]);return {x:canvas.x+(canvas.width-state.viewport[0]*scale)/2+x*scale,y:canvas.y+(canvas.height-state.viewport[1]*scale)/2+y*scale}}
  const training=state.controls.training;

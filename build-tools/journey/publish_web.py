@@ -69,7 +69,7 @@ def main():
     settings['WorkingDirectory'] = str(release)
     staging = args.web_root.with_name(args.web_root.name + '-staging-' + stamp)
     shutil.copytree(source, staging)
-    manifest = {'build': 'journey-combat-20261015', 'commit': commit, 'protocol': 3,
+    manifest = {'build': 'journey-combat-loading-20261015', 'commit': commit, 'protocol': 3,
                 'published_utc': stamp, 'files': {p.name: {'bytes': p.stat().st_size, 'sha256': sha(p)}
                                                 for p in sorted(staging.iterdir()) if p.is_file()}}
     (staging / 'version.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')

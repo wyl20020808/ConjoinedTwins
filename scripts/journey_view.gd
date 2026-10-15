@@ -1,6 +1,19 @@
 extends "res://scripts/road_demo.gd"
 
 const Journey = preload("res://scripts/journey_run.gd")
+const ChunkPlan = preload("res://scripts/journey_chunk_plan.gd")
+const AssetQueue = preload("res://scripts/road_asset_queue.gd")
+const PreparationTask = preload("res://scripts/preparation_task.gd")
+var parallel_chunk_plans := true
+var chunk_parallel_peak := 0
+var chunk_plan_tasks_started := 0
+var chunk_assets = AssetQueue.new()
+var chunk_jobs := {}
+var scene_prepared := false
+var scene_preparation_progress := 0.0
+var preparation_peak_usec := 0
+var preparation_waits := 0
+var chunk_install_count := 0
 const CHUNK := 80.0
 const Buddy=preload("res://scripts/journey_buddy.gd")
 var buddy=Buddy.new()
@@ -12,13 +25,14 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-combat-20261015"
+const WEB_BUILD:="journey-combat-loading-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
 var static_views := {}
 var floor_stamp := ""
 var built_chapter := -1
+var built_training := false
 var journey_hint: Label
 var region_banner: Label
 var progress_widget: ProgressBar
@@ -70,7 +84,12 @@ func _ready() -> void:
 	camera.position=Vector3(0,13,23)
 	camera.look_at(Vector3(0,0,-22))
 	camera_home=camera.transform
-	build_robots()
+	if incremental_loading:
+		set_physics_process(false)
+		set_process_unhandled_key_input(false)
+		await get_tree().process_frame
+		await build_robots()
+	else: build_robots()
 	sfx=Sfx.new()
 	add_child(sfx)
 	net=NetClient.new()
@@ -83,10 +102,18 @@ func _ready() -> void:
 	combat_view.game=self
 	add_child(combat_view)
 	build_ambience()
+	if incremental_loading:
+		while not prepare_journey_frame(): await get_tree().process_frame
 	sync_view()
+	scene_prepared = true
+	set_physics_process(true)
+	set_process_unhandled_key_input(true)
 
 func _exit_tree() -> void:
 	if is_instance_valid(net):net.disconnect_from()
+	chunk_assets.dispose()
+	for job in chunk_jobs.values():
+		if job.task!=null: job.task.dispose()
 	if is_instance_valid(ambient):
 		ambient.stop()
 		ambient.stream=null
@@ -94,6 +121,7 @@ func _exit_tree() -> void:
 	run.dispose()
 
 func ground_material(theme: String) -> Material:
+	if materials.has("journey_ground_"+theme): return materials["journey_ground_"+theme]
 	var village:=theme in ["village","facility","ruins"]
 	var forest:=ResourceLoader.exists("res://assets/journey/forest_leaves_02_diff.jpg")
 	var prefix:="res://assets/env/monastery_stone_floor" if village or not forest else "res://assets/journey/forest_leaves_02"
@@ -122,6 +150,20 @@ func subtract_floor(pieces: Array,cut: Rect2) -> Array:
 	return result
 
 func rebuild_floor(chunk: Node3D,number: int) -> void:
+	# 坍塌只使相交区块失效；其他区块继续复用原节点和网格。
+	var y0:=number*CHUNK*SCALE
+	var bounds := Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)
+	var gaps: Array[Rect2] = []
+	var cracks: Array[Rect2] = []
+	for gap in run.ground_gaps():
+		if bounds.intersects(gap): gaps.append(gap)
+	for index in range(run.kinds.size()):
+		if run.kinds[index]!="collapse": continue
+		var rect: Rect2=run.obstacles[index]
+		if rect.position.y>=y0 and rect.position.y<bounds.end.y and run.hazard_sample(index,run.elapsed).stage in ["crack","grace"]: cracks.append(rect)
+	var signature := [gaps,cracks,run.theme_at(y0)]
+	if chunk.get_meta("floor_signature",[])==signature: return
+	chunk.set_meta("floor_signature",signature)
 	var old:=chunk.get_node_or_null("Floor")
 	if old:
 		chunk.remove_child(old)
@@ -129,9 +171,8 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	var floor_node:=Node3D.new()
 	floor_node.name="Floor"
 	chunk.add_child(floor_node)
-	var y0:=number*CHUNK*SCALE
 	var pieces:Array=[Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)]
-	for gap:Rect2 in run.ground_gaps(): pieces=subtract_floor(pieces,gap)
+	for gap:Rect2 in gaps: pieces=subtract_floor(pieces,gap)
 	var theme: String=run.theme_at(y0)
 	for piece:Rect2 in pieces:
 		box(floor_node,Vector3(piece.get_center().x/SCALE,-0.32,-piece.get_center().y/SCALE),Vector3(piece.size.x/SCALE,0.64,piece.size.y/SCALE),ground_material(theme))
@@ -169,72 +210,150 @@ func asset(parent: Node3D,name: String,pos: Vector3,height: float,yaw: float=0.0
 	return model(path,parent,pos,height,yaw,20)
 
 func build_chunk(number: int) -> Node3D:
-	var chunk:=Node3D.new()
-	chunk.name="World_%d"%number
+	var chunk := Node3D.new()
+	chunk.name = "World_%d"%number
 	road.add_child(chunk)
-	var rng:=RandomNumberGenerator.new()
-	rng.seed=number*109+run.level_index*7919+42
-	var start:=number*CHUNK
-	var theme: String=run.theme_at(start*SCALE)
-	var forest:=theme in ["forest","broken","edge","meadow"]
-	var village:=theme in ["village","farm"]
-	var land:=material("land_"+theme,Color("48513b") if forest else Color("77765b"))
-	for side in [-1.0,1.0]:
-		box(chunk,Vector3(side*(Run.EDGE/SCALE+24),-0.65,-start-CHUNK/2),Vector3(48,1.0,CHUNK),land)
-		if theme=="river":
-			box(chunk,Vector3(side*30,-2.2,-start-CHUNK/2),Vector3(26,0.15,CHUNK),material("water",Color("345f67")))
-		for n in range(8):
-			var z:=-start-n*10-rng.randf_range(0,4)
-			var x:float=side*rng.randf_range(18,36)
-			if forest or theme in ["farm","river"]:
-				var pine:=model("res://assets/decor/Pine.glb",chunk,Vector3(x,0,z),rng.randf_range(8,15),rng.randf()*TAU,12)
-				if pine: pine.set_meta("wind",rng.randf()*TAU)
-				if n%2==0: model("res://assets/decor/Bush.glb",chunk,Vector3(side*rng.randf_range(16.5,22),0,z+3),rng.randf_range(1.0,2.3),rng.randf()*TAU)
-				if n%2==1: model("res://assets/decor/TallGrass.glb",chunk,Vector3(side*rng.randf_range(16,19),0,z),rng.randf_range(0.7,1.6),rng.randf()*TAU)
-			elif theme in ["mine","ruins"]:
-				rock(chunk,rock_mesh("journey_rock_%d"%n,n+31,3,1.8,8,0.5),ground_material("ruins"),Vector3(x,-1,z),rng.randf_range(0.8,2.0))
-				if theme=="ruins" and n%2==0: model("res://assets/decor/Column.glb",chunk,Vector3(side*18,0,z),6.5)
-		if village:
-			for n in range(3):
-				var name:="house_%d"%((number+n)%3)
-				asset(chunk,name,Vector3(side*23,0,-start-n*27-10),rng.randf_range(8,11),-side*PI/2)
-				asset(chunk,"fence",Vector3(side*17,0,-start-n*27-18),1.6,0)
-				asset(chunk,"cart",Vector3(side*19,0,-start-n*27-3),2.3,side*PI/2)
-		if theme=="facility":
-			for n in range(3): model("res://assets/industrial/building-k.glb",chunk,Vector3(side*27,0,-start-n*28),14,side*PI/2,15)
-	if theme=="farm":
-		for n in range(12): box(chunk,Vector3(25,-0.05,-start-n*6),Vector3(12,0.1,1.2),material("farmland",Color("51412c")))
-	if theme=="river": asset(chunk,"waterwheel",Vector3(19,-1,-start-40),8,PI/2)
-	# 固定世界中的路边标牌，提前呈现下一区域。
-	var zone_length:float=run.finish_distance()/6.0
-	for zone in range(6):
-		var y:float=zone*zone_length/SCALE
-		if y>=start and y<start+CHUNK:
-			asset(chunk,"sign",Vector3(-15,0,-y-6),3.0)
-			add_sign(chunk,run.TRIAL_ZONES[zone] if run.combat_trial else run.CHAPTERS[run.level_index].zones[zone],Vector3(-12,4,-y-8),38)
+	for item in ChunkPlan.make(number,run.level_index,chunk_chapter(number),Run.EDGE): install_chunk_item(chunk,item)
 	rebuild_floor(chunk,number)
 	return chunk
 
+func install_chunk_item(chunk: Node3D, item: Array) -> void:
+	match item[0]:
+		"land": box(chunk,item[1],item[2],material("land_"+item[3],Color("48513b") if item[4] else Color("77765b")))
+		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
+		"model":
+			var node := model("res://assets/decor/%s.glb"%item[1],chunk,item[2],item[3],item[4],item[5])
+			if item.size()>6 and node: node.set_meta("wind",item[6])
+		"rock": rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),ground_material("ruins"),item[2],item[3])
+		"asset": asset(chunk,item[1],item[2],item[3],item[4])
+		"building": model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+		"farm": box(chunk,item[1],Vector3(12,0.1,1.2),material("farmland",Color("51412c")))
+		"sign": add_sign(chunk,item[1],item[2],38)
+
+func prepare_journey_frame() -> bool:
+	var started := Time.get_ticks_usec()
+	var deadline := started + Run.PRELOAD_SLICE_USEC
+	sync_world()
+	var current := int(run.distance/SCALE/CHUNK)
+	for number in range(maxi(0,current-1),current+6):
+		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
+		if not chunk_jobs.has(number):
+			chunk_jobs[number] = {"items":null,"cursor":0,"node":null,"paths":[],"task":null}
+	var active := 0
+	for job in chunk_jobs.values():
+		if job.task!=null and not job.task.done: active+=1
+	for number in chunk_jobs:
+		var job: Dictionary=chunk_jobs[number]
+		if job.items!=null: continue
+		if job.task!=null:
+			if not job.task.done: continue
+			job.items=job.task.result
+			job.task.dispose()
+			job.task=null
+		elif parallel_chunk_plans and run.supports_background_generation():
+			if active>=2: continue
+			job.task=PreparationTask.new(ChunkPlan.make.bind(number,run.level_index,chunk_chapter(number).duplicate(true),Run.EDGE))
+			chunk_plan_tasks_started+=1
+			active+=1
+			continue
+		else:
+			if Time.get_ticks_usec()>=deadline: break
+			job.items=ChunkPlan.make(number,run.level_index,chunk_chapter(number),Run.EDGE)
+		job.paths=ChunkPlan.paths(job.items)
+		chunk_assets.request(job.paths)
+	chunk_parallel_peak=maxi(chunk_parallel_peak,active)
+	chunk_assets.poll(deadline)
+	var events_ready := prepare_event_views(deadline)
+	for number in chunk_jobs.keys():
+		if Time.get_ticks_usec()>=deadline: break
+		var job: Dictionary = chunk_jobs[number]
+		if job.items==null: continue
+		if not chunk_assets.ready(job.paths): continue
+		if job.node==null:
+			job.node=Node3D.new()
+			job.node.name="World_%d"%number
+			job.node.hide()
+			road.add_child(job.node)
+		while job.cursor<job.items.size() and Time.get_ticks_usec()<deadline:
+			install_chunk_item(job.node,job.items[job.cursor])
+			job.cursor+=1
+		if job.cursor==job.items.size() and Time.get_ticks_usec()<deadline:
+			rebuild_floor(job.node,number)
+			world_chunks[number]=job.node
+			job.node.visible=number<=current+3
+			chunk_jobs.erase(number)
+			chunk_install_count+=1
+	var ready := events_ready
+	var completed := 0
+	var required := 0
+	for number in range(maxi(0,current-1),current+4):
+		if number*CHUNK*SCALE>run.finish_distance()+400: continue
+		required+=1
+		if world_chunks.has(number): completed+=1
+		else: ready=false
+	scene_preparation_progress=float(completed)/maxi(1,required)
+	preparation_peak_usec=maxi(preparation_peak_usec,Time.get_ticks_usec()-started)
+	if not ready: preparation_waits+=1
+	return ready
+
+func prepare_event_views(deadline: int) -> bool:
+	var ready := true
+	for event in run.journey_events:
+		var ahead: float=event.y-run.distance
+		if ahead < -900 or ahead >= 5800 or event_views.has(event.id): continue
+		var paths: Array=[]
+		match event.kind:
+			"tree": paths.append("res://assets/journey/falling_tree.glb")
+			"boar": paths.append("res://assets/journey/boar.glb")
+			"cart": paths.append("res://assets/journey/cart.glb")
+			"swing": paths.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
+		if event.kind in ["stone","cart"]: paths.append("res://assets/journey/villager_actions.glb")
+		chunk_assets.request(paths)
+		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
+			event_views[event.id]=build_event(event)
+			event_views[event.id].hide()
+		elif ahead<4200: ready=false
+	for gate in run.charge_gates:
+		if absf(gate.receiver.y-run.distance)>=5800 or gate_views.has(gate.id): continue
+		var paths: Array=["res://assets/journey/gate.glb", "res://assets/journey/%s.glb"%("waterwheel" if gate.id=="waterwheel" else "drawbridge")]
+		chunk_assets.request(paths)
+		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
+			gate_views[gate.id]=build_gate(gate)
+			gate_views[gate.id].hide()
+		elif absf(gate.receiver.y-run.distance)<4200: ready=false
+	return ready
+
 func sync_world() -> void:
-	if built_chapter!=run.level_index:
+	if built_chapter!=run.level_index or built_training!=run.combat_trial:
 		for chunk in world_chunks.values(): chunk.queue_free()
 		world_chunks.clear()
+		for job in chunk_jobs.values():
+			if job.task!=null: job.task.dispose()
+			if is_instance_valid(job.node): job.node.queue_free()
+		chunk_jobs.clear()
 		for view in event_views.values(): view.queue_free()
 		event_views.clear()
 		for view in gate_views.values(): view.queue_free()
 		gate_views.clear()
 		built_chapter=run.level_index
+		built_training=run.combat_trial
 		floor_stamp=""
 		for view in static_views.values():view.queue_free()
 		static_views.clear()
 	var current:=int(run.distance/SCALE/CHUNK)
 	for number in range(maxi(0,current-1),current+4):
 		if number*CHUNK*SCALE>run.finish_distance()+400: continue
-		if not world_chunks.has(number): world_chunks[number]=build_chunk(number)
+		if not world_chunks.has(number) and not incremental_loading: world_chunks[number]=build_chunk(number)
 	for number in world_chunks.keys():
-		if number<current-1 or number>current+3:
+		if number<current-1 or number>current+(5 if incremental_loading else 3):
 			world_chunks[number].queue_free()
 			world_chunks.erase(number)
+	for number in world_chunks: world_chunks[number].visible=number<=current+3
+	for number in chunk_jobs.keys():
+		if number<current-1 or number>current+5:
+			if chunk_jobs[number].task!=null: chunk_jobs[number].task.dispose()
+			if is_instance_valid(chunk_jobs[number].node): chunk_jobs[number].node.queue_free()
+			chunk_jobs.erase(number)
 	var stamp:="%d:"%run.revision
 	for i in range(run.kinds.size()):
 		if run.kinds[i]=="collapse": stamp+=str(run.hazard_sample(i,run.elapsed).stage)
@@ -292,11 +411,16 @@ func sync_events() -> void:
 		var near:bool=event.y-run.distance>-900 and event.y-run.distance<4200
 		if not near:
 			if event_views.has(event.id):
-				event_views[event.id].queue_free()
-				event_views.erase(event.id)
+				if incremental_loading and event.y-run.distance>=4200 and event.y-run.distance<5800: event_views[event.id].hide()
+				else:
+					event_views[event.id].queue_free()
+					event_views.erase(event.id)
 			continue
-		if not event_views.has(event.id): event_views[event.id]=build_event(event)
+		if not event_views.has(event.id):
+			if incremental_loading: continue
+			event_views[event.id]=build_event(event)
 		var view:Node3D=event_views[event.id]
+		view.show()
 		view.position=Vector3(0,0,-event.y/SCALE)
 		var body:Node3D=view.get_node("Body")
 		var rect:Rect2=event.sample
@@ -362,8 +486,11 @@ func build_gate(gate: Dictionary) -> Node3D:
 func sync_gates() -> void:
 	for gate in run.charge_gates:
 		if absf(gate.receiver.y-run.distance)>4200: continue
-		if not gate_views.has(gate.id): gate_views[gate.id]=build_gate(gate)
+		if not gate_views.has(gate.id):
+			if incremental_loading: continue
+			gate_views[gate.id]=build_gate(gate)
 		var view:Node3D=gate_views[gate.id]
+		view.show()
 		sample_animation(view,"BridgeLower",clampf((run.elapsed-gate.opened_at)/0.6,0,1) if gate.open else 0)
 		if gate.id=="waterwheel":sample_animation(view,"WheelTurn",run.elapsed)
 		view.position=Vector3(0,0,-gate.door.position.y/SCALE)
@@ -509,7 +636,9 @@ func build_journey_ui() -> void:
 func reset_journey_views() -> void:
 	buddy.reset()
 	last_fire_sent=false
-	built_chapter=-1
+	prepared_online_frame=-1
+	# 固定关卡重试只需刷新阶段和反馈，不重建相同的环境模型。
+	floor_stamp=""
 	sound_events.clear()
 	clear_controls()
 	if is_instance_valid(combat_view): combat_view.reset()
@@ -529,6 +658,7 @@ func apply_journey_primary() -> void:
 	clear_controls()
 
 func _unhandled_key_input(event: InputEvent) -> void:
+	if not scene_prepared: return
 	if not event is InputEventKey or not event.pressed or event.echo: return
 	if event.keycode==KEY_ESCAPE:
 		command("pause")
@@ -548,6 +678,10 @@ func _physics_process(delta: float) -> void:
 	touch.set_enabled(touch_device and play_mode!="local" and run.state in ["running","rescue","settlement"])
 	if net.active():
 		online_process(delta)
+		return
+	if incremental_loading and not prepare_journey_frame():
+		update_journey_ui()
+		journey_hint.text="正在准备前方路段…"
 		return
 	var input:=sample_local_input()
 	run.solo_control=play_mode=="solo"
@@ -703,13 +837,13 @@ func build_ambience() -> void:
 	add_child(ambient)
 	# 缓存有限 PCM 循环，避免流式生成器在退出时遗留音频播放句柄。
 	for kind in ["wind","forest","river"]:
-		var stream:AudioStreamWAV=sfx.render(7.0,func(t):return ambience_wave(t,kind))
+		var stream:AudioStreamWAV=load("res://assets/audio/ambience_%s.wav"%kind).duplicate()
 		stream.loop_mode=AudioStreamWAV.LOOP_FORWARD
 		stream.loop_begin=0
 		stream.loop_end=7*22050
 		ambience_streams[kind]=stream
 
-func ambience_wave(t:float,kind:String)->float:
+static func ambience_wave(t:float,kind:String)->float:
 	var wind:=sin(t*TAU*49)*sin(t*TAU*65)*0.08+sin(t*TAU*112)*0.03
 	var bird:=0.0
 	if kind=="forest" and t<0.35:bird=sin(t*(3100+sin(t*36)*600))*sin(t/0.35*PI)*0.18
@@ -718,6 +852,10 @@ func ambience_wave(t:float,kind:String)->float:
 
 func pump_ambience(_delta: float) -> void:
 	if not is_instance_valid(ambient):return
+	# 开始页和加载页无需创建一个立即暂停的播放句柄。
+	if run.state!="running":
+		ambient.stream_paused=true
+		return
 	var theme:String=run.theme_at(run.distance)
 	var kind:="forest" if theme in ["forest","edge","meadow","farm"] else ("river" if theme=="river" else "wind")
 	if ambience_region!=kind:
@@ -727,15 +865,22 @@ func pump_ambience(_delta: float) -> void:
 	ambient.stream_paused=run.state!="running"
 
 # 资源动画由生产时间采样；暂停、存档恢复和重试均与物理相位一致。
-func sample_animation(node:Node,token:String,time:float)->void:
+func animation_targets(node: Node, token: String) -> Array:
+	var targets: Array=[]
 	if node is AnimationPlayer:
 		for clip in node.get_animation_list():
-			if token in clip:
-				var animation:Animation=node.get_animation(clip)
-				node.play(clip)
-				node.seek(fposmod(time,animation.length) if token in ["Charge","WheelTurn"] else clampf(time,0,animation.length),true)
-				node.pause()
-	for child in node.get_children():sample_animation(child,token,time)
+			if token in clip: targets.append([node,clip,node.get_animation(clip).length])
+	for child in node.get_children(): targets.append_array(animation_targets(child,token))
+	return targets
+
+func sample_animation(node:Node,token:String,time:float)->void:
+	var key := "animation_targets_"+token
+	if not node.has_meta(key): node.set_meta(key,animation_targets(node,token))
+	for target in node.get_meta(key):
+		var player: AnimationPlayer=target[0]
+		player.play(target[1])
+		player.seek(fposmod(time,target[2]) if token in ["Charge","WheelTurn"] else clampf(time,0,target[2]),true)
+		player.pause()
 
 func sync_static_hazards()->void:
 	for i in range(run.kinds.size()):
@@ -795,21 +940,26 @@ func online_process(delta:float)->void:
 	var start:=Time.get_ticks_usec()
 	while not net.frames.is_empty() and applied<4:
 		var index:int=net.next_frame
-		var frame:Dictionary=net.take_frames(1)[0]
-		var seen:={}
-		for entry in frame.cmds:
-			var key:=str(entry[0])+":"+str(entry[1])+":"+str(entry[2])
-			if not seen.has(key):
-				if entry[1]=="combat":apply_combat_command(int(entry[0]),str(entry[2]))
-				else:apply_command(entry[1],entry[2])
-				seen[key]=true
+		var frame:Dictionary=net.frames[0]
+		if prepared_online_frame!=index:
+			var seen:={}
+			for entry in frame.cmds:
+				var key:=str(entry[0])+":"+str(entry[1])+":"+str(entry[2])
+				if not seen.has(key):
+					if entry[1]=="combat":apply_combat_command(int(entry[0]),str(entry[2]))
+					else:apply_command(entry[1],entry[2])
+					seen[key]=true
+			prepared_online_frame=index
+		# 保留完整帧等待分帧准备，命令只执行一次，不跳帧或推进模拟时间。
+		if incremental_loading and not prepare_journey_frame(): break
+		net.take_frames(1)
 		var before:String=run.state
 		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
 		if run.state!=before:clear_controls()
 		net.report(index,run.sync_hash())
 		online_frame_applied.emit(index)
 		applied+=1
-		if Time.get_ticks_usec()-start>6000:break
+		if Time.get_ticks_usec()-start>=Run.PRELOAD_SLICE_USEC:break
 	frame_delta=delta
 	sync_view()
 	pump_ambience(delta)
@@ -899,3 +1049,9 @@ func apply_combat_command(role: int, value: String) -> void:
 	run.combat.fire[role]=fields[0]=="1"
 	run.combat.reload[role]=run.combat.reload[role] or fields[1]=="1"
 	run.combat.drop[role]=run.combat.drop[role] or fields[2]=="1"
+
+func chunk_chapter(number: int) -> Dictionary:
+	if not run.combat_trial: return run.CHAPTERS[run.level_index]
+	var themes: Array=[]
+	for zone in range(6): themes.append(run.theme_at(number*CHUNK*SCALE))
+	return {"length":run.finish_distance(),"zones":run.TRIAL_ZONES,"themes":themes}
