@@ -15,5 +15,9 @@ anti_aliasing/quality/msaa_3d=1
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.055, 0.075, 0.11, 1)
 
+[gui]
+
+theme/custom_font.web="res://assets/fonts/web_ui_font.tres"
+
 [physics]
 common/physics_ticks_per_second=60

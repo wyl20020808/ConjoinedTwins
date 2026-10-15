@@ -63,3 +63,11 @@ Quaternius 官网 Animated Men / Women 与 RPG Characters 的公共 Drive 目录
 | `assets/decor/TallGrass.glb` | https://poly.pizza/m/JSIYtscPmP | 88,020 | `497f6303b662b2f6` |
 
 使用位置：`belfast_sunset_puresky_2k.hdr` 作天空和环境光；`monastery_stone_floor` 铺路面，`rock_face_03` 用于崖壁、孤峰、石台和缺口壁，`rock_boulder_dry` 用于巨岩和路沿碎石；`assets/decor/` 的树、灌木、草、残柱、拱门、旗帜、火把摆在崖壁和路外石台上。孤峰、扶壁、石台、巨石的形状由程序用噪声生成，不是下载的模型。
+
+2026-10-14 网页版中文字体（SIL Open Font License 1.1，原文 `assets/fonts/OFL.txt`）：浏览器里的 Godot 不能使用系统字体，中文会显示成方框，所以网页版携带字体子集。只在网页版生效（`project.godot` 的 `gui/theme/custom_font.web`），桌面和 iOS 仍用系统字体。
+
+| 文件 | 来源 | 字节 | SHA256 前 16 位 |
+| --- | --- | --- | --- |
+| `assets/fonts/NotoSansSC-web-subset.otf` | Noto Sans SC Regular：https://github.com/notofonts/noto-cjk/raw/main/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf（源文件 8,331,336 字节，SHA256 前 16 位 `faa6c9df652116dd`），由 `build-tools/make_web_font.py` 截取 ASCII、常用标点、GB2312 一级汉字和项目源码中出现的字符 | 1,022,080 | `45dec88092aa33c3` |
+
+OFL 允许随游戏分发和修改（含子集化），须附带许可原文；Noto CJK 的保留字体名为 “Source”，子集文件名与字体名不含该词。对外正式发布前复核。

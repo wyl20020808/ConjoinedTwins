@@ -1,0 +1,24 @@
+# Mac mini 网页版联机入口：同一个本地端口同时提供网页静态文件和 WebSocket 联机。
+# SakuraFrp TCP 隧道（自动 HTTPS + nyat.app 子域名）把 https/wss 流量解密后转到这里的 127.0.0.1:8080。
+# 网页根目录由环境变量 CT_WEB_ROOT 指定（launchd 配置里设置），内容来自 build-tools/prepare_web.py 导出的 builds/web/。
+{
+	auto_https off
+	admin off
+}
+
+http://:8080 {
+	bind 127.0.0.1
+	encode zstd gzip
+
+	# 网页版默认连接 wss://<网页主机>/ws，这里转给中继的 WebSocket 端口。
+	handle /ws* {
+		reverse_proxy 127.0.0.1:24681
+	}
+
+	handle {
+		root * {$CT_WEB_ROOT}
+		# 每次打开都向服务器确认是否有新版本，避免两人缓存了不同版本导致不同步。
+		header Cache-Control "no-cache"
+		file_server
+	}
+}
