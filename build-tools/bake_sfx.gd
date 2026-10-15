@@ -4,6 +4,9 @@ func _initialize() -> void:
 	var sound = load("res://scripts/sfx.gd").new()
 	if sound.has_method("synthesize"): sound.synthesize()
 	else: sound._ready()
+	var journey = load("res://scripts/journey_view.gd")
+	for kind in ["wind", "forest", "river"]:
+		sound.streams["ambience_"+kind] = sound.render(7.0, func(t): return journey.ambience_wave(t,kind))
 	DirAccess.make_dir_recursive_absolute("res://assets/audio")
 	for key in sound.streams:
 		var error: int = sound.streams[key].save_to_wav("res://assets/audio/%s.wav" % key)

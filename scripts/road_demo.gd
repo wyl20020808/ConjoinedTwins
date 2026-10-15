@@ -11,6 +11,7 @@ const ROAD_HALF := Run.EDGE / SCALE + 0.3
 # 缺口岩壁向下 6 米后敞开，再往下 28 米是与路外相同的云海（坠落角色先穿过可见空间再没入云中）；窄桥桥面只露出一米厚的石板。
 const GAP_DEPTH := 6.0
 const PLANK_THICKNESS := 1.0
+var incremental_loading := false
 var run = Run.new(true, true)
 var road := Node3D.new()
 var camera := Camera3D.new()
@@ -70,6 +71,7 @@ var camera_home := Transform3D()
 const FAIL_HIT_SHOW := 1.6
 const FAIL_FALL_SHOW := 2.6
 var rock_meshes := {}
+var model_bounds_cache := {}
 var support_run_id := 0
 var support_revision := -1
 var support_gaps: Array[Rect2] = []
@@ -224,7 +226,8 @@ func box(parent: Node3D, pos: Vector3, size: Vector3, mat: Material) -> MeshInst
 func model(path: String, parent: Node3D, pos: Vector3, height: float, yaw: float = 0.0, width_limit: float = 8.0) -> Node3D:
 	var instance: Node3D = load(path).instantiate()
 	parent.add_child(instance)
-	var bounds := model_bounds(instance, instance)
+	if not model_bounds_cache.has(path): model_bounds_cache[path] = model_bounds(instance, instance)
+	var bounds: AABB = model_bounds_cache[path]
 	var factor := height / maxf(bounds.size.y, 0.01)
 	if "industrial" in path:
 		factor = minf(factor, width_limit / maxf(bounds.size.x, bounds.size.z))
@@ -1203,6 +1206,7 @@ func build_robots() -> void:
 		tag.pixel_size = 0.012
 		tag.modulate = accent.albedo_color
 		robot.add_child(tag)
+		if incremental_loading: await get_tree().process_frame
 	# 真绳子：有重量、会下垂和甩动的细麻绳，替代原来的发光方条。
 	rope_view = RopeView.new()
 	rope_view.length = Run.LINK_LIMIT / SCALE
@@ -1479,7 +1483,7 @@ func rebuild_hazard_views() -> void:
 	view_revision = run.revision
 
 # 已证明布局提前逐个准备隐藏模型；当前帧需要安装时若模型未齐，只保留帧等待，不一口气建一整段。
-func prepare_generation_views(startup: bool = false) -> bool:
+func prepare_generation_views(startup: bool = false, deadline_usec: int = 0) -> bool:
 	var targets: Array = []
 	if run.cooperative_job != null and run.cooperative_job.done:
 		targets.append({"job": run.async_job, "block": run.cooperative_job.result.block, "blocking": not run.lockstep or run.generation_due()})
@@ -1508,6 +1512,9 @@ func prepare_generation_views(startup: bool = false) -> bool:
 			var shape := hazard_shape(index)
 			required[shape] = required.get(shape, 0) + 1
 			if hazard_pool.get(shape, []).size() >= required[shape]: continue
+			if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec:
+				run = live
+				return not target.blocking
 			var spare := 0
 			for cached in hazard_pool.values(): spare += cached.size()
 			if spare < MODEL_POOL_LIMIT or target.blocking:
@@ -1520,11 +1527,12 @@ func prepare_generation_views(startup: bool = false) -> bool:
 		run = live
 	return true
 
-func prepare_game_frame() -> bool:
+func prepare_game_frame(deadline_usec: int = 0) -> bool:
+	if deadline_usec == 0: deadline_usec = Time.get_ticks_usec() + Run.PRELOAD_SLICE_USEC
 	var startup: bool = run.async_startup_pending and run.state == "running"
-	var ready: bool = run.prepare_frame()
+	var ready: bool = run.prepare_frame(deadline_usec)
 	# 证明期间同步逐个准备模型，避免计算进度完成后再集中建模。
-	var models_ready := prepare_generation_views(startup)
+	var models_ready := prepare_generation_views(startup, deadline_usec)
 	if startup and (not ready or not models_ready):
 		run.async_startup_pending = true
 		return false
@@ -1796,6 +1804,7 @@ func online_process(delta: float) -> void:
 	net.send_input(move, key_down(KEY_SPACE) or key_down(KEY_ENTER) or touch_jump)
 	var applied := 0
 	var started := Time.get_ticks_usec()
+	var preparation_deadline := started + Run.PRELOAD_SLICE_USEC
 	generation_waiting = false
 	var queued: int = net.frames.size()
 	var limit: int = mini(4, queued - 2) if queued > 8 else (2 if queued > 3 else 1)
@@ -1807,7 +1816,7 @@ func online_process(delta: float) -> void:
 		if prepared_online_frame != index:
 			for entry in frame.cmds: apply_command(entry[1], entry[2])
 			prepared_online_frame = index
-		if not prepare_game_frame():
+		if not prepare_game_frame(preparation_deadline):
 			generation_waiting = true
 			break
 		net.take_frames(1)

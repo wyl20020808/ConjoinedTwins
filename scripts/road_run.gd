@@ -148,6 +148,7 @@ var async_startup_pending := false
 var async_preload_started := false
 var async_preload_cursor := -1
 var async_nonblocking := false
+var preparation_deadline_usec := 0
 var async_prepare_waits := 0
 var async_preload_requests := {}
 var async_preload_tasks := {}
@@ -445,13 +446,15 @@ func warm_tutorial_generation() -> void:
 			async_preload_order.erase(key)
 	if async_preload_order.is_empty(): return
 	var started := Time.get_ticks_usec()
+	var deadline_usec := preparation_deadline_usec
+	if deadline_usec == 0: deadline_usec = started + PRELOAD_SLICE_USEC
 	var key: String = async_preload_order[0]
 	if not async_preload_tasks.has(key):
 		async_preload_tasks[key] = preload("res://scripts/road_generation_job.gd").new(async_preload_requests[key], Templates.Cancellation.new())
 	var task = async_preload_tasks[key]
 	# 按时间与验证步数双重限额让出主线程，不在开门事件里集中补算。
 	for index in range(256 if async_startup_pending else GENERATION_STEPS_PER_POLL):
-		if task.done or Time.get_ticks_usec() - started >= (6000 if async_startup_pending else PRELOAD_SLICE_USEC): break
+		if task.done or Time.get_ticks_usec() >= deadline_usec: break
 		task.advance(1)
 	if task.done: async_preload_order.pop_front()
 	async_preload_peak_usec = maxi(async_preload_peak_usec, Time.get_ticks_usec() - started)
@@ -476,14 +479,16 @@ func startup_progress() -> float:
 		if task.done: completed += 1
 	return float(completed) / total
 
-func prepare_frame() -> bool:
+func prepare_frame(deadline_usec: int = 0) -> bool:
 	async_nonblocking = true
 	if state != "running": return true
+	if deadline_usec == 0: deadline_usec = Time.get_ticks_usec() + PRELOAD_SLICE_USEC
+	preparation_deadline_usec = deadline_usec
 	warm_tutorial_generation()
+	preparation_deadline_usec = 0
 	if cooperative_job != null and not cooperative_job.done:
-		var started := Time.get_ticks_usec()
 		for index in range(GENERATION_STEPS_PER_POLL):
-			if cooperative_job.done or Time.get_ticks_usec() - started >= PRELOAD_SLICE_USEC: break
+			if cooperative_job.done or Time.get_ticks_usec() >= deadline_usec: break
 			cooperative_job.advance(1)
 	if async_startup_pending:
 		if startup_progress() < 1.0: return false
