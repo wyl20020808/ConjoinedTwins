@@ -15,6 +15,11 @@ func _ready()->void:
 		for meters in range(0,1921,40):
 			game.run.a.position=Vector2(-42,meters*20);game.run.b.position=Vector2(42,meters*20)
 			game.run.distance=meters*20;game.run.elapsed=meters/8.0
+			# 展示跳转需匹配真实通关时的已通过机关；这不作为玩法通关证据。
+			for gate in game.run.charge_gates:
+				gate.open=gate.receiver.y<meters*20-180
+				gate.opened_at=0.0 if gate.open else -1.0
+			game.run.select_charge_gate()
 			while not game.prepare_journey_frame():await get_tree().process_frame
 			game.sync_view()
 			await get_tree().create_timer(.35).timeout

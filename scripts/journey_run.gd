@@ -243,7 +243,15 @@ func check_finish() -> void:
 func active_hint() -> String:
 	if combat_trial: return combat.get("notice","")
 	if charge_gate.active and not charge_gate.open and charge_gate.receiver.y-progress()<800:
-		return charge_gate.title+" · "+gate_hint(charge_gate)
+		var conditions:Dictionary=charge_gate.get("conditions",{})
+		var plates:bool=charge_gate.get("kind","")=="sync_plates"
+		var duration:float=SyncPlates.HOLD_TIME if plates else ChargeGate.CHARGE_TIME
+		var hint:="两人各站一块踏板，落地保持" if plates else "两人分别站左右标记，可交换站位"
+		if not plates and conditions.get("positioned",false):
+			if not conditions.get("clear",true):hint="一起横移，让绳索离开障碍物"
+			elif not conditions.get("taut",false):hint="向两侧拉紧绳索，保持供能"
+			else:hint="两人落地站稳，保持连线穿过接收器"
+		return "%s · %d%%\n%s"%[charge_gate.title,int(charge_gate.charge/duration*100),hint]
 	for event in journey_events:
 		if event.phase=="warning": return EVENT_NAMES[event.kind]
 	for marker in encounter_markers:

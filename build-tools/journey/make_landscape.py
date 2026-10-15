@@ -107,7 +107,7 @@ mesh.branch((-2,0,2.4),(2,0,2.4),.009,.009,4,sides=4)
 for n in range(5):
  x=-1.6+n*.7;mesh.face([(x,0,2.4),(x+.5,0,2.4),(x+.54,.08,1.5),(x+.05,.08,1.45)],4)
 mesh.save('washing_line')
-( ROOT/'build-tools/journey/landscape-assets.json').write_text(json.dumps({'generator':'make_landscape.py','license':'Project-generated; CC0','assets':records},indent=2))
+( ROOT/'build-tools/journey/landscape-assets.json').write_text(json.dumps({'generator':'make_landscape.py','license':'Project-generated for ConjoinedTwins','assets':records},indent=2))
 print('LANDSCAPE ASSETS',len(records))
 # 既有建筑只转换成无贴图的静态网格；共享 PBR 贴图在运行时绑定，避免每栋房子重复解码。
 for name in ['house_0','house_1','house_2','fence']:
@@ -129,7 +129,7 @@ for name in ['house_0','house_1','house_2','fence']:
  target=OUT/(name+'.glb')
  bpy.ops.export_scene.gltf(filepath=str(target),export_format='GLB',use_selection=True,export_animations=False)
  records.append({'name':name,'bytes':target.stat().st_size,'source':'assets/journey/'+name+'.glb','sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
-(ROOT/'build-tools/journey/landscape-assets.json').write_text(json.dumps({'generator':'make_landscape.py','license':'Project-generated; CC0','assets':records},indent=2))
+(ROOT/'build-tools/journey/landscape-assets.json').write_text(json.dumps({'generator':'make_landscape.py','license':'Project-generated for ConjoinedTwins','assets':records},indent=2))
 # 远景树复用低面数网格；近景仍使用完整叶片。二者共用材质与树干位置。
 for name in ['oak_7','oak_17','birch']:
  bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete(use_global=False)
@@ -142,4 +142,4 @@ for name in ['oak_7','oak_17','birch']:
  target=OUT/(name+'_lod.glb')
  bpy.ops.export_scene.gltf(filepath=str(target),export_format='GLB',export_animations=False)
  records.append({'name':name+'_lod','bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
-(ROOT/'build-tools/journey/landscape-assets.json').write_text(json.dumps({'generator':'make_landscape.py','license':'Project-generated; CC0','assets':records},indent=2))
+(ROOT/'build-tools/journey/landscape-assets.json').write_text(json.dumps({'generator':'make_landscape.py','license':'Project-generated for ConjoinedTwins','assets':records},indent=2))
