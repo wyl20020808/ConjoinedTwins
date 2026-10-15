@@ -83,8 +83,13 @@ func _init(templates, candidate: Dictionary, mode: String, stage: int, entrance:
 	# 本段实际走过的双人位置（段内局部坐标），供之后在路线外散布陷阱。
 	corridor = []
 	duration = maxf(0.0, absolute_base + rules.SEGMENT - run.total_distance())
+	# 随机共享池允许上一段是升降台；预测入口时仍可能先等待它完成一个周期。
+	var inherited_wait := 0.0
+	for index in range(run.kinds.size()):
+		if run.kinds[index] == "lift" and run.obstacles[index].position.y < base and run.obstacles[index].end.y >= minf(run.a.position.y,run.b.position.y):
+			inherited_wait += run.hazard_specs[index].get("period",3.2)
 	# 预算包含每个预加载机关的充能及调整；不改变生产固定步。
-	tick_limit = int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size() + int(ceil(block.get("wait_budget",0.0)/run.FIXED_STEP))
+	tick_limit = int(ceil(duration / run.speed() / run.FIXED_STEP)) + 180 + 240 * run.charge_gates.size() + int(ceil((block.get("wait_budget",0.0)+inherited_wait)/run.FIXED_STEP))
 
 func _advance_one() -> void:
 	if rules.canceled():

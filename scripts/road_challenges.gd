@@ -1,10 +1,10 @@
 extends RefCounted
 
 # 新内容直接进入三关随机目录。段落只提供地形与机关，证明器仍使用真实双人按键。
-const POOLS := [
-	["ridge_turn", "offset_bridge", "slope_path", "chain_collapse", "steam_corridor", "pressure_bridge"],
-	["fork_islands", "steps_path", "tilt_path", "ferry_crossing", "steam_corridor", "winch_bridge"],
-	["fork_islands", "lift_crossing", "ferry_crossing", "hammer_collapse", "steam_corridor", "winch_bridge"]]
+const ROUTES := ["ridge_turn", "offset_bridge", "slope_path", "chain_collapse", "steam_corridor", "pressure_bridge",
+	"fork_islands", "steps_path", "tilt_path", "ferry_crossing", "winch_bridge", "lift_crossing", "hammer_collapse"]
+# 保留目录查询接口；三关引用同一完整目录，不再限制内容所属关卡。
+const POOLS := [ROUTES, ROUTES, ROUTES]
 
 static func edges(hazards: Array, center: float, width: float, start: float, length: float) -> void:
 	var outer := 360.0
