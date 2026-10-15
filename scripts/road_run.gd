@@ -49,7 +49,7 @@ const BODY_HEIGHT := 58.0
 # 危险顶部/底部高度；须绕行的高货箱必须高于 JUMP_APEX，不随跳跃提高变成可越过对象。
 const HAZARD_TOPS := {"pillar": 100.0, "cargo": 60.0, "rail": 12.0, "spikes": 10.0, "active_spikes": 16.0, "scanner": 50.0, "fly_low": 10.0, "fly_body": 38.0, "fly_tall": 85.0}
 # 复合几何和地面支撑不属于上述九类单盒高度契约，分别由 Surfaces 检测。
-const SURFACE_TOPS := {"sweeper": Surfaces.POST_TOP, "road_gap": 0.0, "drone": 48.0, "forklift": 92.0, "press": 130.0, "hammer": 136.0, "collapse": 0.0, "steam": 100.0}
+const SURFACE_TOPS := {"sweeper": Surfaces.POST_TOP, "road_gap": 0.0, "drone": 48.0, "forklift": 92.0, "press": 130.0, "hammer": 136.0, "collapse": 0.0, "steam": 100.0, "shuttle": 70.0, "piston": 130.0}
 const HAZARD_BOTTOMS := {"scanner": 26.0, "fly_body": 18.0}
 # 绳索（试玩初值）：挂点离脚底 1.4 米，随各自跳跃高度抬升；圆柱类障碍会挂住绳索。
 # 有效长度按地面绕障路径计算，提交后的长度不超过 LINK_LIMIT + ROPE_LENGTH_TOLERANCE。
@@ -402,6 +402,8 @@ func generation_request(picker, number: int, absolute_base: float) -> Dictionary
 	var candidate: Dictionary = picker.candidate_block(number, level_index)
 	var candidates := [candidate]
 	for n in range(2): candidates.append(picker.candidate_of(candidate.route, level_index))
+	# 随机变体均不通过时先验证低复杂度绕箱段，避免频繁退成整段空路。
+	candidates.append(Templates.decorate(Templates.make_block("left", -1.0, level_index), "left", -1.0))
 	return {"epoch": async_epoch, "number": number, "difficulty": difficulty, "level": level_index,
 		"candidate": candidate, "candidates": candidates,
 		"key": var_to_str([candidate, difficulty, level_index, Templates.source_binding(false)]).sha256_text(),
@@ -727,7 +729,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		if spec.get("industrial", false) and kinds[index] != "collapse" and spec.trigger < 0 and maxf(a.position.y, b.position.y) >= spec.start_distance:
 			spec.trigger = elapsed
 			var maximum_forward := level_speed() + LATERAL
-			var lane: float = spec.side * (-140 if kinds[index] == "hammer" else 140)
+			var lane: float = spec.side * (-160 if kinds[index] == "hammer" else (110 if kinds[index] in ["shuttle", "piston"] else 140))
 			var joint_change := maxf(absf(a.position.x - (lane - 25)), absf(b.position.x - (lane + 25))) / LATERAL
 			var approach: float = (obstacles[index].position.y - maxf(a.position.y, b.position.y) - Motion.RADIUS) / maximum_forward
 			if kinds[index] == "drone": approach = maxf(spec.warning, spec.warning + (approach * maximum_forward - maximum_forward * spec.warning) / (maximum_forward - spec.velocity.y))
@@ -1309,8 +1311,16 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 			var c1: Vector2 = last.rect.get_center()
 			var shift0 := Vector3(c0.x, c0.y, first.bottom)
 			var shift1 := Vector3(c1.x, c1.y, last.bottom)
-			var half: Vector2 = first.rect.size * 0.5
-			var top: float = maxf(first.top - first.bottom, last.top - last.bottom)
+			var half := Vector2(maxf(first.rect.size.x, last.rect.size.x), maxf(first.rect.size.y, last.rect.size.y)) * 0.5
+			var arc_margin := 0.0
+			if kinds[index] == "hammer":
+				# 加速后的弧线不能只按端点宽度近似；以角加速度上界补偿线性扫掠。
+				var omega := TAU / Industrial.HAMMER_PERIOD
+				arc_margin = Industrial.HAMMER_LENGTH * (Industrial.HAMMER_RATE * Industrial.HAMMER_RATE + Industrial.HAMMER_ANGLE * omega * omega) * (t1-t0) * (t1-t0) / 8.0
+				half += Vector2.ONE * arc_margin
+				shift0.z -= arc_margin
+				shift1.z -= arc_margin
+			var top: float = maxf(first.top - first.bottom, last.top - last.bottom) + 2.0 * arc_margin
 			for role in range(2):
 				var from: Vector2 = pa if role == 0 else pb
 				var to: Vector2 = ca if role == 0 else cb
@@ -1649,6 +1659,8 @@ static func jump_clearable(kind: String) -> bool:
 	return HAZARD_BOTTOMS.get(kind, 0.0) == 0.0 and HAZARD_TOPS[kind] < JUMP_APEX
 
 static func hazard_name(kind: String) -> String:
+	if kind == "shuttle": return "往复横扫：观察横移，保持同侧绕行"
+	if kind == "piston": return "快速活塞：观察升降，从侧面通过"
 	if kind == "hammer": return "摆锤：锤头、柄、支架均须避让"
 	if kind == "collapse": return "碎裂石板：裂开后快速通过，绳索不承重"
 	if kind == "steam": return "地火喷口：共同绕行，连线须离开喷口"

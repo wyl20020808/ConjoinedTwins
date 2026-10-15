@@ -12,7 +12,7 @@ func _initialize() -> void:
 	call_deferred("verify")
 func verify() -> void:
 	# 同一批候选分别走原 worker 和不同切片大小，完整 block 必须完全一致。
-	for route in ["steam", "stone_ball", "narrow", "charge_cargo", "charge_sync_relay"]:
+	for route in ["steam", "stone_ball", "narrow", "charge_cargo", "charge_sync_relay", "shuttle", "piston", "sweep_pair", "narrow_dual", "narrow_triple"]:
 		var generator = Run.Templates.new()
 		generator.reset(4242)
 		var candidates: Array = []
