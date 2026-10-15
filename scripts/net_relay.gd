@@ -3,7 +3,7 @@ extends Node
 # 两台客户端按同一种子、同一帧序列各自模拟，因此画面与判定完全一致（帧同步）。
 # 同时监听两种传输：ENet（UDP，原生客户端）和 WebSocket（TCP，网页版客户端），两种连接进同一个房间。
 
-const PROTOCOL := 1
+const PROTOCOL := 2
 const DEFAULT_PORT := 24680
 const DEFAULT_WS_PORT := 24681
 const TICK := 1.0 / 60.0
@@ -69,6 +69,8 @@ func log_line(text: String) -> void:
 	print("[%s] %s" % [Time.get_time_string_from_system(), text])
 
 func send(key: Vector2i, message: Array, mode := MultiplayerPeer.TRANSFER_MODE_RELIABLE) -> void:
+	if not links[key.x].api.get_peers().has(key.y):return
+	if links[key.x].peer is WebSocketMultiplayerPeer and links[key.x].peer.get_peer(key.y).get_ready_state()!=WebSocketPeer.STATE_OPEN:return
 	links[key.x].api.send_bytes(var_to_bytes(message), key.y, mode, 0)
 
 func _on_connected(key: Vector2i) -> void:

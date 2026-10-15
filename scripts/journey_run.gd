@@ -250,3 +250,7 @@ func active_hint() -> String:
 	for event in journey_events:
 		if event.phase=="warning": return EVENT_NAMES[event.kind]
 	return ["主动前进，松开按键即可停下；两人保持同侧","注意树干与草丛的预警","裂纹地面会塌陷，提前选择落脚点","看见村庄了，整理站位后前进","观察村民抬手和推车轨迹","前方供能装置与双人踏板需要合作"][zone_index()]
+
+# 旅程事件和区域快照也纳入联机指纹，不能只比较旧道路状态。
+func sync_hash() -> int:
+	return var_to_str([super(),journey_events,visited_zones,region_checkpoint]).hash()
