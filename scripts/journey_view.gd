@@ -27,7 +27,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-continuous-landscape-20261015"
+const WEB_BUILD:="journey-web-performance-r2-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -59,14 +59,18 @@ var reload_requested := false
 var drop_requested := false
 var controls_hint: Label
 var hud_backdrop: ColorRect
+var frame_costs := {}
+var view_pending:=false
+
+func create_run():
+	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
+	return Journey.new()
 
 func _ready() -> void:
 	if OS.has_feature("web"):web_verify=bool(JavaScriptBridge.eval("new URLSearchParams(location.search).has('verify')",true))
 	ThemeDB.fallback_font=preload("res://assets/fonts/web_ui_font.tres")
-	run.dispose()
 	finish_view.free()
 	charge_gate_view.free()
-	run=Journey.new()
 	run.solo_control=true
 	run.external_companion=not training_entry
 	if training_entry:
@@ -76,7 +80,10 @@ func _ready() -> void:
 	add_child(road)
 	build_lighting()
 	landscape=Landscape.new(self)
-	if landscape.mobile:
+	if OS.has_feature("web"):
+		apply_web_quality()
+		get_viewport().size_changed.connect(apply_web_quality)
+	elif landscape.mobile:
 		get_viewport().scaling_3d_scale=.75
 		get_viewport().msaa_3d=Viewport.MSAA_DISABLED
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
@@ -86,6 +93,10 @@ func _ready() -> void:
 	for node in get_children():
 		if node is DirectionalLight3D: canopy_light=node
 	canopy_light.directional_shadow_max_distance=65 if landscape.mobile else 110
+	if OS.has_feature("web"):
+		# 网页保留人物接触阴影，避免整片森林重复绘制动态阴影。
+		canopy_light.shadow_enabled=false
+		camera.far=200.0
 	canopy_light.rotation_degrees=Vector3(-48,120,0)
 	canopy_light.light_color=Color("fff1d4")
 	canopy_light.light_energy=1.8
@@ -112,10 +123,51 @@ func _ready() -> void:
 	build_ambience()
 	if incremental_loading:
 		while not prepare_journey_frame(): await get_tree().process_frame
+	if OS.has_feature("web"):await warm_web_landscape()
 	sync_view()
 	scene_prepared = true
 	set_physics_process(true)
 	set_process_unhandled_key_input(true)
+
+func warm_web_landscape()->void:
+	# 首次绘制的 WebGL 上传/着色器编译放在加载页，避免走入森林时同步阻塞。
+	var paths:Array=[]
+	for kind in ["oak_7","oak_17","birch","oak_7_lod","oak_17_lod","birch_lod","grass","fern","shrub","woodpile"]:
+		paths.append("res://assets/landscape/%s.glb"%kind)
+	chunk_assets.request(paths)
+	while not chunk_assets.ready(paths):
+		chunk_assets.poll(Time.get_ticks_usec()+Run.PRELOAD_SLICE_USEC)
+		if not chunk_assets.error.is_empty():return
+		await get_tree().process_frame
+	var viewport:=SubViewport.new()
+	viewport.size=Vector2i(32,32)
+	viewport.own_world_3d=true
+	viewport.render_target_update_mode=SubViewport.UPDATE_ALWAYS
+	add_child(viewport)
+	var eye:=Camera3D.new()
+	viewport.add_child(eye)
+	eye.projection=Camera3D.PROJECTION_ORTHOGONAL;eye.size=80;eye.far=200
+	eye.position=Vector3(0,20,80);eye.look_at(Vector3(0,20,0));eye.current=true
+	var environment:=WorldEnvironment.new();environment.environment=world_environment
+	viewport.add_child(environment)
+	for node in get_children():
+		if node is DirectionalLight3D:viewport.add_child(node.duplicate())
+	for path:String in paths:
+		var sample:=Node3D.new();viewport.add_child(sample)
+		landscape.batch(sample,path,[Transform3D.IDENTITY],180)
+		# 等渲染提交后再释放；每个资源分帧准备。
+		await RenderingServer.frame_post_draw
+		sample.queue_free()
+	viewport.queue_free()
+
+func apply_web_quality() -> void:
+	# 只缩放 3D，文字与触屏控件仍按浏览器原始分辨率绘制。
+	Engine.max_fps=60
+	# 一次长帧后最多补算三帧，避免八帧追赶反过来持续堵住浏览器输入与绘制。
+	Engine.max_physics_steps_per_frame=3
+	var size:=get_viewport().get_visible_rect().size
+	get_viewport().scaling_3d_scale=minf(1.0,minf(960.0/maxf(size.x,1.0),540.0/maxf(size.y,1.0)))
+	get_viewport().msaa_3d=Viewport.MSAA_DISABLED
 
 func _exit_tree() -> void:
 	if is_instance_valid(net):net.disconnect_from()
@@ -237,10 +289,10 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 		"landscape_batch":
 			var path:="res://assets/landscape/%s.glb"%item[1]
 			if item[1] in ["oak_7","oak_17","birch"]:
-				var split:=60.0 if landscape.mobile else 95.0
+				var split:=60.0 if landscape.mobile or OS.has_feature("web") else 95.0
 				landscape.batch(chunk,path,item[2],split)
 				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
-			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile else 170)
+			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile or OS.has_feature("web") else 170)
 		"landscape_rock":
 			var cliff:Material=tex_material("cliff_face","rock_face_03",.11,Color("a89a90"))
 			var mesh:Mesh=rock_mesh("ridge_spire",44,8,2.8,70,.2) if item[3] else rock_mesh("ridge_buttress",60,3.6,1.8,24,.24)
@@ -261,7 +313,7 @@ func prepare_journey_frame() -> bool:
 	var deadline := started + Run.PRELOAD_SLICE_USEC
 	sync_world()
 	var current := int(run.distance/SCALE/CHUNK)
-	var ahead_chunks:=4 if landscape.mobile else 6
+	var ahead_chunks:=4 if landscape.mobile or OS.has_feature("web") else 6
 	for number in range(maxi(-1,current-1),current+ahead_chunks):
 		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
 		if not chunk_jobs.has(number):
@@ -725,6 +777,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if web_test_mode:return
+	var measured_start:=Time.get_ticks_usec() if web_verify else 0
 	touch.set_enabled(touch_device and play_mode!="local" and run.state in ["running","rescue","settlement"])
 	if net.active():
 		online_process(delta)
@@ -733,6 +786,7 @@ func _physics_process(delta: float) -> void:
 		update_journey_ui()
 		journey_hint.text="正在准备前方路段…" if chunk_assets.error.is_empty() else "资源读取失败，请刷新网页重试："+chunk_assets.error.get_file()
 		return
+	var measured_prepared:=Time.get_ticks_usec() if web_verify else 0
 	var input:=sample_local_input()
 	run.solo_control=play_mode=="solo"
 	run.external_companion=not run.combat_trial
@@ -742,14 +796,37 @@ func _physics_process(delta: float) -> void:
 	if play_mode=="solo" and not run.combat_trial:
 		var choice:Dictionary=buddy.think(run,delta,input.a,input.ja)
 		second=choice.move;second_jump=choice.jump
+	var measured_thought:=Time.get_ticks_usec() if web_verify else 0
 	var before:String=run.state
 	run.step(delta,input.a,second,input.ja,second_jump)
+	var measured_stepped:=Time.get_ticks_usec() if web_verify else 0
 	if run.state!=before:
 		clear_controls()
 		if run.state=="running": reset_journey_views()
 	frame_delta=delta
-	sync_view()
-	pump_ambience(delta)
+	if OS.has_feature("web"):view_pending=true
+	else:
+		sync_view()
+		pump_ambience(delta)
+	if web_verify:
+		for sample in [["prepare",measured_prepared-measured_start],["buddy",measured_thought-measured_prepared],["simulation",measured_stepped-measured_thought],["view",Time.get_ticks_usec()-measured_stepped]]:
+			var cost:Dictionary=frame_costs.get(sample[0],{"samples":0,"total_usec":0,"max_usec":0})
+			cost.samples+=1;cost.total_usec+=sample[1];cost.max_usec=maxi(cost.max_usec,sample[1])
+			frame_costs[sample[0]]=cost
+
+func _process(_delta:float)->void:
+	# 浏览器卡顿时一帧可能追赶多个固定步，网格与 UI 只需提交最终画面。
+	if scene_prepared and view_pending:
+		view_pending=false
+		var started:=Time.get_ticks_usec()
+		frame_delta=_delta
+		sync_view()
+		pump_ambience(_delta)
+		if web_verify:
+			var cost:Dictionary=frame_costs.get("render_view",{"samples":0,"total_usec":0,"max_usec":0})
+			var duration:=Time.get_ticks_usec()-started
+			cost.samples+=1;cost.total_usec+=duration;cost.max_usec=maxi(cost.max_usec,duration)
+			frame_costs.render_view=cost
 
 func clear_controls() -> void:
 	if is_instance_valid(net) and net.active() and net.in_match:
@@ -915,20 +992,21 @@ func pump_ambience(_delta: float) -> void:
 	if not is_instance_valid(ambient):return
 	# 开始页和加载页无需创建一个立即暂停的播放句柄。
 	if run.state!="running":
-		ambient.stream_paused=true
-		forest_birds.stream_paused=true
+		if not ambient.stream_paused:ambient.stream_paused=true
+		if not forest_birds.stream_paused:forest_birds.stream_paused=true
 		return
 	var weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y
 	if not forest_birds.playing:forest_birds.play()
-	forest_birds.volume_db=linear_to_db(maxf(.001,weight*.33))
-	forest_birds.stream_paused=false
+	var volume:=linear_to_db(maxf(.001,weight*.33))
+	if not is_equal_approx(forest_birds.volume_db,volume):forest_birds.volume_db=volume
+	if forest_birds.stream_paused:forest_birds.stream_paused=false
 	var theme:String=run.theme_at(run.distance)
 	var kind:="forest" if theme in ["forest","edge","meadow","farm"] else ("river" if theme=="river" else "wind")
 	if ambience_region!=kind:
 		ambient.stream=ambience_streams[kind]
 		ambient.play()
 		ambience_region=kind
-	ambient.stream_paused=run.state!="running"
+	if ambient.stream_paused:ambient.stream_paused=false
 
 # 资源动画由生产时间采样；暂停、存档恢复和重试均与物理相位一致。
 func animation_targets(node: Node, token: String) -> Array:
@@ -1056,8 +1134,10 @@ func online_process(delta:float)->void:
 		applied+=1
 		if Time.get_ticks_usec()-start>=Run.PRELOAD_SLICE_USEC:break
 	frame_delta=delta
-	sync_view()
-	pump_ambience(delta)
+	if OS.has_feature("web"):view_pending=true
+	else:
+		sync_view()
+		pump_ambience(delta)
 
 func start_online_match(seed:int)->void:
 	play_mode="online"
@@ -1109,6 +1189,8 @@ func publish_web_verification()->void:
 		circles[action]=[circle.x,circle.y,circle.z]
 	var payload:={"build":WEB_BUILD,"protocol":NetClient.Relay.PROTOCOL,"mode":play_mode,"state":run.state,"chapter":run.level_index,"zone":run.zone_name(),"progress":run.progress(),"a":[run.a.position.x,run.a.position.y],"b":[run.b.position.x,run.b.position.y],"height":run.heights,"ai":buddy.feedback,"network":net.in_match,"desynced":net.desynced,"role":net.role,"network_frame":net.next_frame,"nodes":get_tree().get_node_count(),"fps":Engine.get_frames_per_second(),"controls":buttons}
 	payload.render={"video_bytes":Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED),"texture_bytes":Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED),"mobile":landscape.mobile,"cached_assets":chunk_assets.resources.size(),"chunks":world_chunks.size(),"jobs":chunk_jobs.size()}
+	payload.render.merge({"scale":get_viewport().scaling_3d_scale,"shadows":canopy_light.shadow_enabled,"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"primitives":Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),"prepare_peak_usec":preparation_peak_usec})
+	payload.costs=frame_costs
 	payload.combat={"health":run.combat.health,"weapon":run.combat.weapons[0],"kills":run.combat.kills,"training":run.combat_trial,"touch":touch_device,"buttons":circles,"input":{"enabled":touch.enabled,"move":[touch.move.x,touch.move.y],"fire":touch.action_fingers.values(),"jump":touch.jump_fingers.size()}}
 	var viewport:=get_viewport().get_visible_rect().size
 	payload.viewport=[viewport.x,viewport.y]

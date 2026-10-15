@@ -14,7 +14,7 @@ const ROAD_HALF := Run.EDGE / SCALE + 0.3
 const GAP_DEPTH := 6.0
 const PLANK_THICKNESS := 1.0
 var incremental_loading := false
-var run = Run.new(true, true)
+var run = create_run()
 var road := Node3D.new()
 var camera := Camera3D.new()
 var robots: Array[Node3D] = []
@@ -63,6 +63,9 @@ var scenery: Array[Node3D] = []
 var materials := {}
 var cable_material: StandardMaterial3D
 var capture_mode := false
+
+func create_run():
+	return Run.new(true,true)
 var reward_views: Array[Node3D] = []
 var finish_view := Node3D.new()
 var fall_clock := 0.0
@@ -373,6 +376,7 @@ func build_lighting() -> void:
 	env.background_mode = Environment.BG_SKY
 	# 实拍黄昏天空全景图同时提供背景和环境光，转到让晚霞最亮的一侧落在道路前方。
 	var sky := Sky.new()
+	if OS.has_feature("web"): sky.radiance_size=Sky.RADIANCE_SIZE_32
 	var sky_mat := PanoramaSkyMaterial.new()
 	sky_mat.panorama = load("res://assets/env/belfast_sunset_puresky_2k.hdr")
 	sky_mat.energy_multiplier = 0.36

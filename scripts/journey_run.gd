@@ -20,6 +20,8 @@ var terrain_indices:Array[int]=[]
 var ground_gap_cache_time:=-INF
 var ground_gap_cache_revision:=-1
 var ground_gap_cache:Array[Rect2]=[]
+var ground_gap_cache_epoch:=-INF
+var ground_gap_queries:={}
 var encounter_markers:Array=[]
 var journey_events: Array[Dictionary] = []
 var visited_zones: Array[int] = []
@@ -317,9 +319,15 @@ func sync_hash() -> int:
 # 一次物理时刻内地面支持会查询数十次；只缓存纯几何结果，不省略任何缺口。
 func ground_gaps(time:float=-1.0)->Array[Rect2]:
 	var sample_time:=elapsed if time<0 else time
-	if sample_time!=ground_gap_cache_time or revision!=ground_gap_cache_revision:
-		ground_gap_cache_time=sample_time;ground_gap_cache_revision=revision
-		ground_gap_cache=super(sample_time)
+	if ground_gap_cache_time==-INF or elapsed!=ground_gap_cache_epoch or revision!=ground_gap_cache_revision:
+		ground_gap_queries.clear()
+		ground_gap_cache_epoch=elapsed;ground_gap_cache_revision=revision
+	if not ground_gap_queries.has(sample_time):
+		# 固定步内混用当前、子步和预测时间，分别缓存，不互相覆盖。
+		if ground_gap_queries.size()>=16:ground_gap_queries.erase(ground_gap_queries.keys()[0])
+		ground_gap_queries[sample_time]=super(sample_time)
+	ground_gap_cache_time=sample_time
+	ground_gap_cache=ground_gap_queries[sample_time]
 	return ground_gap_cache
 
 func restore_checkpoint()->bool:
@@ -345,6 +353,34 @@ func surface_at(point:Vector2,time:float,radius:float=0.0)->Dictionary:
 		var sample:=terrain_sample(i,time,point)
 		if sample.supported and sample.rect.grow(-radius).has_point(point):surface=sample
 	return surface
+
+func surface_rope_length(p:Vector2,q:Vector2,h0:float,h1:float)->float:
+	# 两端高于平地时，普通路面/缺口不会抬高绳段；仅局部平台可能改变原有十二点采样。
+	if minf(h0,h1)<RopePhysics.RADIUS:return super(p,q,h0,h1)
+	var distance:=Vector2(p.distance_to(q),h1-h0).length()
+	var terrain_list:=indexed_terrain()
+	if terrain_list.is_empty():return distance
+	var bounds:=Rect2(p,Vector2.ZERO).expand(q)
+	var candidates:Array[int]=[]
+	for i in terrain_list:
+		var rect:Rect2=terrain_sample(i,elapsed,obstacles[i].get_center()).rect if kinds[i]=="ferry" else obstacles[i]
+		if bounds.intersects(rect,true):candidates.append(i)
+	var previous:=Vector3(p.x,h0,p.y)
+	var total:=0.0
+	for i in range(1,13):
+		var t:=float(i)/12
+		var point:=p.lerp(q,t)
+		var height:=lerpf(h0,h1,t)
+		if i<12:
+			var floor_height:=-INF
+			for index in candidates:
+				if kinds[index]!="ferry" and not obstacles[index].has_point(point):continue
+				var sample:=terrain_sample(index,elapsed,point)
+				if sample.supported and sample.rect.has_point(point):floor_height=sample.height
+			height=maxf(height,floor_height+RopePhysics.RADIUS)
+		var current:=Vector3(point.x,height,point.y)
+		total+=previous.distance_to(current);previous=current
+	return maxf(total,distance)
 
 func terrain_supports_sweep(from:Vector2,to:Vector2,time:float)->bool:
 	for i in indexed_terrain():

@@ -47,11 +47,15 @@ func dispose() -> void:
 	resources.clear()
 static func startup_paths() -> Array:
 	var paths: Array = ["res://scenes/journey.tscn", "res://assets/env/belfast_sunset_puresky_2k.hdr"]
+	if OS.has_feature("web"):
+		# 连续旅程首屏用地貌材质，不预读旧白盒的整套装饰模型。
+		paths.append_array(["res://assets/env/rock_face_03_diff.jpg","res://assets/env/rock_face_03_nor.jpg","res://assets/decor/Pine_Bark_NormalTree.png","res://assets/decor/Pine_Bark_NormalTree_Normal.png","res://assets/journey/wood_planks_diff.jpg"])
 	for prefix in ["res://assets/env/monastery_stone_floor", "res://assets/env/rock_boulder_dry", "res://assets/journey/forest_leaves_02"]:
 		for suffix in ["diff", "nor", "rough"]:
 			var path: String = prefix+"_"+suffix+".jpg"
 			if ResourceLoader.exists(path): paths.append(path)
-	for name in ["Pine", "Bush", "TallGrass", "Column"]: paths.append("res://assets/decor/%s.glb" % name)
+	if not OS.has_feature("web"):
+		for name in ["Pine", "Bush", "TallGrass", "Column"]: paths.append("res://assets/decor/%s.glb" % name)
 	for name in ["Adventurer_A", "Adventurer_B", "rescue_climb", "rescue_ropepull"]: paths.append("res://assets/humans/%s.glb" % name)
 	for name in ["sign", "gate"]: paths.append("res://assets/journey/%s.glb" % name)
 	return paths

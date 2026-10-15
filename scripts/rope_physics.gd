@@ -29,22 +29,27 @@ static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 	if dt <= 0: return
 	var points: PackedVector3Array = state.points
 	var previous: PackedVector3Array = state.previous
+	var bound_a:bool=state.bound[0]
+	var bound_b:bool=state.bound[1]
 	var rest: float = state.length / COUNT
 	var alpha := COMPLIANCE / (dt * dt)
+	var damping:=exp(-2.4*dt)
+	var gravity_step:=GRAVITY*dt*dt
+	var bend_alpha:=0.0002/(dt*dt)
 	var lambdas := PackedFloat32Array()
 	lambdas.resize(COUNT)
 	for i in range(COUNT + 1):
-		if (i == 0 and state.bound[0]) or (i == COUNT and state.bound[1]):
+		if (i == 0 and bound_a) or (i == COUNT and bound_b):
 			previous[i] = points[i]
 			points[i] = a if i==0 else b
 			continue
 		var position := points[i]
-		points[i] += (position - previous[i]) * exp(-2.4 * dt) + GRAVITY * dt * dt
+		points[i] += (position - previous[i]) * damping + gravity_step
 		previous[i] = position
 	# 接近全长时几何路径就是不可伸长绳的极限解，消除有限迭代的残留弯曲。
 	var span := 0.0
 	for i in range(1, guide.size()): span += guide[i - 1].distance_to(guide[i])
-	var taut: bool = state.bound[0] and state.bound[1] and span >= state.length * 0.995
+	var taut: bool = bound_a and bound_b and span >= state.length * 0.995
 	if taut and guide.size() >= 2:
 		for i in range(COUNT + 1):
 			points[i] = along(guide, span * i / COUNT)
@@ -52,16 +57,16 @@ static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 			if i>0 and i<COUNT: previous[i] = points[i]
 	else:
 		for iteration in range(ITERATIONS):
-			if state.bound[0]: points[0] = a
-			if state.bound[1]: points[COUNT] = b
+			if bound_a: points[0] = a
+			if bound_b: points[COUNT] = b
 			# 交替扫描避免修正偏向某一端。
 			for k in range(COUNT):
 				var i := k if iteration % 2 == 0 else COUNT - k - 1
 				var offset := points[i + 1] - points[i]
 				var distance := offset.length()
 				if distance < 0.000001: continue
-				var w0 := 0.0 if i == 0 and state.bound[0] else 1.0
-				var w1 := 0.0 if i + 1 == COUNT and state.bound[1] else 1.0
+				var w0 := 0.0 if i == 0 and bound_a else 1.0
+				var w1 := 0.0 if i + 1 == COUNT and bound_b else 1.0
 				var change := (-(distance - rest) - alpha * lambdas[i]) / (w0 + w1 + alpha)
 				lambdas[i] += change
 				var correction := offset / distance * change
@@ -72,13 +77,13 @@ static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 				var bend := points[i+2]-points[i]
 				var distance := bend.length()
 				if distance < 0.000001: continue
-				var w0 := 0.0 if i==0 and state.bound[0] else 1.0
-				var w1 := 0.0 if i+2==COUNT and state.bound[1] else 1.0
-				var correction := bend/distance*(distance-rest*2.0)/(w0+w1+0.0002/(dt*dt))
+				var w0 := 0.0 if i==0 and bound_a else 1.0
+				var w1 := 0.0 if i+2==COUNT and bound_b else 1.0
+				var correction := bend/distance*(distance-rest*2.0)/(w0+w1+bend_alpha)
 				points[i] += correction*w0
 				points[i+2] -= correction*w1
 			for i in range(COUNT + 1):
-				if (i == 0 and state.bound[0]) or (i == COUNT and state.bound[1]): continue
+				if (i == 0 and bound_a) or (i == COUNT and bound_b): continue
 				var before := points[i]
 				# 按粒子半径分片扫掠，不能一步穿过细柱或移动到崖壁另一侧。
 				var samples := clampi(ceili(previous[i].distance_to(points[i])/RADIUS),1,12)
@@ -90,8 +95,8 @@ static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 				if not before.is_equal_approx(points[i]):
 					# 接触时保留法向修正并衰减切向速度，形成麻绳拖地摩擦。
 					previous[i] = points[i] - (before - previous[i]) * 0.65
-	if state.bound[0]: points[0] = a
-	if state.bound[1]: points[COUNT] = b
+	if bound_a: points[0] = a
+	if bound_b: points[COUNT] = b
 	state.points = points
 	state.previous = previous
 	var actual := 0.0

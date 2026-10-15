@@ -26,6 +26,18 @@ const STEAM_JET := 0.8
 const STEAM_FADE := 0.3
 const STEAM_SAFE := 0.65
 
+# 包住任意相位的全部平面分部；仅用于排除完全不相交的查询。
+static func motion_envelope(kind:String,rect:Rect2,state:Dictionary)->Rect2:
+	match kind:
+		"hammer":return rect.grow(HAMMER_LENGTH+HAMMER_HEAD.length()+8.0)
+		"shuttle":return rect.grow(SHUTTLE_REACH)
+		"press","piston":return rect.grow(16.0)
+		"drone":return rect.merge(Rect2(rect.position+state.velocity*5.0,rect.size))
+		"forklift":
+			var body:=rect.grow(100.0)
+			return body.merge(Rect2(body.position+state.velocity*4.0,body.size))
+	return rect
+
 static func spec(kind: String, side: float, base: float) -> Dictionary:
 	return {"bottom": 0.0, "industrial": true, "start_distance": base,
 		"trigger": -1.0, "warning": WARNING, "side": side,

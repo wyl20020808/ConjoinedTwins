@@ -100,22 +100,40 @@ func load_parts(path:String)->Array:
 func collect(node:Node3D,transform:Transform3D,result:Array)->void:
 	transform=transform*node.transform
 	if node is MeshInstance3D:
-		for surface in range(node.mesh.get_surface_count()):
-			var source:Material=node.mesh.surface_get_material(surface)
-			var mesh:=ArrayMesh.new()
-			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,node.mesh.surface_get_arrays(surface))
+		# 保留导入网格的索引和 LOD，不重新读取、上传整份顶点数组。
+		var mesh:Mesh=node.mesh.duplicate()
+		for surface in range(mesh.get_surface_count()):
+			var source:Material=mesh.surface_get_material(surface)
 			var mat:Material=palette.get(source.resource_name,source) if source else palette.Leaf
-			mesh.surface_set_material(0,mat)
-			result.append({"mesh":mesh,"transform":transform})
+			mesh.surface_set_material(surface,mat)
+		result.append({"mesh":mesh,"transform":transform})
 	for child in node.get_children():
 		if child is Node3D:collect(child,transform,result)
 
 func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)->void:
+	if OS.has_feature("web"):
+		# MultiMesh 整批剔除；世界坐标大批次既画满远处林地，也让距离 LOD 参考错误的原点。
+		var cells:={}
+		for transform:Transform3D in transforms:
+			var cell:=Vector2i(floori(transform.origin.x/32.0),floori(transform.origin.z/32.0))
+			if not cells.has(cell):cells[cell]=[]
+			cells[cell].append(transform)
+		for cell:Vector2i in cells:
+			var center:=Vector3((cell.x+.5)*32,0,(cell.y+.5)*32)
+			batch_cell(parent,path,cells[cell],end,begin,center)
+		return
+	batch_cell(parent,path,transforms,end,begin,Vector3.ZERO)
+
+func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float,center:Vector3)->void:
 	for part in load_parts(path):
 		var multi:=MultiMesh.new();multi.transform_format=MultiMesh.TRANSFORM_3D
 		multi.mesh=part.mesh;multi.instance_count=transforms.size()
-		for i in range(transforms.size()):multi.set_instance_transform(i,transforms[i]*part.transform)
+		for i in range(transforms.size()):
+			var local:Transform3D=transforms[i]*part.transform
+			local.origin-=center
+			multi.set_instance_transform(i,local)
 		var view:=MultiMeshInstance3D.new();view.multimesh=multi
+		view.position=center
 		view.visibility_range_begin=begin
 		view.visibility_range_end=end
 		view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if begin==0 and "oak" in path or begin==0 and "birch" in path else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

@@ -8,6 +8,7 @@
 import argparse
 import datetime
 import hashlib
+import gzip
 import json
 from pathlib import Path
 import shutil
@@ -88,6 +89,13 @@ def export(engine):
                 str(OUTPUT / "index.html")], evidence / "export.log", 1800)
     files = sorted(p.name for p in OUTPUT.iterdir())
     required = {"index.html", "index.js", "index.wasm", "index.pck"}
+    if code == 0 and required.issubset(files):
+        # 预压缩可避免每次首访都在服务器上重新压缩引擎；PCK 默认也不会动态压缩。
+        for name in ("index.js", "index.wasm", "index.pck"):
+            path = OUTPUT / name
+            compressed = gzip.compress(path.read_bytes(), compresslevel=6, mtime=0)
+            path.with_name(name + ".gz").write_bytes(compressed)
+            print(f"Precompressed {name}: {path.stat().st_size} -> {len(compressed)} bytes", flush=True)
     print(f"export exit={code}, files={files}, evidence={evidence}", flush=True)
     return code == 0 and required.issubset(files)
 

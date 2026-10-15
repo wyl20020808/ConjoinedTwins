@@ -1173,10 +1173,27 @@ func charge_gate_clear(pa: Vector2, ca: Vector2, pb: Vector2, cb: Vector2) -> bo
 	var door: Rect2 = charge_gate.door.grow(Motion.RADIUS - 0.001)
 	return not segment_hits(pa, ca, door) and not segment_hits(pb, cb, door)
 
+var solid_index_signature:=0
+var solid_indices:Array[int]=[]
+
+func indexed_solids()->Array[int]:
+	var signature:=kinds.hash()
+	if signature!=solid_index_signature:
+		solid_index_signature=signature;solid_indices.clear()
+		for i in range(kinds.size()):
+			if kinds[i] in ["cargo","pillar","sweeper"]:solid_indices.append(i)
+	return solid_indices
+
 func solid_sweep_clear(from: Vector2, to: Vector2, h0: float, h1: float) -> bool:
 	if charge_gate.active and not charge_gate.open and segment_hits(from, to, charge_gate.door.grow(Motion.RADIUS - 0.001)):
 		return false
-	for index in range(kinds.size()):
+	# 绳索约束会反复调用，先用保守包围盒排除远处实体，保留原精确判定。
+	var bounds:=Rect2(from,Vector2.ZERO).expand(to).grow(Motion.RADIUS)
+	for index in indexed_solids():
+		var envelope:Rect2=obstacles[index]
+		if kinds[index]=="sweeper":
+			envelope=Rect2(envelope.get_center()-Vector2.ONE*Surfaces.POST_RADIUS,Vector2.ONE*Surfaces.POST_RADIUS*2)
+		if not bounds.intersects(envelope,true):continue
 		if solid_sweep_hits(index, from, to, h0, h1): return false
 	return true
 
@@ -1185,7 +1202,13 @@ func charge_path_clear() -> bool:
 	if not rope.contacts.is_empty(): return false
 	var path: PackedVector2Array = rope.path
 	var z: PackedFloat32Array = rope.path_heights()
+	if path.is_empty():return true
+	var bounds:=Rect2(path[0],Vector2.ZERO)
+	for point in path:bounds=bounds.expand(point)
 	for index in range(kinds.size()):
+		# 这些类型的平面包围盒不随时间移动；完全分离时无需构造高度采样。
+		if (kinds[index] in ["cargo","pillar","slope","steps","tilt","lift","drawbridge"]) and not bounds.intersects(obstacles[index],true):continue
+		if kinds[index] in Industrial.KINDS and not bounds.intersects(Industrial.motion_envelope(kinds[index],obstacles[index],hazard_specs[index]),true):continue
 		var sample := hazard_sample(index, elapsed)
 		if not sample.active or kinds[index] in ["road_gap", "collapse"]: continue
 		for i in range(1, path.size()):
@@ -1391,6 +1414,7 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 	for point in [ca, pb, cb]: actors = actors.expand(point)
 	for point in old_path: actors = actors.expand(point)
 	for point in rope.physical_path(): actors = actors.expand(point)
+	if not actors.grow(Motion.RADIUS+1.0).intersects(Industrial.motion_envelope(kinds[index],obstacles[index],hazard_specs[index]),true):return {}
 	# 包括两帧全部绳接触点及角色半径；只有二维保守包络完全分离才省略昂贵分片。
 	if not actors.grow(Motion.RADIUS + 1.0).intersects(industrial_sweep_bounds(index, start, end), true): return {}
 	var old_f := path_fractions(old_path)
@@ -1400,6 +1424,13 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 	for fraction in new_f:
 		if not cuts.has(fraction): cuts.append(fraction)
 	cuts.sort()
+	# 各分部、时间片复用同一组绳段插值，避免反复遍历整条质点链。
+	var old_points:Array[Vector3]=[]
+	var new_points:Array[Vector3]=[]
+	var new_path:PackedVector2Array=rope.physical_path()
+	for fraction in cuts:
+		old_points.append(path_at(old_path,old_z,old_f,fraction))
+		new_points.append(path_at(new_path,new_z,new_f,fraction))
 	var times: Array = Industrial.time_cuts(kinds[index], hazard_specs[index], start, end)
 	for interval in range(times.size() - 1):
 		var t0: float = times[interval]
@@ -1438,10 +1469,10 @@ func industrial_hits(index: int, start: float, end: float, pa: Vector2, ca: Vect
 						Vector3(half.x + Motion.RADIUS, half.y + Motion.RADIUS, top)):
 					return {"actor": "%02d" % (role + 1), "part": last.name}
 			for i in range(cuts.size() - 1):
-				var p0 := path_at(old_path, old_z, old_f, cuts[i])
-				var q0 := path_at(old_path, old_z, old_f, cuts[i + 1])
-				var p1 := path_at(rope.physical_path(), new_z, new_f, cuts[i])
-				var q1 := path_at(rope.physical_path(), new_z, new_f, cuts[i + 1])
+				var p0 := old_points[i]
+				var q0 := old_points[i+1]
+				var p1 := new_points[i]
+				var q1 := new_points[i+1]
 				if Threats.rope_box_sweep(p0.lerp(p1, f0) - shift0, q0.lerp(q1, f0) - shift0,
 						p0.lerp(p1, f1) - shift1, q0.lerp(q1, f1) - shift1,
 						Vector3(-half.x - 1, -half.y - 1, -1), Vector3(half.x + 1, half.y + 1, top + 1)):
@@ -1468,6 +1499,9 @@ func advance_collapse(start: float, end: float, pa: Vector2, ca: Vector2, pb: Ve
 		var spec: Dictionary = hazard_specs[index]
 		if spec.trigger < 0:
 			var plate := obstacles[index]
+			var first_bounds:=Rect2(pa,Vector2.ZERO).expand(ca).grow(Motion.RADIUS)
+			var second_bounds:=Rect2(pb,Vector2.ZERO).expand(cb).grow(Motion.RADIUS)
+			if not first_bounds.intersects(plate,true) and not second_bounds.intersects(plate,true):continue
 			var entered := false
 			for role in range(2):
 				var from: Vector2 = pa if role == 0 else pb
@@ -1591,8 +1625,15 @@ static func path_fractions(points: PackedVector2Array) -> Array:
 	return result
 
 static func path_at(points: PackedVector2Array, z: PackedFloat32Array, fractions: Array, t: float) -> Vector3:
-	for i in range(1, points.size()):
-		if t > fractions[i]: continue
+	# fractions 单调递增；二分仍选中第一个 >= t 的端点，包括零长度重复段。
+	var low:=1
+	var high:=points.size()-1
+	while low<high:
+		var middle:=(low+high)/2
+		if t>fractions[middle]:low=middle+1
+		else:high=middle
+	if low<points.size() and t<=fractions[low]:
+		var i:=low
 		var part := clampf((t - fractions[i - 1]) / maxf(fractions[i] - fractions[i - 1], 0.000001), 0, 1)
 		var p := points[i - 1].lerp(points[i], part)
 		return Vector3(p.x, p.y, lerpf(z[i - 1], z[i], part))
@@ -2020,7 +2061,9 @@ func has_ground_support(point: Vector2, time: float = -1.0) -> bool:
 
 func ground_sweep_supported(from: Vector2, to: Vector2, time: float = -1.0) -> bool:
 	# 圆形脚底与矩形缺口的精确胶囊相交；每条边和内部均参与检测。
+	var bounds:=Rect2(from,Vector2.ZERO).expand(to).grow(Motion.RADIUS)
 	for gap in ground_gaps(time):
+		if not bounds.intersects(gap,true):continue
 		if terrain_supports_sweep(from, to, elapsed if time < 0 else time): return true
 		if gap.has_point(from) or gap.has_point(to): return false
 		var corners := [gap.position, Vector2(gap.end.x, gap.position.y), gap.end, Vector2(gap.position.x, gap.end.y)]
@@ -2132,6 +2175,7 @@ func rope_colliders() -> Array:
 	var result: Array = []
 	var bounds := Rect2(a.position, Vector2.ZERO).expand(b.position).grow(LINK_LIMIT * 0.5)
 	for i in range(kinds.size()):
+		if kinds[i] not in ["pillar","stone_ball","iron_ball","cargo"]:continue
 		var sample := hazard_sample(i, elapsed)
 		if not bounds.intersects(sample.rect, true): continue
 		if kinds[i] in ["pillar", "stone_ball", "iron_ball"]:
@@ -2263,16 +2307,34 @@ func terrain_move(from: Vector2, to: Vector2, foot: float, time: float) -> Vecto
 # 每个物理子步只收集一次地面环境，质点迭代不重复扫描全部机关或分配缺口数组。
 func rope_floor_query() -> Callable:
 	var gaps := ground_gaps(elapsed)
-	var patches: Array=[]
+	var query_time:=elapsed
+	var bounds:=Rect2(a.position,Vector2.ZERO).expand(b.position).grow(LINK_LIMIT)
+	var local_patches:Array=[]
+	var terrain_indices:Array[int]=[]
 	for index in range(kinds.size()):
 		if kinds[index] in Terrain.KINDS:
+			terrain_indices.append(index)
+			var envelope:Rect2=obstacles[index]
+			if kinds[index]=="ferry":envelope=envelope.grow(absf(hazard_specs[index].get("amplitude",28.0)))
+			if not bounds.intersects(envelope,true):continue
 			var sample := terrain_sample(index,elapsed,obstacles[index].get_center())
-			patches.append({"index":index,"rect":sample.rect,"supported":sample.supported})
+			if bounds.intersects(sample.rect,true):local_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported})
+	# 粒子通常只在两人附近；先筛本地几何，越界查询仍回退到完整列表。
+	# 不改变采样顺序、时间、碰撞半径或任何高度判定。
+	var local_gaps:Array=[]
+	var fallback_patches:Array=[]
+	for gap in gaps:
+		if bounds.intersects(gap,true):local_gaps.append(gap)
 	return func(point: Vector2) -> float:
 		var supported := absf(point.x)<=EDGE
-		for gap in gaps:
+		var nearby:=bounds.has_point(point)
+		if not nearby and fallback_patches.is_empty():
+			for index in terrain_indices:
+				var sample:=terrain_sample(index,query_time,obstacles[index].get_center())
+				fallback_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported})
+		for gap in local_gaps if nearby else gaps:
 			if gap.has_point(point): supported=false
-		for patch in patches:
+		for patch in local_patches if nearby else fallback_patches:
 			if patch.rect.has_point(point) and patch.supported: return terrain_sample(patch.index,elapsed,point).height
 		return 0.0 if supported else -INF
 

@@ -177,6 +177,19 @@ static func active(list: Array) -> Array:
 # circles: [{id, center, radius, top, bottom}]，radius 已含绳索与表面的间隙。
 # rope_a / rope_b 为两端绳索挂点的实际高度。commit 为 false 时只试算长度，不改变已保存状态。
 func solve(end_a: Vector2, end_b: Vector2, rope_a: float, rope_b: float, circles: Array, commit: bool) -> float:
+	# 没有历史接触，且直线完全避开全部最大截面时，无需构造切线接触链。
+	if contacts.is_empty():
+		var clear:=true
+		for circle in circles:
+			if segment_distance(end_a,end_b,circle.center)<=maxf(circle.radius,circle.get("max_radius",circle.radius))+PENETRATION:
+				clear=false;break
+		if clear:
+			var direct:=Vector2(end_a.distance_to(end_b),rope_b-rope_a).length()
+			solved_contacts=0;solved_blocking=0;solved_valid=true
+			if commit:
+				straight(end_a,end_b,rope_a,rope_b)
+				length=direct;required=direct
+			return direct
 	var list: Array = []
 	var known := {}
 	for circle in circles: known[circle.id] = circle

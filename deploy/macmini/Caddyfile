@@ -19,6 +19,8 @@ http://:8080 {
 		root * {$CT_WEB_ROOT}
 		# 每次打开都向服务器确认是否有新版本，避免两人缓存了不同版本导致不同步。
 		header Cache-Control "no-cache"
-		file_server
+		file_server {
+			precompressed gzip
+		}
 	}
 }
