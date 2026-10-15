@@ -111,6 +111,21 @@ func _initialize() -> void:
 	check(run.state == "rescue", "恢复后回到救援")
 	run.dispose()
 
+	# 7b. 拉满后先爬上（世界仍冻结），再站到留有余量的地面；继续按住朝坑方向也不会立刻再掉。
+	run = hang()
+	var role_b: int = run.rescue.role
+	for tick in range(480):
+		if run.rescue.has("climb") or run.state != "rescue": break
+		run.step(Run.FIXED_STEP, Vector2(-1, 0), Vector2.ZERO, false, tick % 10 == 0)
+	check(run.state == "rescue" and run.rescue.has("climb"), "拉满后进入爬上阶段")
+	for tick in range(240):
+		if run.state != "rescue": break
+		run.step(Run.FIXED_STEP, Vector2(-1, 0), Vector2.ZERO)
+	check(run.state == "running" and run.has_ground_support(run.a.position) and run.a.position.x > -Run.EDGE + 20, "救起后站在离崖沿有余量的地面 a=%s" % run.a.position)
+	for tick in range(30): run.step(Run.FIXED_STEP, Vector2(-1, 0), Vector2.ZERO)
+	check(run.state == "running" and role_b == 0, "救起后按住原方向不立刻再掉 state=%s" % run.state)
+	run.dispose()
+
 	# 8. 窄桥：掉进桥侧断崖后救起，回到桥面。
 	run = Run.new(false)
 	run.retry()
@@ -125,6 +140,21 @@ func _initialize() -> void:
 	check(run.state == "rescue", "窄桥踩空进入救援 state=%s" % run.state)
 	mash(run, Run.RESCUE_RATES["普通"] * 1.3)
 	check(run.state == "running" and run.has_ground_support(run.a.position), "窄桥救起后站回桥面 a=%s" % run.a.position)
+	for tick in range(120): run.step(Run.FIXED_STEP)
+	check(run.state == "running", "窄桥救起后继续前进不再掉 state=%s" % run.state)
+	run.dispose()
+
+	# 9. 窄桥上轻点横向键（约 0.07 秒）不会滑下桥，松手后回正中线。
+	run = Run.new(false)
+	run.retry()
+	run.install_block(Templates.make_block("narrow", 1.0, 0), 0.0, "tap-narrow")
+	run.a.position = Vector2(40, Templates.NARROW_START + 100)
+	run.b.position = Vector2(40, Templates.NARROW_START + 30)
+	run.distance = Templates.NARROW_START + 65
+	run.rope.reset(run.a.position, run.b.position)
+	for tick in range(8): run.step(Run.FIXED_STEP, Vector2(1, 0), Vector2.ZERO)
+	for tick in range(60): run.step(Run.FIXED_STEP)
+	check(run.state == "running" and absf(run.a.position.x - 40) < 1.0, "窄桥轻点不坠落且回正 state=%s x=%.2f" % [run.state, run.a.position.x])
 	run.dispose()
 
 	print("FALL_RESCUE failures=", failures)

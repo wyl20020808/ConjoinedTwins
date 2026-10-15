@@ -2,9 +2,9 @@ extends RefCounted
 
 # 生产动态威胁。地面单位仍为 20/米；轨迹一经预警即锁定，不读取玩家位置修正方向。
 const CONFIG := {
-	"fly_low": {"size": Vector2(56, 24), "velocity": Vector2(0, -300), "bottom": 0.0, "top": 10.0},
-	"fly_body": {"size": Vector2(56, 24), "velocity": Vector2(0, -480), "bottom": 18.0, "top": 38.0},
-	"rocket": {"size": Vector2(40, 64), "velocity": Vector2(0, -860), "bottom": 18.0, "top": 38.0},
+	"fly_low": {"size": Vector2(56, 24), "velocity": Vector2(0, -640), "bottom": 0.0, "top": 10.0},
+	"fly_body": {"size": Vector2(56, 24), "velocity": Vector2(0, -960), "bottom": 18.0, "top": 38.0},
+	"rocket": {"size": Vector2(40, 64), "velocity": Vector2(0, -1500), "bottom": 18.0, "top": 38.0},
 	"stone_ball": {"size": Vector2(90, 90), "velocity": Vector2(0, -350), "bottom": 0.0, "top": 90.0},
 	"iron_ball": {"size": Vector2(80, 80), "velocity": Vector2(0, -400), "bottom": 0.0, "top": 80.0}}
 
