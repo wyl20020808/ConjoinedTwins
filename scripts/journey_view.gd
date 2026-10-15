@@ -27,7 +27,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-web-performance-r2-20261015"
+const WEB_BUILD:="journey-terrain-polish-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -89,7 +89,10 @@ func _ready() -> void:
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
+	world_environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
+	world_environment.ambient_light_color=Color("b8c5d0")
 	world_environment.ambient_light_energy=0.85
+	world_environment.sky.sky_material.energy_multiplier=0.18
 	for node in get_children():
 		if node is DirectionalLight3D: canopy_light=node
 	canopy_light.directional_shadow_max_distance=65 if landscape.mobile else 110
@@ -132,7 +135,7 @@ func _ready() -> void:
 func warm_web_landscape()->void:
 	# 首次绘制的 WebGL 上传/着色器编译放在加载页，避免走入森林时同步阻塞。
 	var paths:Array=[]
-	for kind in ["oak_7","oak_17","birch","oak_7_lod","oak_17_lod","birch_lod","grass","fern","shrub","woodpile"]:
+	for kind in ["grove_oak_7","grove_oak_17","grove_birch","grove_oak_7_lod","grove_oak_17_lod","grove_birch_lod","grass","fern","shrub","woodpile"]:
 		paths.append("res://assets/landscape/%s.glb"%kind)
 	chunk_assets.request(paths)
 	while not chunk_assets.ready(paths):
@@ -240,8 +243,7 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	if run.level_index==0 and not run.combat_trial:
 		landscape.ground(floor_node,pieces,run.level_index)
 	else:
-		for piece:Rect2 in pieces:
-			box(floor_node,Vector3(piece.get_center().x/SCALE,-0.32,-piece.get_center().y/SCALE),Vector3(piece.size.x/SCALE,0.64,piece.size.y/SCALE),ground_material(theme))
+		landscape.ground(floor_node,pieces,run.level_index,ground_material(theme))
 	for i in range(run.kinds.size()):
 		if run.kinds[i]!="collapse": continue
 		var rect:Rect2=run.obstacles[i]
@@ -288,7 +290,7 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 		"landscape_terrain":landscape.sides(chunk,item[1],item[2],item[3])
 		"landscape_batch":
 			var path:="res://assets/landscape/%s.glb"%item[1]
-			if item[1] in ["oak_7","oak_17","birch"]:
+			if item[1] in ["grove_oak_7","grove_oak_17","grove_birch"]:
 				var split:=60.0 if landscape.mobile or OS.has_feature("web") else 95.0
 				landscape.batch(chunk,path,item[2],split)
 				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
@@ -648,7 +650,7 @@ func build_journey_ui() -> void:
 	for text_label in [region_banner,hud,journey_hint,combat_status]:
 		text_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	var controls:=label("W / 上键前进 · A/D / 左右键移动 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
+	var controls:=label("W/S / 上下键前后 · A/D / 左右键移动 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
 	controls.position=Vector2(24,652)
 	controls_hint=controls
 	canvas.add_child(controls)
@@ -880,9 +882,9 @@ func sync_view() -> void:
 	camera.position.z=camera_home.origin.z-run.distance/SCALE
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
-	canopy_light.light_energy=lerpf(1.25,0.7,forest_weight)
+	canopy_light.light_energy=lerpf(1.35,0.95,forest_weight)
 	canopy_light.light_color=Color("ffcfaa").lerp(Color("dbe4ba"),forest_weight)
-	world_environment.ambient_light_energy=lerpf(0.85,0.62,forest_weight)
+	world_environment.ambient_light_energy=lerpf(0.85,0.78,forest_weight)
 	world_environment.fog_density=lerpf(0.0026,0.007,forest_weight)
 	world_environment.fog_sky_affect=forest_weight*.85
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
@@ -951,7 +953,7 @@ func update_journey_ui() -> void:
 	match run.state:
 		"start":
 			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
-			subtitle.text="主动前进，松开停步；搭档自动跟随、共同跳跃与协助机关。\n靠近枪械自动拾取，开火自动锁定前方敌人。\n鼠标左键射击，R 换弹，G 丢枪；持枪移动速度为 85%。\n野猪与投掷攻击扣血；地形与重型机关仍需躲避。\n建议先进入短战斗训练，再开始三关旅程。"
+			subtitle.text="可前进后退，松开停步；镜头只前进。搭档自动跟随、共同跳跃与协助机关。\n靠近枪械自动拾取，开火自动锁定前方敌人。\n鼠标左键射击，R 换弹，G 丢枪；持枪移动速度为 85%。\n野猪与投掷攻击扣血；地形与重型机关仍需躲避。\n建议先进入短战斗训练，再开始三关旅程。"
 			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
 			primary.text="开始训练" if run.combat_trial else "出发"
 		"paused": title.text="旅程暂停";subtitle.text="人物、危险与计时均已暂停。\n恢复后请松开旧按键再操作。";primary.text="继续旅程"
@@ -1049,9 +1051,12 @@ func sync_static_hazards()->void:
 			var view:=Node3D.new()
 			road.add_child(view)
 			if kind=="rail":
-				var log:=cylinder(view,Vector3(0,0.3,0),0.3,rect.size.x/SCALE,material("log",Color("67482a")))
+				var log:=cylinder(view,Vector3(0,0.3,0),0.3,rect.size.x/SCALE,landscape.palette.Bark)
 				log.rotation.z=PI/2
-			elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,material("stump",Color("59412d")))
+				for side in [-1,1]:
+					var end:=cylinder(view,Vector3(side*(rect.size.x/SCALE/2-.01),.3,0),.305,.035,landscape.palette.Wood)
+					end.rotation.z=PI/2
+			elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
 			elif kind=="cargo":
 				rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
 				view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,1.5,rect.size.y/SCALE/2)
@@ -1205,12 +1210,12 @@ func journey_primary() -> void:
 
 func sample_local_input() -> Dictionary:
 	if not input_override.is_empty(): return input_override
-	var first:=Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT))-float(key_down(KEY_A) or key_down(KEY_LEFT)),float(key_down(KEY_W) or key_down(KEY_UP)))
+	var first:=Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT))-float(key_down(KEY_A) or key_down(KEY_LEFT)),float(key_down(KEY_W) or key_down(KEY_UP))-float(key_down(KEY_S) or key_down(KEY_DOWN)))
 	var second:=Vector2.ZERO
 	if play_mode=="local":
-		first=Vector2(float(key_down(KEY_D))-float(key_down(KEY_A)),float(key_down(KEY_W)))
-		second=Vector2(float(key_down(KEY_RIGHT))-float(key_down(KEY_LEFT)),float(key_down(KEY_UP)))
-	if touch.move!=Vector2.ZERO: first=Vector2(touch.move.x,maxf(0,touch.move.y))
+		first=Vector2(float(key_down(KEY_D))-float(key_down(KEY_A)),float(key_down(KEY_W))-float(key_down(KEY_S)))
+		second=Vector2(float(key_down(KEY_RIGHT))-float(key_down(KEY_LEFT)),float(key_down(KEY_UP))-float(key_down(KEY_DOWN)))
+	if touch.move!=Vector2.ZERO: first=touch.move
 	var touch_jump: bool=touch.take_jump()
 	var actions: Dictionary=touch.take_combat()
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): fire_blocked=false

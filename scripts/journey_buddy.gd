@@ -40,9 +40,9 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 	var target:=human+Vector2(side*spacing,0)
 	# 预测真人的短期前进，让并肩奔跑的队友不会每次落后才启动。
 	var human_speed:float=run.WALK_SPEED*(run.Combat.MOVE_SCALE if not run.combat.weapons[0].is_empty() else 1.0)
-	if human_move.y>0:target.y+=human_move.limit_length().y*human_speed*HORIZON
+	if human_move.y!=0:target.y+=human_move.limit_length().y*human_speed*HORIZON
 	var gate:Dictionary=run.charge_gate
-	if gate.get("active",false) and not gate.open and gate.receiver.y-minf(human.y,me.y)<620:
+	if human_move.y>=0 and gate.get("active",false) and not gate.open and gate.receiver.y-minf(human.y,me.y)<620:
 		var plates:bool=gate.get("kind","")=="sync_plates"
 		var human_left:bool=human.x<=0
 		var zone:Rect2=gate.right if human_left else gate.left
@@ -52,6 +52,8 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 	target.x=clampf(target.x,-run.EDGE+run.Motion.RADIUS,run.EDGE-run.Motion.RADIUS)
 	if me.distance_to(target)<30:clock=0
 	var desired:=axis(target-me)
+	# 仅在真人后撤时跟随后撤，避免向前绕过断口后又退回危险边缘。
+	if human_move.y>=0:desired.y=maxf(0,desired.y)
 	var candidates:Array[Vector2]=[desired,Vector2(desired.x,0),Vector2(0,desired.y),Vector2.ZERO,Vector2(-1,1),Vector2(1,1),Vector2.LEFT,Vector2.RIGHT]
 	var best:=Vector2.ZERO
 	var best_score:=INF
@@ -82,7 +84,7 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 	return {"move":best,"jump":best_jump}
 
 static func axis(error:Vector2)->Vector2:
-	return Vector2(signf(error.x) if absf(error.x)>3 else 0.0,1.0 if error.y>2 else 0.0)
+	return Vector2(signf(error.x) if absf(error.x)>3 else 0.0,signf(error.y) if absf(error.y)>2 else 0.0)
 
 func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2,jump:bool,hazards:Array,events:Array,target:Vector2)->float:
 	if jump and not run.has_ground_support(me+direction.limit_length()*run.WALK_SPEED*0.6,run.elapsed+0.6):return INF
@@ -122,4 +124,5 @@ func project(point:Vector2,direction:Vector2,distance:float,target:Vector2)->Vec
 	if direction.x>0 and target.x>point.x:result.x=minf(result.x,target.x)
 	elif direction.x<0 and target.x<point.x:result.x=maxf(result.x,target.x)
 	if direction.y>0 and target.y>point.y:result.y=minf(result.y,target.y)
+	elif direction.y<0 and target.y<point.y:result.y=maxf(result.y,target.y)
 	return result

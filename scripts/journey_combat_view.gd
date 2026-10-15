@@ -19,7 +19,10 @@ func make_gun(parent: Node3D) -> Node3D:
 	game.box(gun,Vector3(0,0,0.2),Vector3(0.14,0.16,0.3),grip)
 	var handle: Node3D=game.box(gun,Vector3(0,-0.2,-0.05),Vector3(0.12,0.32,0.14),grip)
 	handle.rotation.x=-0.15
-	game.box(gun,Vector3(0,-0.22,-0.37),Vector3(0.13,0.3,0.18),metal)
+	var magazine: Node3D=game.box(gun,Vector3(0,-0.22,-0.37),Vector3(0.16,0.34,0.2),grip)
+	magazine.name="Magazine"
+	game.box(gun,Vector3(0,-0.41,-0.37),Vector3(0.19,0.04,0.23),metal).name="MagazineLip"
+	game.box(gun,Vector3(0.13,0.04,-0.15),Vector3(0.12,0.06,0.08),metal).name="ChargingHandle"
 	game.box(gun,Vector3(0,0.13,-0.2),Vector3(0.05,0.1,0.12),game.material("gun_sight",Color("71e9cf"),0.7))
 	var flash: Node3D=game.box(gun,Vector3(0,0,-0.94),Vector3(0.22,0.22,0.3),game.material("gun_flash",Color("ffe7a0"),2.0))
 	flash.name="Flash"
@@ -61,12 +64,15 @@ func reset() -> void:
 
 func sync() -> void:
 	var run=game.run
+	# 一次建立可见拾取集合，同时清理已领取和离开窗口的节点。
+	var nearby:={}
+	for pickup in run.combat.pickups:
+		if absf(pickup.position.y-run.distance)<3000:nearby[pickup.id]=pickup
 	for id in pickup_views.keys():
-		if not run.combat.pickups.any(func(p): return p.id==id):
+		if not nearby.has(id):
 			pickup_views[id].queue_free()
 			pickup_views.erase(id)
-	for pickup in run.combat.pickups:
-		if absf(pickup.position.y-run.distance)>3000: continue
+	for pickup in nearby.values():
 		if not pickup_views.has(pickup.id):
 			var view := Node3D.new()
 			add_child(view)
@@ -87,13 +93,13 @@ func sync() -> void:
 		var view: Node3D=pickup_views[pickup.id]
 		view.position=Vector3(pickup.position.x/20,0.65+sin(run.elapsed*2)*0.08,-pickup.position.y/20)
 		view.visible=absf(pickup.position.y-run.distance)<3000
-	for id in pickup_views:
-		if not run.combat.pickups.any(func(p): return p.id==id and absf(p.position.y-run.distance)<3000): pickup_views[id].hide()
 	for role in range(2):
 		game.robots[role].get_node("CombatShield").visible=run.shield
 		var weapon: Dictionary=run.combat.weapons[role]
 		guns[role].visible=not weapon.is_empty() and run.state not in ["rescue","failed","complete","settlement"]
 		# 与既有角色右手骨骼同步，枪身朝向模拟选中的目标。
+		var known:Skeleton3D=game.hand_skeletons.get(role)
+		if is_instance_valid(known):known.clear_bones_global_pose_override()
 		var hand: Vector3=game.hand_point(role)
 		var skeleton: Skeleton3D=game.hand_skeletons.get(role)
 		if is_instance_valid(skeleton):
@@ -107,6 +113,10 @@ func sync() -> void:
 					var point: Vector2=run.Combat.enemy_position(event)
 					target=Vector3(point.x/20,run.Combat.enemy_height(event)/20,-point.y/20)
 		if hand.distance_to(target)>0.01: guns[role].look_at(target)
+		apply_reload(guns[role],int(weapon.get("reload",0)))
+		if is_instance_valid(skeleton) and int(weapon.get("reload",0))>0:
+			reach_hand(skeleton,"R",guns[role].global_position)
+			reach_hand(skeleton,"L",guns[role].to_global(guns[role].get_node("Magazine").position))
 		var shot: Dictionary=run.combat.shots[role]
 		var recent: bool=not shot.is_empty() and run.elapsed-shot.time<0.065 and run.state in ["running","paused"]
 		guns[role].get_node("Flash").visible=recent
@@ -139,3 +149,46 @@ func sync() -> void:
 		sign.text=("[锁定] " if locked else "")+"%d / %d"%[event.hp,event.max_hp]
 		sign.modulate=Color("ffe18b") if locked else Color("e8ebe2")
 		sign.visible=event.phase!="spent"
+
+# 无 Tween、无墙钟时间：暂停、联机、重试和丢枪都直接服从武器剩余帧数。
+# 从固定背后视角能看到抬枪、倾斜弹匣口、抽出/插入弹匣和拉栓归位。
+func apply_reload(gun:Node3D,remaining:int)->void:
+	var t:float=1.0-float(remaining)/game.run.Combat.RELOAD_STEPS
+	var lift:=smoothstep(0.0,0.16,t)*(1.0-smoothstep(0.84,1.0,t)) if remaining>0 else 0.0
+	var eject:=smoothstep(0.18,0.38,t)*(1.0-smoothstep(0.58,0.78,t)) if remaining>0 else 0.0
+	gun.rotate_object_local(Vector3.RIGHT,-0.65*lift)
+	gun.rotate_object_local(Vector3.BACK,-0.85*lift)
+	gun.position+=Vector3(0.38,0.48,0.12)*lift
+	var magazine:Node3D=gun.get_node("Magazine")
+	magazine.position=Vector3(-0.2*eject,-0.22-0.65*eject,-0.37+0.12*eject)
+	magazine.rotation.z=-0.3*eject
+	gun.get_node("MagazineLip").position=magazine.position+Vector3(0,-0.19,0)
+	var rack:=sin(clampf((t-0.78)/0.14,0,1)*PI) if remaining>0 else 0.0
+	gun.get_node("ChargingHandle").position.z=-0.15+0.18*rack
+
+# 仅覆盖双臂：双腿继续使用走跑/跳跃动画，不增设动画状态机。
+# 两段骨骼解析到达枪握把与弹匣；每次先清除覆盖，避免累计旋转。
+func reach_hand(skeleton:Skeleton3D,side:String,target_world:Vector3)->void:
+	var upper:=skeleton.find_bone("UpperArm."+side)
+	var lower:=skeleton.find_bone("LowerArm."+side)
+	var wrist:=skeleton.find_bone("Wrist."+side)
+	if upper<0 or lower<0 or wrist<0:return
+	skeleton.force_update_all_bone_transforms()
+	var a:=skeleton.get_bone_global_pose(upper)
+	var b:=skeleton.get_bone_global_pose(lower)
+	var c:=skeleton.get_bone_global_pose(wrist)
+	var target:=skeleton.to_local(target_world)
+	var first:=a.origin.distance_to(b.origin);var second:=b.origin.distance_to(c.origin)
+	var direction:Vector3=(target-a.origin).normalized()
+	var distance:=clampf(target.distance_to(a.origin),absf(first-second)+.001,first+second-.001)
+	var along:float=(first*first-second*second+distance*distance)/(2*distance)
+	var pole:=skeleton.global_basis.inverse()*Vector3(1 if side=="R" else -1,0,.4)
+	pole=(pole-direction*pole.dot(direction)).normalized()
+	var elbow:=a.origin+direction*along+pole*sqrt(maxf(0,first*first-along*along))
+	target=a.origin+direction*distance
+	var arm:=a;arm.basis=Basis(Quaternion((b.origin-a.origin).normalized(),(elbow-a.origin).normalized()))*a.basis
+	var forearm:=b;forearm.origin=elbow;forearm.basis=Basis(Quaternion((c.origin-b.origin).normalized(),(target-elbow).normalized()))*b.basis
+	var hand:=c;hand.origin=target
+	skeleton.set_bone_global_pose_override(upper,arm,1.0,true)
+	skeleton.set_bone_global_pose_override(lower,forearm,1.0,true)
+	skeleton.set_bone_global_pose_override(wrist,hand,1.0,true)

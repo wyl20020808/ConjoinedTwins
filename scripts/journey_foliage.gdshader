@@ -8,7 +8,7 @@ void vertex(){
  VERTEX.x+=sin(phase*1.2+world.x*.12+world.z*.16)*min(1.0,VERTEX.y*.07)*.14;
 }
 void fragment(){
- float variation=.88+.16*sin(world.x*3.1+world.z*4.7+world.y*1.6);
+ float variation=.88+.16*sin(world.x*.31+world.z*.47+world.y*.6);
  ALBEDO=tint.rgb*variation;
  ROUGHNESS=.87;
  BACKLIGHT=tint.rgb*.32;

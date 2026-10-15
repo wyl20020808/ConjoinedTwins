@@ -1,6 +1,6 @@
 extends RefCounted
-# 20 米节拍：空手约 2.5 秒、持枪约 2.94 秒一处。合作门附近由门/桥本身承接节拍。
-const STEP:=400.0
+# 15 米主节拍搭配前置地形组合；共享安全走廊，门前后保留操作空间。
+const STEP:=300.0
 const REUSED:=["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
 const RIDGE:=["rail","pillar","cargo","road_gap","active_spikes","rail","collapse","pillar"]
 const FOREST:=["rail","pillar","tree","road_gap","collapse","boar","rail","swing","pillar","tree","active_spikes","boar"]
@@ -37,7 +37,8 @@ static func build(run)->void:
 		if theme in ["village","farm","facility"] and n%12==5:kind="cart"
 		# 三个节拍共用同侧安全走廊，组间再换侧，避免密集机关强迫瞬间横穿整条路。
 		var blocked:float=-1.0 if int(n/3)%2==0 else 1.0
-		run.encounter_markers.append({"y":y,"kind":kind,"blocked":blocked})
+		run.encounter_markers.append({"y":y,"kind":kind,"blocked":blocked,"formation":n>2})
+		if n>2: formation(run,n,y,blocked)
 		if kind in ["tree","boar","stone","cart","swing"]:
 			run.add_event(kind,y,blocked)
 			continue
@@ -76,3 +77,23 @@ static func bridge(run,gate:Dictionary)->void:
 	run.add_hazard("road_gap",Rect2(-run.EDGE,y,run.EDGE*2,160))
 	var index:int=run.add_hazard("drawbridge",Rect2(-70,y-26,140,212))
 	run.hazard_specs[index].gate_id=gate.id
+
+# 每组三个节拍换侧前留出横移空地；组首组合紧邻主机关。
+# 其余组合位于主机关前方 7 米，危险边界与真实缺口一致。
+# 对侧至少保留 8 米宽的道路，两名角色及短绳能够并肩通过。
+static func formation(run,n:int,y:float,blocked:float)->void:
+	var start:=y-10.0 if n%3==0 else y-140.0
+	match n%4:
+		0,1:
+			var left:float=-run.EDGE if blocked<0 else -70.0
+			run.add_hazard("road_gap",Rect2(left,start,run.EDGE+70.0,80))
+			# 同侧崖沿再向前错开一块缺口，形成阶梯状断面；安全侧保持连续。
+			var edge:float=-run.EDGE if blocked<0 else run.EDGE-70
+			run.add_hazard("road_gap",Rect2(edge,start-35,70,55))
+		2:
+			run.add_hazard("cargo",Rect2(blocked*145-38,start,76,55))
+			run.add_hazard("pillar",Rect2(blocked*265-16,start+30,32,32))
+		3:
+			var index:int=run.add_hazard("steps",Rect2(blocked*155-65,start,130,85))
+			run.hazard_specs[index].amplitude=24.0
+			run.add_hazard("rail",Rect2(blocked*170-110,start+95,220,12))

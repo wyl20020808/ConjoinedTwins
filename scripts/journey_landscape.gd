@@ -6,6 +6,7 @@ const WIDTH := 80.0
 const SHADER = preload("res://scripts/journey_ground.gdshader")
 var game
 var terrain: ShaderMaterial
+var cut_material:StandardMaterial3D
 var parts := {}
 var palette := {}
 var leaf_material:ShaderMaterial
@@ -41,6 +42,8 @@ func _init(owner_game)->void:
 	leaf_material=ShaderMaterial.new();leaf_material.shader=preload("res://scripts/journey_foliage.gdshader")
 	palette.Leaf=leaf_material
 	palette.Stone=game.tex_material("landscape_stone","rock_boulder_dry",0.4,Color("aaa895"))
+	cut_material=palette.Stone.duplicate()
+	cut_material.vertex_color_use_as_albedo=true
 	palette.Wood=game.material("landscape_wood",Color("79634b"))
 	palette.Wood.albedo_texture=load("res://assets/journey/wood_planks_diff.jpg")
 	palette.Wood.uv1_triplanar=true;palette.Wood.uv1_scale=Vector3.ONE*.5
@@ -52,16 +55,31 @@ func _init(owner_game)->void:
 
 func set_chapter(chapter:int)->void:terrain.set_shader_parameter("chapter",chapter)
 
-func ground(parent:Node3D,pieces:Array,chapter:int)->void:
+func ground(parent:Node3D,pieces:Array,chapter:int,top_material:Material=null)->void:
 	set_chapter(chapter)
 	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var walls:=SurfaceTool.new();walls.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for rect:Rect2 in pieces:
 		var x0:float=rect.position.x/20.0;var x1:float=rect.end.x/20.0
 		var z0:float=rect.position.y/20.0;var z1:float=rect.end.y/20.0
-		quad(tool,Vector3(x0,0,-z0),Vector3(x1,0,-z0),Vector3(x1,0,-z1),Vector3(x0,0,-z1))
-	var view:=MeshInstance3D.new();view.mesh=tool.commit();view.material_override=terrain
+		var rim:=[Vector3(x0,0,-z0),Vector3(x1,0,-z0),Vector3(x1,0,-z1),Vector3(x0,0,-z1)]
+		quad(tool,rim[0],rim[1],rim[2],rim[3])
+		# 缺口来自同一批地面切片，垂直岩壁与可站立边界严格吻合。
+		# 每区块合并为一个网格，不为每块破损路面添加节点或碰撞体。
+		for edge in range(4):
+			var a:Vector3=rim[edge];var b:Vector3=rim[(edge+1)%4]
+			var down:=Vector3(0,-4.5,0)
+			var normal:Vector3=(a-b).cross(down).normalized()
+			for v in [a,b,b+down,a,b+down,a+down]:
+				walls.set_color(Color(.72,.67,.58) if v.y>-.1 else Color(.16,.18,.18))
+				walls.set_normal(normal);walls.add_vertex(v)
+	var view:=MeshInstance3D.new();view.mesh=tool.commit();view.material_override=terrain if top_material==null else top_material
 	view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(view)
+	var cliff:=MeshInstance3D.new();cliff.name="BrokenRoadWalls"
+	cliff.mesh=walls.commit();cliff.material_override=cut_material
+	cliff.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(cliff)
 
 func quad(tool:SurfaceTool,a:Vector3,b:Vector3,c:Vector3,d:Vector3)->void:
 	for v in [a,c,b,a,d,c]:
@@ -111,7 +129,7 @@ func collect(node:Node3D,transform:Transform3D,result:Array)->void:
 		if child is Node3D:collect(child,transform,result)
 
 func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)->void:
-	if OS.has_feature("web"):
+	if transforms.size()>8:
 		# MultiMesh 整批剔除；世界坐标大批次既画满远处林地，也让距离 LOD 参考错误的原点。
 		var cells:={}
 		for transform:Transform3D in transforms:
@@ -136,7 +154,7 @@ func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float
 		view.position=center
 		view.visibility_range_begin=begin
 		view.visibility_range_end=end
-		view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if begin==0 and "oak" in path or begin==0 and "birch" in path else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if begin==0 and ("oak" in path or "birch" in path) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(view)
 
 static func plan(number:int,chapter:int)->Array:
@@ -153,7 +171,7 @@ static func plan(number:int,chapter:int)->Array:
 			var forest_density:=p.y+p.z*.18
 			if rng.randf()>forest_density:continue
 			var x:=side*(18+pow(rng.randf(),1.65)*100)
-			var kind:="birch" if n%5==0 else ("oak_7" if n%2==0 else "oak_17")
+			var kind:="grove_birch" if n%5==0 else ("grove_oak_7" if n%2==0 else "grove_oak_17")
 			var scale:=rng.randf_range(.75,1.3)
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),scale,rng.randf()*TAU)
 		for n in range(650):
@@ -192,6 +210,6 @@ static func plan(number:int,chapter:int)->Array:
 static func add_instance(batches:Dictionary,kind:String,point:Vector3,size:float,yaw:float)->void:
 	if not batches.has(kind):batches[kind]=[]
 	var basis:=Basis(Vector3.UP,yaw)
-	if kind in ["oak_7","oak_17","birch"]:
+	if kind in ["grove_oak_7","grove_oak_17","grove_birch"]:
 		basis=Basis(Vector3.BACK,signf(point.x)*0.12)*basis
 	batches[kind].append(Transform3D(basis.scaled(Vector3.ONE*size),point))

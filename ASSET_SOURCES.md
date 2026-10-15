@@ -101,3 +101,11 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 - 林地扫描纹理仍使用 Poly Haven 的 [Forest Leaves 02](https://polyhaven.com/a/forest_leaves_02)，Rob Tuytel，CC0；石板、岩面和天空沿用上文已记录资源。新地面 Shader 只改变这些纹理的连续混合与采样。
 - `assets/audio/forest_birds.ogg`：isaiah658 的 [Ambient Bird Sounds](https://opengameart.org/content/ambient-bird-sounds)，原始相机环境录音，CC0。原始下载、字节数与 SHA-256 见 `build-tools/journey/environment-audio-source.json`；游戏内设置循环，并随进入森林渐入、离开森林渐出。未将其描述成村落人声。
 - 本轮写实素材的程序生成替代与建议补充规格见 `docs/ENVIRONMENT_ASSET_WISHLIST.md`。
+
+
+## 2026-10-15：连续树冠与断路表现
+
+- 新增 `assets/landscape/grove_oak_7.glb`、`grove_oak_17.glb`、`grove_birch.glb` 及三份 `_lod.glb`。本项目原创程序生成，无新增第三方素材或许可限制；制作工具为本机 Blender 后台模式，生成器为 `build-tools/journey/make_canopy.py`。
+- 六份网格合计约 262 KiB。每棵近景树为 1,376 个三角形，远景为 596 个；尺寸、三角形数量及 SHA-256 记录在 `build-tools/journey/canopy-assets.json`。替换连续森林实例的叶片树冠，旧模型继续保留用于历史与倒树事件。
+- 新树干、断口岩壁、横木端面继续引用本清单已有的树皮、岩石和木板材质，未复制新的扫描贴图。断口网格由真实地面切片生成，沿深度增加顶点颜色，不使用独立的假碰撞地形。
+- 六个新资源均已进入生产路径 `journey_landscape.gd`、区块预加载列表与对应 LOD，实际 Web 渲染证据位于 `build-tools/journey/evidence/polish/`。这些是游戏运行截图，不是 Blender 预览。

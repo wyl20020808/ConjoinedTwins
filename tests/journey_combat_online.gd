@@ -53,6 +53,12 @@ func validate()->void:
 	check(await until(func():return games.all(func(g):return g.run.combat.weapons[0].ammo==24 and g.run.combat.weapons[0].reload==0)),"remote reload completes identically")
 	games[0].net.send_command("combat","0,0,1")
 	check(await until(func():return games.all(func(g):return g.run.combat.weapons[0].is_empty())),"remote G drops gun on both clients")
+	var forward_progress:float=games[0].run.distance
+	var before_retreat:float=games[0].run.a.position.y
+	games[0].input_override.a=Vector2(0,-1);games[1].input_override.a=Vector2(0,-1)
+	check(await until(func():return games.all(func(g):return g.run.a.position.y<before_retreat-30)),"remote roles can retreat")
+	games[0].input_override.a=Vector2.ZERO;games[1].input_override.a=Vector2.ZERO
+	check(games.all(func(g):return g.run.distance>=forward_progress),"remote retreat leaves camera progress unchanged")
 	games[0].command("pause")
 	check(await until(func():return games.all(func(g):return g.run.state=="paused")),"shared pause")
 	games[1].command("pause")

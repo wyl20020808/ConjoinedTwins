@@ -28,8 +28,14 @@ void fragment(){
  float outside=smoothstep(15.8,16.4,abs(world.x));
  vec3 outside_color=mix(texture(rock,world.xz*.12).rgb*.6,leaves*vec3(.72,.84,.62),land);
  base=mix(base,outside_color,outside);
- ALBEDO=base*(.91+mottled*.13);
- ROUGHNESS=.94;
+ // 车辙、潮湿土斑与细碎铺石缝提供近景材质层次，远处仍保持低对比。
+ float tracks=exp(-pow((abs(world.x)-2.4)*2.5,2.0))*land;
+ float damp=smoothstep(.57,.82,noise2(world.xz*2.8))*natural*path;
+ vec2 tile=abs(fract(world.xz*vec2(.7,.5))-.5);
+ float seam=smoothstep(.46,.495,max(tile.x,tile.y))*(1.0-land*.8);
+ ALBEDO=base*(.95+mottled*.16)*(1.0-tracks*.16-damp*.12-seam*.18);
+ ROUGHNESS=mix(.93,.62,damp);
+ AO=1.0-seam*.24-tracks*.12;
  vec3 detail=mix(texture(stone_normal,world.xz*.25).rgb,texture(soil_normal,world.xz*.3).rgb,land);
  // 地面法线以世界 X/Z 为切线，避免不同区块三角形的 UV 切线不一致。
  vec3 n=normalize(vec3((detail.r-.5)*.5,1.0,(detail.g-.5)*.5));
