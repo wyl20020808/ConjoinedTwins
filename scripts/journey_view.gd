@@ -4,14 +4,15 @@ const Journey = preload("res://scripts/journey_run.gd")
 const CHUNK := 80.0
 const Buddy=preload("res://scripts/journey_buddy.gd")
 var buddy=Buddy.new()
-var play_mode:="local"
+var play_mode:="solo"
 var mode_buttons:Array[Button]=[]
 var online_row:HBoxContainer
 var input_override:Dictionary={}
 var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
-const WEB_BUILD:="journey-web-solo-20261015"
+var last_fire_sent:=false
+const WEB_BUILD:="journey-combat-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -29,6 +30,18 @@ var ambience_region := ""
 var ambience_streams := {}
 var sound_events := {}
 var sound_clock := 0.0
+const CombatView = preload("res://scripts/journey_combat_view.gd")
+@export var training_entry := false
+var combat_view: Node3D
+var combat_status: Label
+var combat_health: ProgressBar
+var training_button: Button
+var restart_button: Button
+var fire_blocked := true
+var reload_requested := false
+var drop_requested := false
+var controls_hint: Label
+var hud_backdrop: ColorRect
 
 func _ready() -> void:
 	if OS.has_feature("web"):web_verify=bool(JavaScriptBridge.eval("new URLSearchParams(location.search).has('verify')",true))
@@ -37,6 +50,11 @@ func _ready() -> void:
 	finish_view.free()
 	charge_gate_view.free()
 	run=Journey.new()
+	run.solo_control=true
+	run.external_companion=not training_entry
+	if training_entry:
+		run.combat_trial=true
+		run.retry()
 	run.state="start"
 	add_child(road)
 	build_lighting()
@@ -55,17 +73,15 @@ func _ready() -> void:
 	build_robots()
 	sfx=Sfx.new()
 	add_child(sfx)
-	play_mode="solo" if OS.has_feature("web") else "local"
 	net=NetClient.new()
 	add_child(net)
 	net.status_changed.connect(journey_net_status)
 	net.match_started.connect(start_online_match)
 	net.match_stopped.connect(stop_online_match)
 	build_journey_ui()
-	touch_device=OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
-	touch=TouchControls.new()
-	get_node("JourneyCanvas").add_child(touch)
-	touch.blockers.assign([panel,pause_button,net_button])
+	combat_view=CombatView.new()
+	combat_view.game=self
+	add_child(combat_view)
 	build_ambience()
 	sync_view()
 
@@ -180,7 +196,7 @@ func build_chunk(number: int) -> Node3D:
 				if theme=="ruins" and n%2==0: model("res://assets/decor/Column.glb",chunk,Vector3(side*18,0,z),6.5)
 		if village:
 			for n in range(3):
-				var name:="house_%d"%((number+n+300)%3)
+				var name:="house_%d"%((number+n)%3)
 				asset(chunk,name,Vector3(side*23,0,-start-n*27-10),rng.randf_range(8,11),-side*PI/2)
 				asset(chunk,"fence",Vector3(side*17,0,-start-n*27-18),1.6,0)
 				asset(chunk,"cart",Vector3(side*19,0,-start-n*27-3),2.3,side*PI/2)
@@ -195,7 +211,7 @@ func build_chunk(number: int) -> Node3D:
 		var y:float=zone*zone_length/SCALE
 		if y>=start and y<start+CHUNK:
 			asset(chunk,"sign",Vector3(-15,0,-y-6),3.0)
-			add_sign(chunk,run.CHAPTERS[run.level_index].zones[zone],Vector3(-12,4,-y-8),38)
+			add_sign(chunk,run.TRIAL_ZONES[zone] if run.combat_trial else run.CHAPTERS[run.level_index].zones[zone],Vector3(-12,4,-y-8),38)
 	rebuild_floor(chunk,number)
 	return chunk
 
@@ -212,7 +228,7 @@ func sync_world() -> void:
 		for view in static_views.values():view.queue_free()
 		static_views.clear()
 	var current:=int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(-1,current-1),current+4):
+	for number in range(maxi(0,current-1),current+4):
 		if number*CHUNK*SCALE>run.finish_distance()+400: continue
 		if not world_chunks.has(number): world_chunks[number]=build_chunk(number)
 	for number in world_chunks.keys():
@@ -369,17 +385,15 @@ func build_journey_ui() -> void:
 	var canvas:=CanvasLayer.new()
 	canvas.name="JourneyCanvas"
 	add_child(canvas)
-	for band in [Rect2(0,0,1280,132),Rect2(0,640,1280,80)]:
-		var shade:=ColorRect.new()
-		shade.position=band.position
-		shade.size=band.size
-		shade.color=Color(0.025,0.04,0.035,0.82)
-		shade.mouse_filter=Control.MOUSE_FILTER_IGNORE
-		canvas.add_child(shade)
+	hud_backdrop=ColorRect.new()
+	hud_backdrop.color=Color(0.025,0.04,0.035,0.82)
+	hud_backdrop.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(hud_backdrop)
 	var margin:=MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left",24)
 	margin.add_theme_constant_override("margin_top",20)
+	margin.add_theme_constant_override("margin_right",24)
 	margin.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(margin)
 	var column:=VBoxContainer.new()
@@ -395,22 +409,42 @@ func build_journey_ui() -> void:
 	progress_widget.custom_minimum_size=Vector2(0,5)
 	progress_widget.show_percentage=false
 	column.add_child(progress_widget)
-	var controls:=label("01：W 前进 · A/D 左右 · 空格跳跃    02：上 前进 · 左/右 左右 · 回车跳跃\n松开停步 · S/下 不后退 · Esc 暂停 · R 重开本关 · F1 素材署名",16)
+	combat_status=label("",20,Color("a1ead5"))
+	column.add_child(combat_status)
+	combat_health=ProgressBar.new()
+	combat_health.custom_minimum_size=Vector2(260,12)
+	combat_health.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+	combat_health.show_percentage=false
+	column.add_child(combat_health)
+	for text_label in [region_banner,hud,journey_hint,combat_status]:
+		text_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	var controls:=label("W / ↑ 前进 · A/D / ←→ 左右 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
 	controls.position=Vector2(24,652)
-	controls.name="ControlsHint"
+	controls_hint=controls
 	canvas.add_child(controls)
+	controls.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	touch_device=DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
+	touch=TouchControls.new()
+	touch.combat_buttons=true
+	canvas.add_child(touch)
+	pause_button=Button.new()
+	pause_button.text="暂停"
+	pause_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	pause_button.offset_left=-120
+	pause_button.offset_right=-24
+	pause_button.offset_top=22
+	pause_button.offset_bottom=70
+	pause_button.pressed.connect(func():
+		command("pause")
+		clear_controls())
+	canvas.add_child(pause_button)
+	controls.visible=not touch_device
 	panel=PanelContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	panel.position=Vector2(200,130)
-	panel.size=Vector2(880,470)
+	panel.position=Vector2(240,170)
+	panel.size=Vector2(800,360)
 	canvas.add_child(panel)
-	var panel_style:=StyleBoxFlat.new()
-	panel_style.bg_color=Color(0.035,0.05,0.045,0.95)
-	panel_style.content_margin_left=24
-	panel_style.content_margin_right=24
-	panel_style.content_margin_top=18
-	panel_style.content_margin_bottom=18
-	panel.add_theme_stylebox_override("panel",panel_style)
 	var inner:=VBoxContainer.new()
 	inner.add_theme_constant_override("separation",10)
 	panel.add_child(inner)
@@ -423,9 +457,24 @@ func build_journey_ui() -> void:
 	primary.custom_minimum_size=Vector2(0,52)
 	primary.pressed.connect(journey_primary)
 	inner.add_child(primary)
+	training_button=Button.new()
+	training_button.text="战斗训练 · 持枪步行约 90 秒"
+	training_button.custom_minimum_size=Vector2(0,46)
+	training_button.pressed.connect(func():
+		run.combat_trial=not run.combat_trial
+		run.new_campaign()
+		reset_journey_views())
+	inner.add_child(training_button)
+	restart_button=Button.new()
+	restart_button.text="重新开始本关"
+	restart_button.custom_minimum_size=Vector2(0,42)
+	restart_button.pressed.connect(func():
+		command("retry"))
+	inner.add_child(restart_button)
+	touch.blockers.assign([panel,pause_button])
 	var modes:=HBoxContainer.new()
 	inner.add_child(modes)
-	for entry in [["solo","单人＋人机"],["local","本地双人"],["online","远程双人"]]:
+	for entry in [["solo","单人＋搭档"],["online","远程双人"]]:
 		var button:=Button.new()
 		button.text=entry[1]
 		button.set_meta("mode",entry[0])
@@ -435,8 +484,8 @@ func build_journey_ui() -> void:
 	online_row=HBoxContainer.new()
 	inner.add_child(online_row)
 	net_address=LineEdit.new()
-	net_address.custom_minimum_size=Vector2(600,42)
-	net_address.placeholder_text="服务器地址，例如 wss://网页所在主机/ws"
+	net_address.custom_minimum_size=Vector2(300,42)
+	net_address.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	net_address.text=NetClient.page_default_address()
 	if net_address.text.is_empty():net_address.text="ws://127.0.0.1:24681"
 	online_row.add_child(net_address)
@@ -444,13 +493,9 @@ func build_journey_ui() -> void:
 	net_button.text="连接队友"
 	net_button.pressed.connect(toggle_online)
 	online_row.add_child(net_button)
-	net_status=label("远程双人：两人连接同一个地址",16)
+	net_status=label("远程双人：连接同一版本网页",16)
 	inner.add_child(net_status)
-	pause_button=Button.new()
-	pause_button.text="暂停 / 继续"
-	pause_button.position=Vector2(1100,20)
-	pause_button.pressed.connect(func():command("pause"))
-	canvas.add_child(pause_button)
+	touch.blockers.append(net_button)
 	var choice:=HBoxContainer.new()
 	inner.add_child(choice)
 	for name in ["简单","普通","困难"]:
@@ -462,11 +507,12 @@ func build_journey_ui() -> void:
 		difficulty_buttons.append(button)
 
 func reset_journey_views() -> void:
+	buddy.reset()
+	last_fire_sent=false
 	built_chapter=-1
 	sound_events.clear()
-	buddy.reset()
 	clear_controls()
-	if is_instance_valid(touch):touch.reset()
+	if is_instance_valid(combat_view): combat_view.reset()
 
 func apply_journey_primary() -> void:
 	match run.state:
@@ -476,14 +522,19 @@ func apply_journey_primary() -> void:
 			if not run.restore_checkpoint(): run.retry(true)
 			reset_journey_views()
 		"complete": run.new_campaign();reset_journey_views()
+		"settlement":
+			run.confirm_step(false,false)
+			run.confirm_step(true,true)
+			reset_journey_views()
 	clear_controls()
 
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not event is InputEventKey or not event.pressed or event.echo: return
 	if event.keycode==KEY_ESCAPE:
 		command("pause")
-	elif event.keycode==KEY_R and run.state in ["running","failed","paused"]:
-		command("retry")
+		clear_controls()
+	elif event.keycode==KEY_R and run.state=="running": reload_requested=true
+	elif event.keycode==KEY_G and run.state=="running": drop_requested=true
 	elif event.keycode==KEY_ENTER and run.state in ["start","failed","complete"]: journey_primary()
 	elif event.keycode==KEY_F1:
 		if run.state in ["running","rescue"]: command("pause")
@@ -492,46 +543,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		subtitle.text="角色、松树、草与灌木：Quaternius，CC0。\n扫描地面与石材、天空：Poly Haven，CC0。\n工业建筑：Kenney，CC0。\n房屋、野猪、推车、水车、门与吊桥：项目 Blender 制作脚本。\n字体：Noto Sans SC，SIL OFL 1.1。\n完整来源与修改记录见 ASSET_SOURCES.md。"
 		set_meta("credits",true)
 
-func journey_primary() -> void:
-	command("primary")
-
-func choose_mode(value:String)->void:
-	if run.state!="start" or net.active():return
-	play_mode=value
-	buddy.reset()
-	clear_controls()
-	update_journey_ui()
-
-func command(name:String,arg:="")->void:
-	if name=="pause" and arg.is_empty():arg="paused" if run.state in ["running","rescue"] else run.paused_from
-	if play_mode=="online" and net.active():
-		if net.in_match:net.send_command(name,arg)
-		return
-	apply_command(name,arg)
-
-func apply_command(name:String,arg:="")->void:
-	match name:
-		"primary":apply_journey_primary()
-		"pause":
-			if (arg=="paused" and run.state in ["running","rescue"]) or (arg!="paused" and run.state=="paused"):run.pause()
-			clear_controls()
-		"retry":run.retry(run.state=="failed");reset_journey_views()
-		"difficulty":
-			if run.state=="start" and not net.active():run.set_difficulty(arg);reset_journey_views()
-
-func sample_local_input()->Dictionary:
-	if not input_override.is_empty():return input_override
-	var first:=Vector2(float(key_down(KEY_D))-float(key_down(KEY_A)),float(key_down(KEY_W)))
-	var second:=Vector2(float(key_down(KEY_RIGHT))-float(key_down(KEY_LEFT)),float(key_down(KEY_UP)))
-	var jump:bool=key_down(KEY_SPACE)
-	if is_instance_valid(touch):
-		if touch.move!=Vector2.ZERO:first=Vector2(touch.move.x,maxf(0,touch.move.y))
-		jump=jump or touch.take_jump()
-	if play_mode=="online":
-		first=Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT))-float(key_down(KEY_A) or key_down(KEY_LEFT)),float(key_down(KEY_W) or key_down(KEY_UP))) if not touch_device else first
-		jump=jump or key_down(KEY_ENTER)
-	return {"a":first,"b":second,"ja":jump,"jb":key_down(KEY_ENTER)}
-
 func _physics_process(delta: float) -> void:
 	if web_test_mode:return
 	touch.set_enabled(touch_device and play_mode!="local" and run.state in ["running","rescue","settlement"])
@@ -539,74 +550,42 @@ func _physics_process(delta: float) -> void:
 		online_process(delta)
 		return
 	var input:=sample_local_input()
+	run.solo_control=play_mode=="solo"
+	run.external_companion=not run.combat_trial
+	run.set_combat_input(input.get("fire",false),input.get("reload",false),input.get("drop",false))
 	var second:Vector2=input.b
 	var second_jump:bool=input.jb
-	if play_mode=="solo":
+	if play_mode=="solo" and not run.combat_trial:
 		var choice:Dictionary=buddy.think(run,delta,input.a,input.ja)
 		second=choice.move;second_jump=choice.jump
 	var before:String=run.state
 	run.step(delta,input.a,second,input.ja,second_jump)
 	if run.state!=before:
 		clear_controls()
-		if run.state=="running":reset_journey_views()
+		if run.state=="running": reset_journey_views()
 	frame_delta=delta
 	sync_view()
 	pump_ambience(delta)
 
-func online_process(delta:float)->void:
-	if not net.in_match:
-		sync_view()
-		return
-	var input:=sample_local_input()
-	net.send_input(input.a,input.ja)
-	var applied:=0
-	var start:=Time.get_ticks_usec()
-	while not net.frames.is_empty() and applied<4:
-		var index:int=net.next_frame
-		var frame:Dictionary=net.take_frames(1)[0]
-		var seen:={}
-		for entry in frame.cmds:
-			var key:=str(entry[1])+":"+str(entry[2])
-			if not seen.has(key):apply_command(entry[1],entry[2]);seen[key]=true
-		var before:String=run.state
-		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
-		if run.state!=before:clear_controls()
-		net.report(index,run.sync_hash())
-		online_frame_applied.emit(index)
-		applied+=1
-		if Time.get_ticks_usec()-start>6000:break
-	frame_delta=delta
-	sync_view()
-	pump_ambience(delta)
+func clear_controls() -> void:
+	if is_instance_valid(net) and net.active() and net.in_match:
+		# 联机模拟状态只在共同帧修改，本地只清理设备输入。
+		blocked_keys.assign(MOVE_KEYS)
+		if is_instance_valid(touch):touch.reset()
+	else:super()
+	reload_requested=false
+	drop_requested=false
+	fire_blocked=true
 
-func start_online_match(seed:int)->void:
-	play_mode="online"
-	run.lockstep=true
-	run.random_seed=false
-	run.difficulty="普通"
-	run.seed_value=seed
-	run.new_campaign()
-	run.state="start"
-	reset_journey_views()
+func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch and is_instance_valid(touch):
+		touch_device=true
+		touch.set_enabled(run.state in ["running","rescue","settlement"])
 
-func stop_online_match(_reason:String)->void:
-	if run.state in ["running","rescue"]:run.pause()
-	clear_controls()
-
-func journey_net_status(message:String)->void:
-	if is_instance_valid(net_status):net_status.text=message
-
-func toggle_online()->void:
-	if net.active():
-		net.disconnect_from()
-		run.lockstep=false
-		run.new_campaign();run.state="start"
-		reset_journey_views()
-		net_status.text="已断开，可重新连接或选择单人模式"
-	else:
-		play_mode="online"
-		net.connect_to(net_address.text)
-	update_journey_ui()
+func _notification(what: int) -> void:
+	if what==NOTIFICATION_APPLICATION_FOCUS_OUT and is_instance_valid(touch):
+		if run.state in ["running","rescue"]: command("pause")
+		clear_controls()
 
 func sync_view() -> void:
 	if robots.size()<2: return
@@ -646,6 +625,7 @@ func sync_view() -> void:
 		for node in chunk.get_children():
 			if node.has_meta("wind"):node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
 	sync_journey_rewards()
+	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 	publish_web_verification()
 
@@ -670,40 +650,52 @@ func sync_journey_rewards() -> void:
 
 func update_journey_ui() -> void:
 	if not is_instance_valid(hud): return
-	var mode_name:String={"solo":"单人＋人机","local":"本地双人","online":"远程双人"}[play_mode]
 	for button in mode_buttons:
-		button.visible=run.state=="start"
+		button.visible=run.state=="start" and not run.combat_trial
 		button.disabled=net.active()
-		button.text=("✓ " if button.get_meta("mode")==play_mode else "")+{"solo":"单人＋人机","local":"本地双人","online":"远程双人"}[button.get_meta("mode")]
 	online_row.visible=play_mode=="online" and run.state in ["start","paused"]
 	net_status.visible=play_mode=="online"
 	net_button.text="断开连接" if net.active() else "连接队友"
 	net_address.editable=not net.active()
 	primary.disabled=play_mode=="online" and not net.in_match
-	region_banner.text="%d / 3   %s  ·  %s"%[run.level_index+1,run.CHAPTERS[run.level_index].name,run.zone_name()]
+	var viewport := get_viewport().get_visible_rect().size
+	hud_backdrop.size=Vector2(viewport.x,combat_health.global_position.y+combat_health.size.y+12)
+	panel.size.x=minf(800,viewport.x-32)
+	panel.position=Vector2((viewport.x-panel.size.x)/2,maxf(12,(viewport.y-panel.size.y)/2))
+	controls_hint.position=Vector2(24,viewport.y-68)
+	controls_hint.visible=not touch_device
+	region_banner.text=("战斗训练 · "+run.zone_name()) if run.combat_trial else "%d / 3   %s  ·  %s"%[run.level_index+1,run.CHAPTERS[run.level_index].name,run.zone_name()]
 	hud.text="%.0f / %.0f 米  ·  绳索 %.2f 米  ·  金币 %d  ·  奖品 %d  ·  护盾 %s"%[run.progress()/SCALE,run.finish_distance()/SCALE,run.rope.length/SCALE,run.coins,run.prizes,"有" if run.shield else "无"]
-	hud.text+=" · "+mode_name
-	if play_mode=="online" and net.in_match:hud.text+=" · 你是 %02d"%(net.role+1)
 	journey_hint.text=run.active_hint()
-	if play_mode=="solo":journey_hint.text+=" · 人机："+buddy.feedback
+	var role: int=net.role if play_mode=="online" and net.in_match else 0
+	combat_health.value=run.combat.health[role]
+	var weapon: Dictionary=run.combat.weapons[role]
+	combat_status.text="生命 %d / 100 · 搭档 %d / 100 · 空手 · 自动拾取枪械"%[run.combat.health[role],run.combat.health[1-role]] if weapon.is_empty() else "生命 %d / 100 · 搭档 %d / 100 · 冲锋枪 %d / %d · %s"%[run.combat.health[role],run.combat.health[1-role],weapon.ammo,weapon.reserve,"换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP) if weapon.reload>0 else "移动 85%"]
 	progress_widget.value=run.progress()/run.finish_distance()*100
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"]
-	primary.visible=run.state!="settlement"
+	primary.visible=true
+	training_button.visible=run.state=="start" and play_mode=="solo"
+	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
+	restart_button.visible=run.state in ["paused","failed"]
+	pause_button.visible=run.state in ["running","rescue"]
+	if is_instance_valid(touch): touch.set_enabled(touch_device and run.state in ["running","rescue","settlement"])
 	for button in difficulty_buttons: button.visible=run.state=="start" and play_mode!="online"
 	if get_meta("credits",false) and run.state=="paused": return
 	set_meta("credits",false)
 	match run.state:
 		"start":
-			title.text="共生连线 · 连续旅程"
-			subtitle.text="穿过森林与村庄，再沿河谷进入矿道。\n两人主动按键前进，松手停步，只能向前或左右移动。\n单人：W/A/D＋空格，人机操作 02；触屏左侧移动、右侧跳跃。\n本地双人：02 使用 上/左/右＋回车；远程双人各控一人。\n倒树、野猪与村民都会预警。共同绕行，保护连接绳索。\n区域入口自动存档，出口需要供能和双人踏板。"
-			primary.text="共同出发"
+			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
+			subtitle.text="主动前进，松开停步；搭档自动跟随、共同跳跃与协助机关。\n靠近枪械自动拾取，开火自动锁定前方敌人。\n鼠标左键射击，R 换弹，G 丢枪；持枪移动速度为 85%。\n野猪与投掷攻击扣血；地形与重型机关仍需躲避。\n建议先进入短战斗训练，再开始三关旅程。"
+			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
+			primary.text="开始训练" if run.combat_trial else "出发"
 		"paused": title.text="旅程暂停";subtitle.text="人物、危险与计时均已暂停。\n恢复后请松开旧按键再操作。";primary.text="继续旅程"
 		"failed": title.text="两人共同重试";subtitle.text=run.reason+"\n回到本区域的安全存档点，危险与奖励恢复原状态。";primary.text="从存档点继续"
 		"settlement":
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
-			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n松开按键，再分别确认：01 空格 %s，02 回车 %s。"%[run.elapsed,run.coins,run.prizes,"✓" if run.confirmations[0] else "待确认","✓" if run.confirmations[1] else "待确认"]
-		"complete": title.text="归航完成";subtitle.text="三段旅程全部完成。团队总分：%d。\n重新开始会清空本轮成绩。"%run.total_score();primary.text="重新出发"
-	if run.state=="rescue": journey_hint.text="有人坠落！两人连按各自跳跃键，合力把队友拉上来。"
+			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n点击按钮或松开后按跳跃键，进入下一关。"%[run.elapsed,run.coins,run.prizes]
+			primary.text="下一关"
+		"complete": title.text="训练完成" if run.combat_trial else "归航完成";subtitle.text="击退 %d 个敌人 · 团队总分 %d。\n可以重新出发。"%[run.combat.kills,run.total_score()];primary.text="重新出发"
+	if run.state=="rescue": journey_hint.text="连点跳跃救援！进度 %.0f%% · 剩余 %.1f 秒"%[run.rescue.progress*100,maxf(0,Run.RESCUE_TIME-run.rescue.time)]
 
 func build_ambience() -> void:
 	ambient=AudioStreamPlayer.new()
@@ -763,7 +755,97 @@ func sync_static_hazards()->void:
 			static_views[i]=view
 		static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 
-# 仅在 ?verify=1 下提供只读状态，用于独立 headless WebAssembly 验收。
+func choose_mode(value:String)->void:
+	if run.state!="start" or net.active():return
+	play_mode=value
+	run.solo_control=value=="solo"
+	run.external_companion=not run.combat_trial
+	buddy.reset()
+	clear_controls()
+	update_journey_ui()
+
+func command(name:String,arg:="")->void:
+	if name=="pause" and arg.is_empty():arg="paused" if run.state in ["running","rescue"] else run.paused_from
+	if play_mode=="online" and net.active():
+		if net.in_match:net.send_command(name,arg)
+		return
+	apply_command(name,arg)
+
+func apply_command(name:String,arg:="")->void:
+	match name:
+		"primary":apply_journey_primary()
+		"pause":
+			if (arg=="paused" and run.state in ["running","rescue"]) or (arg!="paused" and run.state=="paused"):run.pause()
+			clear_controls()
+		"retry":run.retry(run.state=="failed");reset_journey_views()
+		"difficulty":
+			if run.state=="start" and not net.active():run.set_difficulty(arg);reset_journey_views()
+
+func online_process(delta:float)->void:
+	if not net.in_match:
+		sync_view()
+		return
+	var input:=sample_local_input()
+	net.send_input(input.a,input.ja)
+	var fire: bool=input.get("fire",false)
+	if fire!=last_fire_sent or input.get("reload",false) or input.get("drop",false):
+		net.send_command("combat","%d,%d,%d"%[int(fire),int(input.get("reload",false)),int(input.get("drop",false))])
+		last_fire_sent=fire
+	var applied:=0
+	var start:=Time.get_ticks_usec()
+	while not net.frames.is_empty() and applied<4:
+		var index:int=net.next_frame
+		var frame:Dictionary=net.take_frames(1)[0]
+		var seen:={}
+		for entry in frame.cmds:
+			var key:=str(entry[0])+":"+str(entry[1])+":"+str(entry[2])
+			if not seen.has(key):
+				if entry[1]=="combat":apply_combat_command(int(entry[0]),str(entry[2]))
+				else:apply_command(entry[1],entry[2])
+				seen[key]=true
+		var before:String=run.state
+		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
+		if run.state!=before:clear_controls()
+		net.report(index,run.sync_hash())
+		online_frame_applied.emit(index)
+		applied+=1
+		if Time.get_ticks_usec()-start>6000:break
+	frame_delta=delta
+	sync_view()
+	pump_ambience(delta)
+
+func start_online_match(seed:int)->void:
+	play_mode="online"
+	run.solo_control=false
+	run.external_companion=true
+	run.combat_trial=false
+	run.lockstep=true
+	run.random_seed=false
+	run.difficulty="普通"
+	run.seed_value=seed
+	run.new_campaign()
+	run.state="start"
+	reset_journey_views()
+
+func stop_online_match(_reason:String)->void:
+	if run.state in ["running","rescue"]:run.pause()
+	clear_controls()
+
+func journey_net_status(message:String)->void:
+	if is_instance_valid(net_status):net_status.text=message
+
+func toggle_online()->void:
+	if net.active():
+		net.disconnect_from()
+		run.lockstep=false
+		run.new_campaign();run.state="start"
+		reset_journey_views()
+		net_status.text="已断开，可重新连接或选择单人模式"
+	else:
+		play_mode="online"
+		net.connect_to(net_address.text)
+	update_journey_ui()
+
 func publish_web_verification()->void:
 	if not web_verify:return
 	verify_clock+=frame_delta
@@ -775,9 +857,45 @@ func publish_web_verification()->void:
 	buttons.connect=control_rect(net_button)
 	buttons.address=control_rect(net_address)
 	buttons.pause=control_rect(pause_button)
+	buttons.training=control_rect(training_button)
+	var circles:={}
+	for action in touch.action_circles():
+		var circle:Vector3=touch.action_circles()[action]
+		circles[action]=[circle.x,circle.y,circle.z]
 	var payload:={"build":WEB_BUILD,"protocol":NetClient.Relay.PROTOCOL,"mode":play_mode,"state":run.state,"chapter":run.level_index,"zone":run.zone_name(),"progress":run.progress(),"a":[run.a.position.x,run.a.position.y],"b":[run.b.position.x,run.b.position.y],"height":run.heights,"ai":buddy.feedback,"network":net.in_match,"desynced":net.desynced,"role":net.role,"network_frame":net.next_frame,"nodes":get_tree().get_node_count(),"fps":Engine.get_frames_per_second(),"controls":buttons}
+	payload.combat={"health":run.combat.health,"weapon":run.combat.weapons[0],"kills":run.combat.kills,"training":run.combat_trial,"touch":touch_device,"buttons":circles,"input":{"enabled":touch.enabled,"move":[touch.move.x,touch.move.y],"fire":touch.action_fingers.values(),"jump":touch.jump_fingers.size()}}
+	var viewport:=get_viewport().get_visible_rect().size
+	payload.viewport=[viewport.x,viewport.y]
 	JavaScriptBridge.eval("window.__ctJourney="+JSON.stringify(payload),true)
 
 func control_rect(control:Control)->Array:
 	var rect:=control.get_global_rect()
 	return [rect.position.x,rect.position.y,rect.size.x,rect.size.y]
+
+func journey_primary() -> void:
+	command("primary")
+
+func sample_local_input() -> Dictionary:
+	if not input_override.is_empty(): return input_override
+	var first:=Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT))-float(key_down(KEY_A) or key_down(KEY_LEFT)),float(key_down(KEY_W) or key_down(KEY_UP)))
+	var second:=Vector2.ZERO
+	if play_mode=="local":
+		first=Vector2(float(key_down(KEY_D))-float(key_down(KEY_A)),float(key_down(KEY_W)))
+		second=Vector2(float(key_down(KEY_RIGHT))-float(key_down(KEY_LEFT)),float(key_down(KEY_UP)))
+	if touch.move!=Vector2.ZERO: first=Vector2(touch.move.x,maxf(0,touch.move.y))
+	var touch_jump: bool=touch.take_jump()
+	var actions: Dictionary=touch.take_combat()
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): fire_blocked=false
+	var fire: bool=(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not fire_blocked and not touch_device) or actions.fire
+	var input:={"a":first,"b":second,"ja":key_down(KEY_SPACE) or touch_jump or (play_mode=="online" and key_down(KEY_ENTER)),"jb":key_down(KEY_ENTER),"fire":fire,"reload":reload_requested or actions.reload,"drop":drop_requested or actions.drop}
+	reload_requested=false
+	drop_requested=false
+	return input
+
+func apply_combat_command(role: int, value: String) -> void:
+	if run.state!="running" or role not in [0,1]: return
+	var fields:=value.split(",")
+	if fields.size()!=3: return
+	run.combat.fire[role]=fields[0]=="1"
+	run.combat.reload[role]=run.combat.reload[role] or fields[1]=="1"
+	run.combat.drop[role]=run.combat.drop[role] or fields[2]=="1"

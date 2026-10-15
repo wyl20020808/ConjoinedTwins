@@ -30,6 +30,7 @@ func _ready() -> void:
 	streams.rope = render(0.23, func(t): return (0.2*triangle(t*(145.0+sin(t*35)*20)) + 0.15*(noise.randf()*2-1))*envelope(t,0.23,0.03))
 	streams.buckle = render(0.08, func(t): return (0.3*sin(t*TAU*1700)+0.2*sin(t*TAU*2300))*exp(-t*65))
 	streams.click = render(0.05, func(t): return 0.4 * square(t * 660.0) * exp(-t * 70.0))
+	streams.gunshot = render(0.09, func(t): return (0.45*(noise.randf()*2-1)+0.3*sin(TAU*110*t))*exp(-t*55))
 
 func prize_wave(t: float) -> float:
 	var value := 0.0
@@ -85,3 +86,9 @@ func play(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	player.volume_db = volume_db
 	player.pitch_scale = pitch
 	player.play()
+
+func _exit_tree() -> void:
+	for player in players:
+		player.stop()
+		player.stream=null
+	streams.clear()

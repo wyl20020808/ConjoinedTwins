@@ -7,6 +7,13 @@ const CHAPTERS := [
 	{"name":"矿道归航", "length":30000.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
 ]
 const WALK_SPEED := 160.0
+const Combat = preload("res://scripts/journey_combat.gd")
+const TRIAL_ZONES := ["拾取与射击","单只冲锋兽","换弹与补给","交替应敌","护盾与医疗","共同抵达"]
+var combat: Dictionary = {}
+# 模拟默认兼容既有双输入夹具；新生产界面仅向单人入口提供输入。
+var solo_control := false
+var external_companion := false
+var combat_trial := false
 const EVENT_NAMES := {"tree":"树木即将倒下：一起离开标记区", "boar":"野猪冲锋：共同避开直线路径", "stone":"村民投掷：离开落点", "cart":"推车横穿：观察轨迹再前进", "swing":"水车摆臂：等待或从侧面通过"}
 var journey_events: Array[Dictionary] = []
 var visited_zones: Array[int] = []
@@ -24,6 +31,7 @@ func level_speed() -> float:
 	return WALK_SPEED
 
 func finish_distance() -> float:
+	if combat_trial: return 12240.0
 	return CHAPTERS[level_index].length
 
 func update_stream() -> void:
@@ -48,7 +56,15 @@ func retry(count_failure: bool = false) -> void:
 	visited_zones.clear()
 	region_checkpoint = -1
 	event_serial = 0
-	build_journey()
+	combat=Combat.fresh()
+	if combat_trial: build_combat_trial()
+	else:
+		build_journey()
+		for zone in range(6):
+			var start: float=zone*finish_distance()/6.0
+			Combat.add_pickup(self,"gun",Vector2(-42,start+200))
+			Combat.add_pickup(self,"ammo",Vector2(-42,start+550))
+			Combat.add_pickup(self,"medkit",Vector2(0,start+720))
 	checkpoint = {}
 	update_checkpoint()
 
@@ -56,9 +72,11 @@ func zone_index() -> int:
 	return clampi(int(progress()/finish_distance()*6.0),0,5)
 
 func zone_name() -> String:
+	if combat_trial: return TRIAL_ZONES[zone_index()]
 	return CHAPTERS[level_index].zones[zone_index()]
 
 func theme_at(y: float) -> String:
+	if combat_trial: return "forest" if y<finish_distance()*0.6 else "village"
 	return CHAPTERS[level_index].themes[clampi(int(y/finish_distance()*6.0),0,5)]
 
 func add_hazard(kind: String, rect: Rect2) -> int:
@@ -77,6 +95,9 @@ func add_event(kind: String, y: float, side: float, combined: bool = false) -> v
 		obstacles[index].position.x = EDGE+1000
 		obstacle_heights[index] = 52.0
 	journey_events.append({"id":event_serial,"kind":kind,"y":y,"side":side,"rect":rect,"trigger":-1.0,"phase":"ready","previous":rect,"sample":rect,"bottom":0.0,"top":60.0,"obstacle":index,"combined":combined,"locked_x":x})
+	if kind in ["boar","stone"]:
+		journey_events[-1].hp=30 if kind=="boar" else 40
+		journey_events[-1].max_hp=journey_events[-1].hp
 	event_serial += 1
 
 func add_gate(y: float, plates: bool, suffix: String) -> void:
@@ -148,16 +169,21 @@ func build_journey() -> void:
 func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	input_a.y=maxf(0,input_a.y)
 	input_b.y=maxf(0,input_b.y)
+	if solo_control and not external_companion: input_b=companion_input(input_a)
 	last_floor=[a.position.y,b.position.y]
 	var previous := [a.position,b.position]
 	advance_events(FIXED_STEP)
 	if state!="running": return
-	super(input_a*(WALK_SPEED/LATERAL),input_b*(WALK_SPEED/LATERAL))
+	var scale_a: float=Combat.MOVE_SCALE if not combat.weapons[0].is_empty() else 1.0
+	var scale_b: float=Combat.MOVE_SCALE if not combat.weapons[1].is_empty() else 1.0
+	super(input_a*(WALK_SPEED/LATERAL)*scale_a,input_b*(WALK_SPEED/LATERAL)*scale_b)
 	if state!="running": return
 	# 任何物理修正也不得把玩家送往身后；父求解器已按本子步 floor 扫掠约束。
 	for role in range(2):
 		var pos: Vector2 = a.position if role==0 else b.position
 		if pos.distance_to(previous[role])<0.001 and heights[role]==0.0: actions[role]="Idle"
+	# 运动与实体求解之后开火，死亡敌人不会在同一步继续攻击。
+	Combat.tick(self,previous)
 	check_event_hits(previous)
 
 func event_sample(event: Dictionary,time: float) -> Dictionary:
@@ -193,6 +219,9 @@ func event_sample(event: Dictionary,time: float) -> Dictionary:
 
 func advance_events(_dt: float) -> void:
 	for event in journey_events:
+		if event.has("hp") and event.hp<=0:
+			event.phase="spent"
+			continue
 		# 以最快合法前进速度预留 >2.8 秒；锁定后不跟踪改道。
 		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-620:
 			event.trigger=elapsed
@@ -216,9 +245,12 @@ func check_event_hits(previous: Array) -> void:
 			var point: Vector2=a.position if role==0 else b.position
 			var motion: Vector2=current.position-old.position
 			if swept_body_hits(previous[role],point-motion,foot_height(role),foot_height(role),old.grow(Motion.RADIUS),event.bottom,event.top):
-				if damage("journey:%d"%event.id,"%02d %s，两人共同重试"%[role+1,EVENT_NAMES[event.kind]]): return
-		# 野猪/推车/摆臂会撞击实际绳段；地面落石仅伤身体。
-		if event.kind in ["boar","cart","swing","tree"]:
+				if event.kind in ["boar","stone"]:
+					Combat.hit(self,role,"journey:%d"%event.id)
+					if state!="running": return
+				elif damage("journey:%d"%event.id,"%02d %s，两人共同重试"%[role+1,EVENT_NAMES[event.kind]]): return
+		# 推车、摆臂和倒树保留绳段危险；野猪与投掷攻击只造成角色战斗伤害。
+		if event.kind in ["cart","swing","tree"]:
 			var path:=rope.physical_path()
 			var z:=rope.physical_heights()
 			for n in range(1,path.size()):
@@ -243,14 +275,67 @@ func update_checkpoint() -> void:
 func check_finish() -> void:
 	if charge_gates.any(func(gate): return not gate.open): return
 	super()
+	if combat_trial and state=="settlement": state="complete"
 
 func active_hint() -> String:
+	if combat_trial: return combat.get("notice","")
 	if charge_gate.active and not charge_gate.open and charge_gate.receiver.y-progress()<800:
 		return charge_gate.title+" · "+gate_hint(charge_gate)
 	for event in journey_events:
 		if event.phase=="warning": return EVENT_NAMES[event.kind]
 	return ["主动前进，松开按键即可停下；两人保持同侧","注意树干与草丛的预警","裂纹地面会塌陷，提前选择落脚点","看见村庄了，整理站位后前进","观察村民抬手和推车轨迹","前方供能装置与双人踏板需要合作"][zone_index()]
 
-# 旅程事件和区域快照也纳入联机指纹，不能只比较旧道路状态。
+func build_combat_trial() -> void:
+	# 无机关与缺口的独立训练路，持枪步行约 90 秒；可以停下观察。
+	Combat.add_pickup(self,"gun",Vector2(-42,200))
+	var waves := [1500.0,3000.0,5100.0,7200.0,9000.0,10400.0]
+	for index in range(waves.size()):
+		add_event("boar",waves[index],-1 if index%2==0 else 1)
+	for y in [2700.0,6500.0,9500.0]: Combat.add_pickup(self,"ammo",Vector2(-42,y))
+	for y in [3900.0,8400.0]: Combat.add_pickup(self,"medkit",Vector2(-42,y))
+	rewards.append({"id":"trial:shield","kind":"shield","position":Vector2(-42,4600),"radius":28.0,"claimed":false})
+	select_charge_gate()
+	revision+=1
+
+func reset_input() -> void:
+	super()
+	Combat.clear_input(self)
+
+func set_combat_input(fire: bool, reload_pressed: bool=false, drop_pressed: bool=false) -> void:
+	if state!="running" or combat.is_empty(): return
+	combat.fire[0]=fire
+	combat.reload[0]=combat.reload[0] or reload_pressed
+	combat.drop[0]=combat.drop[0] or drop_pressed
+
+func step(delta: float, input_a: Vector2=Vector2.ZERO, input_b: Vector2=Vector2.ZERO, jump_a: bool=false, jump_b: bool=false) -> void:
+	if solo_control and not external_companion: jump_b=jump_a
+	super(delta,input_a,input_b,jump_a,jump_b)
+
+func companion_input(leader: Vector2) -> Vector2:
+	# 同侧跟随，机关处走向对侧站位区。只产生输入，交给现有碰撞和绳索求解。
+	var target := a.position+Vector2(56,0)
+	target.x=clampf(target.x,-EDGE+Motion.RADIUS,EDGE-Motion.RADIUS)
+	# 不在跨越道路中线时交换左右，避免搭档迎面挡住玩家。
+	# 右侧空间不足时改为前后站位；只向前调整，不把角色移向身后。
+	if target.x-a.position.x<BODY_GAP+4: target.y+=BODY_GAP+8
+	var gate_assist := false
+	for gate in charge_gates:
+		if gate.open or absf(a.position.y-gate.receiver.y)>180: continue
+		var left: Rect2=gate.left
+		var right: Rect2=gate.right
+		if left.grow(12).has_point(a.position) or right.grow(12).has_point(a.position):
+			var other: Rect2=right if left.grow(12).has_point(a.position) else left
+			target=Vector2(other.get_center().x,maxf(other.position.y+12,a.position.y))
+			gate_assist=true
+			break
+	var delta := target-b.position
+	var input := Vector2(clampf(delta.x/30.0,-1,1),clampf(delta.y/30.0,0,1))
+	if not gate_assist:
+		var leader_scale: float=Combat.MOVE_SCALE if not combat.weapons[0].is_empty() else 1.0
+		input.y=clampf(leader.y*leader_scale+delta.y/30.0,0,1)
+	if absf(delta.x)<2: input.x=0
+	if delta.y<2 and leader.y<=0: input.y=0
+	return input.limit_length()
+
 func sync_hash() -> int:
-	return var_to_str([super(),journey_events,visited_zones,region_checkpoint]).hash()
+	return var_to_str([super(),journey_events,visited_zones,region_checkpoint,combat,solo_control,external_companion,combat_trial]).hash()

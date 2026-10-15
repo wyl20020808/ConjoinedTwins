@@ -39,7 +39,8 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 	else:side=1
 	var target:=human+Vector2(side*spacing,0)
 	# 预测真人的短期前进，让并肩奔跑的队友不会每次落后才启动。
-	if human_move.y>0:target.y+=human_move.limit_length().y*run.WALK_SPEED*HORIZON
+	var human_speed:float=run.WALK_SPEED*(run.Combat.MOVE_SCALE if not run.combat.weapons[0].is_empty() else 1.0)
+	if human_move.y>0:target.y+=human_move.limit_length().y*human_speed*HORIZON
 	var gate:Dictionary=run.charge_gate
 	if gate.get("active",false) and not gate.open and gate.receiver.y-minf(human.y,me.y)<620:
 		var plates:bool=gate.get("kind","")=="sync_plates"
@@ -61,6 +62,7 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 		var rect:Rect2=run.obstacles[i]
 		if rect.end.y>=me.y-150 and rect.position.y<=me.y+500:near_hazards.append(i)
 	for event in run.journey_events:
+		if event.has("hp") and event.hp<=0:continue
 		if event.y>=me.y-900 and event.y<=me.y+700:near_events.append(event)
 	for direction:Vector2 in candidates:
 		# 没有推进意图时不主动超越真人；门前允许走到相邻操作位。
@@ -91,7 +93,8 @@ func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2
 		var time:float=HORIZON*sample/3.0
 		var point:Vector2=project(me,direction,run.WALK_SPEED*time,target)
 		if absf(point.x)>run.EDGE-run.Motion.RADIUS:return INF
-		var other:Vector2=human+human_move.limit_length()*run.WALK_SPEED*time
+		var human_speed:float=run.WALK_SPEED*(run.Combat.MOVE_SCALE if not run.combat.weapons[0].is_empty() else 1.0)
+		var other:Vector2=human+human_move.limit_length()*human_speed*time
 		# 自己和队友的预期相对运动受同一条绳约束，超长时选择停步等候。
 		if point.distance_to(other)>run.LINK_LIMIT-1:cost+=6000
 		var height:float=run.foot_height(1)
@@ -109,7 +112,7 @@ func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2
 			var spec:Dictionary=run.event_sample(event,run.elapsed+time)
 			if spec.phase not in ["active","falling","fallen"]:continue
 			if run.swept_body_hits(previous,point,previous_height,height,spec.rect.grow(run.Motion.RADIUS+3),spec.bottom,spec.top):return INF
-			if event.kind in ["boar","tree","cart","swing"] and run.segment_hits(other,point,spec.rect.grow(3)) and spec.bottom<=run.ROPE_HEIGHT:return INF
+			if event.kind in ["tree","cart","swing"] and run.segment_hits(other,point,spec.rect.grow(3)) and spec.bottom<=run.ROPE_HEIGHT:return INF
 		previous=point
 		previous_height=height
 	return cost
