@@ -30,7 +30,7 @@ def main():
         link = baseline / directory
         if not link.exists():
             link.symlink_to(root / directory, target_is_directory=True)
-    for name in ["tests/loading_performance.gd", "tests/journey_performance.gd", "tests/fixtures/loading_baseline.json"]:
+    for name in ["tests/loading_performance.gd", "tests/journey_performance.gd", "tests/fixtures/loading_baseline.json", "tests/fixtures/no_threads_run.gd"]:
         target = baseline / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((root / name).read_bytes())

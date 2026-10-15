@@ -52,5 +52,12 @@ func verify() -> void:
 	check(pending.async_epoch>epoch and pending.async_preload_tasks.is_empty() and pending.block_history.is_empty(),"重试废弃旧结果和队列")
 	check(old.all(func(job):return job.done and job.cancellation.is_canceled()),"取消后回收所有线程池任务")
 	pending.dispose()
+	var adaptive=Run.new(true,true)
+	adaptive.retry()
+	adaptive.measured_generation_usec=5000000
+	adaptive.prepare_frame()
+	adaptive.prepare_frame()
+	check(adaptive.preload_segments==8 and adaptive.async_preload_requests.size()<=8 and adaptive.parallel_peak<=2,"慢生成扩大预读窗口且仍保持八段、两任务上限")
+	adaptive.dispose()
 	print("PREPARATION_WORKERS failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)

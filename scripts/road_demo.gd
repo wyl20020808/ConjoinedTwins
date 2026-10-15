@@ -4,6 +4,8 @@ signal online_frame_applied(frame_index: int)
 
 const Run = preload("res://scripts/road_run.gd")
 const RelayPowerView = preload("res://scripts/relay_power_view.gd")
+const RoadAssetQueue = preload("res://scripts/road_asset_queue.gd")
+var hazard_assets = RoadAssetQueue.new()
 const SCALE := 20.0
 const SKY_YAW := 240.0
 # 可见路面比可站立范围每侧多 0.3 米：角色中心到边即踩空。
@@ -361,6 +363,7 @@ func _ready() -> void:
 	sync_view()
 
 func _exit_tree() -> void:
+	hazard_assets.dispose()
 	for preview in preview_runs.values(): preview.dispose()
 	run.dispose()
 
@@ -1484,6 +1487,7 @@ func rebuild_hazard_views() -> void:
 
 # 已证明布局提前逐个准备隐藏模型；当前帧需要安装时若模型未齐，只保留帧等待，不一口气建一整段。
 func prepare_generation_views(startup: bool = false, deadline_usec: int = 0) -> bool:
+	hazard_assets.poll(deadline_usec)
 	var targets: Array = []
 	if run.cooperative_job != null and run.cooperative_job.done:
 		targets.append({"job": run.async_job, "block": run.cooperative_job.result.block, "blocking": not run.lockstep or run.generation_due()})
@@ -1507,6 +1511,11 @@ func prepare_generation_views(startup: bool = false, deadline_usec: int = 0) -> 
 			preview_runs[key] = preview
 		var live = run
 		run = preview_runs[key]
+		var paths: Array=RoadAssetQueue.hazard_paths(run.kinds)
+		hazard_assets.request(paths)
+		if not hazard_assets.ready(paths):
+			run=live
+			return not target.blocking
 		var required := {}
 		for index in range(run.obstacles.size()):
 			var shape := hazard_shape(index)

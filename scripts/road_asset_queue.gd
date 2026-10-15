@@ -50,3 +50,8 @@ static func startup_paths() -> Array:
 	for name in ["Adventurer_A", "Adventurer_B", "rescue_climb", "rescue_ropepull"]: paths.append("res://assets/humans/%s.glb" % name)
 	for name in ["sign", "gate", "falling_tree"]: paths.append("res://assets/journey/%s.glb" % name)
 	return paths
+static func hazard_paths(kinds: Array) -> Array:
+	var paths: Array=[]
+	if "drone" in kinds: paths.append("res://assets/props/Eagle_Flying.glb")
+	if "forklift" in kinds or "shuttle" in kinds: paths.append("res://assets/props/Minecart_HunterParamore.glb")
+	return paths
