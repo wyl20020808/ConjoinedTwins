@@ -36,6 +36,14 @@ var buddy = BuddyAI.new()
 var rescue_pulse := [0.0, 0.0]
 var rescue_seen := [0, 0]
 var view_revision := -1
+var generation_waiting := false
+var loading_box: Control
+var loading_label: Label
+var loading_progress: ProgressBar
+var prepared_online_frame := -1
+var hazard_build_count := 0
+var preview_runs := {}
+const MODEL_POOL_LIMIT := 64
 var difficulty_buttons: Array[Button] = []
 var hazard_pool := {}
 const MOVE_KEYS := [KEY_A, KEY_D, KEY_W, KEY_S, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_SPACE, KEY_ENTER]
@@ -341,6 +349,7 @@ func _ready() -> void:
 	sync_view()
 
 func _exit_tree() -> void:
+	for preview in preview_runs.values(): preview.dispose()
 	run.dispose()
 
 func build_lighting() -> void:
@@ -1184,6 +1193,19 @@ func build_ui() -> void:
 	bottom.position = Vector2(40, 677)
 	root.add_child(bottom)
 	bottom_hint = bottom
+	loading_box = Control.new()
+	loading_box.position = Vector2(360, 280)
+	loading_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(loading_box)
+	loading_label = label("正在准备道路…", 28, Color.WHITE)
+	loading_label.size = Vector2(560, 80)
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_box.add_child(loading_label)
+	loading_progress = ProgressBar.new()
+	loading_progress.position = Vector2(0, 90)
+	loading_progress.size = Vector2(560, 28)
+	loading_box.add_child(loading_progress)
+	loading_box.hide()
 	rescue_box = Control.new()
 	rescue_box.position = Vector2(640 - RESCUE_BAR / 2, 520)
 	rescue_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1320,40 +1342,112 @@ func land_flyer(dot: Panel, value: int) -> void:
 		node.scale = Vector2.ONE * 1.35
 		create_tween().tween_property(node, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
+func hazard_shape(index: int) -> String:
+	return var_to_str([run.kinds[index], run.obstacles[index].size, run.obstacle_heights[index], run.hazard_specs[index].get("bottom", 0.0)])
+
+func hazard_identity(index: int) -> String:
+	return "%d:%d:%d:%s" % [run.seed_value, run.level_index, run.obstacle_ids[index], hazard_shape(index)]
+
+func make_hazard_view(index: int) -> Node3D:
+	var chunk := Node3D.new()
+	chunk.set_meta("hazard_kind", run.kinds[index])
+	chunk.set_meta("hazard_shape", hazard_shape(index))
+	road.add_child(chunk)
+	if Run.Threats.is_ball(run.kinds[index]): build_ball_model(chunk, index)
+	elif run.kinds[index] == "pillar": build_pillar_model(chunk, index)
+	elif run.kinds[index] == "cargo": build_rock_block(chunk, index)
+	else: build_hazard_model(chunk, index)
+	hazard_build_count += 1
+	return chunk
+
 func rebuild_hazard_views() -> void:
+	var kept := {}
+	for index in range(run.obstacles.size()): kept[hazard_identity(index)] = true
+	var old := {}
 	for view in hazard_views:
+		var identity: String = view.get_meta("hazard_identity", "")
+		if kept.has(identity):
+			old[identity] = view
+			continue
 		scenery.erase(view)
 		view.hide()
-		var kind: String = view.get_meta("hazard_kind")
-		# 巨岩每块尺寸不同，不能套用别的尺寸的旧节点，直接重建。
-		if kind == "cargo":
-			view.queue_free()
-			continue
-		if not hazard_pool.has(kind): hazard_pool[kind] = []
-		hazard_pool[kind].append(view)
+		var shape: String = view.get_meta("hazard_shape")
+		if not hazard_pool.has(shape): hazard_pool[shape] = []
+		hazard_pool[shape].append(view)
 	hazard_views.clear()
 	for index in range(run.obstacles.size()):
-		var kind: String = run.kinds[index]
-		if hazard_pool.has(kind) and not hazard_pool[kind].is_empty():
-			var reused: Node3D = hazard_pool[kind].pop_back()
-			reused.show()
-			scenery.append(reused)
-			hazard_views.append(reused)
-			continue
-		var chunk := Node3D.new()
-		chunk.set_meta("hazard_kind", kind)
-		road.add_child(chunk)
-		scenery.append(chunk)
-		hazard_views.append(chunk)
-		if Run.Threats.is_ball(run.kinds[index]):
-			build_ball_model(chunk, index)
-		elif run.kinds[index] == "pillar":
-			build_pillar_model(chunk, index)
-		elif run.kinds[index] == "cargo":
-			build_rock_block(chunk, index)
+		var identity := hazard_identity(index)
+		var shape := hazard_shape(index)
+		var view: Node3D
+		if old.has(identity): view = old[identity]
 		else:
-			build_hazard_model(chunk, index)
+			if hazard_pool.has(shape) and not hazard_pool[shape].is_empty(): view = hazard_pool[shape].pop_back()
+			else: view = make_hazard_view(index)
+			scenery.append(view)
+		view.set_meta("hazard_identity", identity)
+		view.show()
+		hazard_views.append(view)
+	# 有界回收；只清除不在当前场景中的备用模型。
+	var spare := 0
+	for shape in hazard_pool:
+		spare += hazard_pool[shape].size()
+		while spare > MODEL_POOL_LIMIT and not hazard_pool[shape].is_empty():
+			hazard_pool[shape].pop_back().queue_free()
+			spare -= 1
 	view_revision = run.revision
+
+# 已证明布局提前逐个准备隐藏模型；当前帧需要安装时若模型未齐，只保留帧等待，不一口气建一整段。
+func prepare_generation_views(startup: bool = false) -> bool:
+	var targets: Array = []
+	if run.cooperative_job != null and run.cooperative_job.done:
+		targets.append({"job": run.async_job, "block": run.cooperative_job.result.block, "blocking": not run.lockstep or run.generation_due()})
+	for key in run.async_preload_tasks:
+		var task = run.async_preload_tasks[key]
+		if task.done: targets.append({"job": task.job, "block": task.result.block, "blocking": startup})
+	var current: Array = []
+	for target in targets: current.append(str(target.job.key))
+	for key in preview_runs.keys():
+		if current.has(key): continue
+		preview_runs[key].dispose()
+		preview_runs.erase(key)
+	for target in targets:
+		if target.block.is_empty(): continue
+		var key: String = target.job.key
+		if not preview_runs.has(key):
+			var preview = Run.new(false)
+			preview.level_index = target.job.level
+			preview.difficulty = target.job.difficulty
+			preview.install_block(target.block, target.job.base, "preview")
+			preview_runs[key] = preview
+		var live = run
+		run = preview_runs[key]
+		var required := {}
+		for index in range(run.obstacles.size()):
+			var shape := hazard_shape(index)
+			required[shape] = required.get(shape, 0) + 1
+			if hazard_pool.get(shape, []).size() >= required[shape]: continue
+			var spare := 0
+			for cached in hazard_pool.values(): spare += cached.size()
+			if spare < MODEL_POOL_LIMIT or target.blocking:
+				var view := make_hazard_view(index)
+				view.hide()
+				if not hazard_pool.has(shape): hazard_pool[shape] = []
+				hazard_pool[shape].append(view)
+			run = live
+			return not target.blocking
+		run = live
+	return true
+
+func prepare_game_frame() -> bool:
+	var startup: bool = run.async_startup_pending and run.state == "running"
+	var ready: bool = run.prepare_frame()
+	# 证明期间同步逐个准备模型，避免计算进度完成后再集中建模。
+	var models_ready := prepare_generation_views(startup)
+	if startup and (not ready or not models_ready):
+		run.async_startup_pending = true
+		return false
+	if startup: clear_controls()
+	return ready and models_ready
 
 func build_rewards() -> void:
 	# 固定奖励槽，不随领取或跨关增加节点；每次同步完整覆盖可复用槽的表现。
@@ -1445,12 +1539,12 @@ func build_charge_gate(view: Node3D = null) -> void:
 		var zone_width: float = (Run.ChargeGate.ZONE_OUTER - Run.ChargeGate.ZONE_INNER) / SCALE
 		var zone := box(view, Vector3(side * zone_center, 0.02, -3), Vector3(zone_width, 0.025, 3), zone_material("gate_zone", Color(0.3, 0.85, 0.8, 0.28)))
 		zone.name = "LeftZone" if side < 0 else "RightZone"
-	var receiver := cylinder(view, Vector3(0, 1.4, -3), 0.4, 0.3, energy)
+	var receiver := cylinder(view, Vector3(0, 1.4, -3), Run.ChargeGate.RECEIVER_RADIUS / SCALE, 0.3, energy)
 	receiver.name = "Receiver"
 	var stem := box(view, Vector3(0, 0.7, -3), Vector3(0.15, 1.4, 0.15), steel)
 	stem.name = "ReceiverStem"
 	for side in [-1, 1]:
-		var plate := cylinder(view, Vector3(side * 2.25, 0.04, -3), 0.9, 0.06, steel)
+		var plate := cylinder(view, Vector3(side * 2.25, 0.04, -3), Run.SyncPlates.PLATE_RADIUS / SCALE, 0.06, steel)
 		plate.name = "LeftPlate" if side < 0 else "RightPlate"
 		plate.visible = false
 	var bar := box(view, Vector3(0, 3.1, -3), Vector3(3, 0.16, 0.12), material("gate_progress", Color("68dce3"), 0.5))
@@ -1572,6 +1666,11 @@ func _physics_process(delta: float) -> void:
 	if net.active():
 		online_process(delta)
 		return
+	generation_waiting = not prepare_game_frame()
+	if generation_waiting:
+		frame_delta = delta
+		sync_view()
+		return
 	var first := Vector2(float(key_down(KEY_D)) - float(key_down(KEY_A)), float(key_down(KEY_W)) - float(key_down(KEY_S)))
 	var second := Vector2(float(key_down(KEY_RIGHT)) - float(key_down(KEY_LEFT)), float(key_down(KEY_UP)) - float(key_down(KEY_DOWN)))
 	var touch_jump: bool = touch.take_jump()
@@ -1603,23 +1702,38 @@ func online_process(delta: float) -> void:
 	if touch.move != Vector2.ZERO: move = touch.move
 	var touch_jump: bool = touch.take_jump()
 	net.send_input(move, key_down(KEY_SPACE) or key_down(KEY_ENTER) or touch_jump)
-	var first_index: int = net.next_frame
-	var batch: Array = net.take_frames()
-	for i in range(batch.size()):
-		var frame: Dictionary = batch[i]
-		for entry in frame.cmds: apply_command(entry[1], entry[2])
+	var applied := 0
+	var started := Time.get_ticks_usec()
+	generation_waiting = false
+	var queued: int = net.frames.size()
+	var limit: int = mini(4, queued - 2) if queued > 8 else (2 if queued > 3 else 1)
+	# 保留原有缓冲节奏；只限制积压时的单次追帧量，不丢弃任何帧。
+	# 保留未准备好的完整帧，命令只执行一次；不把计算时间算作模拟时间。
+	while not net.frames.is_empty() and applied < limit:
+		var index: int = net.next_frame
+		var frame: Dictionary = net.frames[0]
+		if prepared_online_frame != index:
+			for entry in frame.cmds: apply_command(entry[1], entry[2])
+			prepared_online_frame = index
+		if not prepare_game_frame():
+			generation_waiting = true
+			break
+		net.take_frames(1)
 		var previous_state: String = run.state
 		var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": locked_threats(), "presses": rescue_presses()}
 		run.step(Run.FIXED_STEP * 2.0, frame.a, frame.b, frame.ja, frame.jb)
 		play_events(before, previous_state)
 		fall_clock = fall_clock + Run.FIXED_STEP * 2.0 if falling() else 0.0
 		if run.state != previous_state: clear_controls()
-		net.report(first_index + i, run.sync_hash())
-		online_frame_applied.emit(first_index + i)
-	frame_delta = delta * maxi(1, batch.size())
+		net.report(index, run.sync_hash())
+		online_frame_applied.emit(index)
+		applied += 1
+		if Time.get_ticks_usec() - started >= 6000: break
+	frame_delta = delta * maxi(1, applied)
 	sync_view()
 
 func start_online_match(seed: int) -> void:
+	prepared_online_frame = -1
 	run.cancel_generation()
 	run.lockstep = true
 	run.random_seed = false
@@ -1985,6 +2099,11 @@ func sync_view() -> void:
 func update_ui() -> void:
 	if not is_instance_valid(hud):
 		return
+	loading_box.visible = run.async_startup_pending and run.state == "running"
+	if loading_box.visible:
+		var progress: float = run.startup_progress()
+		loading_progress.value = progress * 100.0
+		loading_label.text = "正在准备道路 %d%%\n%s" % [int(progress * 100), "正在准备场景…" if progress >= 1.0 else "出发前预计算前方路段，减少途中等待"]
 	hud.text = "第 %d/3 关 · %s · 金币 %d · 奖品 %d · 护盾 %s" % [run.level_index + 1, run.difficulty, run.coins, run.prizes, "无敌 %.1fs" % maxf(0, run.invulnerable_until - run.elapsed) if run.elapsed < run.invulnerable_until else ("1" if run.shield else "0")]
 	if run.charge_gate.active: hud.text += "\n" + run.gate_hint(run.charge_gate)
 	hud.text += "\n单人 · 02 人机：%s（F 让它下一处失误）" % buddy.feedback if solo else "\nM 切换单人（人机做 02）"
@@ -2054,9 +2173,12 @@ func update_online_ui() -> void:
 	if online and not net.in_match:
 		title.text = "联机等待中"
 		subtitle.text = "两人都连上同一服务器后自动开局。\n左半屏按住滑动＝移动，右半屏点击＝跳跃。"
-	if not online and not touch_device: return
+	if not online and not touch_device:
+		bottom_hint.text = "正在准备前方道路…" if generation_waiting else "01：WASD / 空格跳跃与确认   ·   02：方向键 / 回车跳跃与确认   ·   Esc 暂停   ·   R 重试当前关"
+		return
 	var role_text := "你是 %02d 号 · " % (net.role + 1) if online and net.role >= 0 else ""
 	bottom_hint.text = role_text + "左半屏按住滑动移动 · 右半屏点击跳跃与确认 · 右上角暂停"
+	if generation_waiting: bottom_hint.text = "正在准备前方道路…"
 	if not online: return
 	match run.state:
 		"start": subtitle.text = role_text + "联机双人：各自控制一个角色。\n左半屏摇杆移动，右半屏点击跳跃（电脑上 WASD/方向键 + 空格/回车）。\n两侧悬崖，连线最多 7.33 米，三关各约 100 秒。"

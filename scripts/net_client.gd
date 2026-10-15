@@ -169,11 +169,12 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 					"b": Vector2(message[5], message[6]) / 100.0, "jb": bool(message[7]), "cmds": message[8]})
 
 # 取出本次物理帧要模拟的帧：通常一帧；积压时追帧，保留少量缓冲吸收网络抖动。
-func take_frames() -> Array:
+func take_frames(maximum: int = -1) -> Array:
 	var count := 0
 	if frames.size() > 8: count = frames.size() - 2
 	elif frames.size() > 3: count = 2
 	elif frames.size() > 0: count = 1
+	if maximum >= 0: count = mini(count, maximum)
 	var out := frames.slice(0, count)
 	frames = frames.slice(count)
 	next_frame += count

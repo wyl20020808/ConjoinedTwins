@@ -61,6 +61,15 @@ static func supported(point: Vector2, radius: float, gaps: Array[Rect2]) -> bool
 		if point.distance_squared_to(nearest) < radius * radius - 0.00001: return false
 	return true
 
+# 整条移动线段与缺口矩形求最短距离，短缺口也不能从稀疏采样点之间漏过。
+static func supported_sweep(from: Vector2, to: Vector2, radius: float, gaps: Array[Rect2]) -> bool:
+	if not supported(from, radius, gaps) or not supported(to, radius, gaps): return false
+	for gap in gaps:
+		var corners := [gap.position, Vector2(gap.end.x, gap.position.y), gap.end, Vector2(gap.position.x, gap.end.y)]
+		for i in range(4):
+			if segments_distance(from, to, corners[i], corners[(i + 1) % 4]) < radius - 0.00001: return false
+	return true
+
 static func low_segment(first: Vector2, last: Vector2, z0: float, z1: float, top: float) -> Array:
 	if z0 > top and z1 > top: return []
 	if z0 > top: first = first.lerp(last, (z0 - top) / (z0 - z1))
