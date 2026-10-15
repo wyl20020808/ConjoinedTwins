@@ -4,6 +4,8 @@
 
 **Windows 启动：双击 `启动归航Demo.cmd`。** 或用 Godot 4.7.1 打开 `project.godot`，运行 `scenes/road_demo.tscn`。Agent 不自动打开游戏。
 
+Windows 渲染：`project.godot` 设置 `rendering/gl_compatibility/driver.windows="opengl3_angle"`，Compatibility 渲染在 Windows 上经 ANGLE（Direct3D 11）运行。原因：Godot 4.7.1 原生 OpenGL 3.3 在本机 NVIDIA 610.88 驱动下运行约 1–6 分钟会在 `RasterizerSceneGLES3::render_scene` 内崩溃（signal 11）；同一自动试玩脚本经 ANGLE 或 Vulkan 运行未复现。Web、macOS、iOS 不受此设置影响。
+
 > 2026-10-14 联机与触屏：新增远程双人联机（电脑运行 `启动联机服务器.cmd`，两人各自在开始页填地址点“联机”，帧同步，各控制一个角色）和触屏操作（左半屏浮动摇杆移动，右半屏点击跳跃），并新增 iOS 导出预设。本地同屏双人保持不变。说明见 [iPhone / iPad 联机试玩说明](docs/IOS_ONLINE.md)。
 >
 > 2026-10-14 网页版联机：中继服务器同时监听 UDP 24680（原生客户端）和 WebSocket 24681（网页版），两种连接可进同一房间；新增 Web 导出预设与 `build-tools/prepare_web.py`。Mac mini 经 SakuraFrp 托管网页与联机的部署方式见 [网页版联机说明](docs/WEB_ONLINE.md)。
