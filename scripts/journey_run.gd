@@ -256,7 +256,7 @@ func active_hint() -> String:
 		if event.phase=="warning": return EVENT_NAMES[event.kind]
 	for marker in encounter_markers:
 		if marker.y>=progress()-40 and marker.y<=progress()+450 and not marker.kind in EVENT_NAMES:
-			return hazard_name(marker.kind)
+			return {"slope":"起伏坡道：观察前方高低，保持同侧", "steps":"石阶：留意高低差，依次通过", "tilt":"倾斜桥面：保持靠近，留意两侧高度", "lift":"升降平台：等平台接近地面再上桥"}.get(marker.kind,hazard_name(marker.kind))
 	return ["主动前进，松开按键即可停下；两人保持同侧","注意树干与草丛的预警","裂纹地面会塌陷，提前选择落脚点","看见村庄了，整理站位后前进","观察村民抬手和推车轨迹","前方供能装置与双人踏板需要合作"][zone_index()]
 
 func build_combat_trial() -> void:
