@@ -19,6 +19,17 @@ var ambience_region := ""
 var ambience_streams := {}
 var sound_events := {}
 var sound_clock := 0.0
+const CombatView = preload("res://scripts/journey_combat_view.gd")
+@export var training_entry := false
+var combat_view: Node3D
+var combat_status: Label
+var combat_health: ProgressBar
+var training_button: Button
+var restart_button: Button
+var fire_blocked := true
+var reload_requested := false
+var drop_requested := false
+var controls_hint: Label
 
 func _ready() -> void:
 	ThemeDB.fallback_font=preload("res://assets/fonts/web_ui_font.tres")
@@ -26,6 +37,10 @@ func _ready() -> void:
 	finish_view.free()
 	charge_gate_view.free()
 	run=Journey.new()
+	run.solo_control=true
+	if training_entry:
+		run.combat_trial=true
+		run.retry()
 	run.state="start"
 	add_child(road)
 	build_lighting()
@@ -45,6 +60,9 @@ func _ready() -> void:
 	sfx=Sfx.new()
 	add_child(sfx)
 	build_journey_ui()
+	combat_view=CombatView.new()
+	combat_view.game=self
+	add_child(combat_view)
 	build_ambience()
 	sync_view()
 
@@ -173,7 +191,7 @@ func build_chunk(number: int) -> Node3D:
 		var y:float=zone*zone_length/SCALE
 		if y>=start and y<start+CHUNK:
 			asset(chunk,"sign",Vector3(-15,0,-y-6),3.0)
-			add_sign(chunk,run.CHAPTERS[run.level_index].zones[zone],Vector3(-12,4,-y-8),38)
+			add_sign(chunk,run.TRIAL_ZONES[zone] if run.combat_trial else run.CHAPTERS[run.level_index].zones[zone],Vector3(-12,4,-y-8),38)
 	rebuild_floor(chunk,number)
 	return chunk
 
@@ -350,6 +368,7 @@ func build_journey_ui() -> void:
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left",24)
 	margin.add_theme_constant_override("margin_top",20)
+	margin.add_theme_constant_override("margin_right",24)
 	margin.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(margin)
 	var column:=VBoxContainer.new()
@@ -365,9 +384,37 @@ func build_journey_ui() -> void:
 	progress_widget.custom_minimum_size=Vector2(0,5)
 	progress_widget.show_percentage=false
 	column.add_child(progress_widget)
-	var controls:=label("01：W 前进 · A/D 左右 · 空格跳跃    02：↑ 前进 · ←/→ 左右 · 回车跳跃\n松开停步 · S/↓ 不后退 · Esc 暂停 · R 重开本关 · F1 素材署名",16)
+	combat_status=label("",20,Color("a1ead5"))
+	column.add_child(combat_status)
+	combat_health=ProgressBar.new()
+	combat_health.custom_minimum_size=Vector2(260,12)
+	combat_health.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+	combat_health.show_percentage=false
+	column.add_child(combat_health)
+	for text_label in [region_banner,hud,journey_hint,combat_status]:
+		text_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	var controls:=label("W / ↑ 前进 · A/D / ←→ 左右 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
 	controls.position=Vector2(24,652)
+	controls_hint=controls
 	canvas.add_child(controls)
+	controls.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	touch_device=DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
+	touch=TouchControls.new()
+	touch.combat_buttons=true
+	canvas.add_child(touch)
+	pause_button=Button.new()
+	pause_button.text="暂停"
+	pause_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	pause_button.offset_left=-120
+	pause_button.offset_right=-24
+	pause_button.offset_top=22
+	pause_button.offset_bottom=70
+	pause_button.pressed.connect(func():
+		run.pause()
+		clear_controls())
+	canvas.add_child(pause_button)
+	controls.visible=not touch_device
 	panel=PanelContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	panel.position=Vector2(240,170)
@@ -385,6 +432,22 @@ func build_journey_ui() -> void:
 	primary.custom_minimum_size=Vector2(0,52)
 	primary.pressed.connect(journey_primary)
 	inner.add_child(primary)
+	training_button=Button.new()
+	training_button.text="战斗训练 · 持枪步行约 90 秒"
+	training_button.custom_minimum_size=Vector2(0,46)
+	training_button.pressed.connect(func():
+		run.combat_trial=not run.combat_trial
+		run.new_campaign()
+		reset_journey_views())
+	inner.add_child(training_button)
+	restart_button=Button.new()
+	restart_button.text="重新开始本关"
+	restart_button.custom_minimum_size=Vector2(0,42)
+	restart_button.pressed.connect(func():
+		run.retry(run.state=="failed")
+		reset_journey_views())
+	inner.add_child(restart_button)
+	touch.blockers.assign([panel,pause_button])
 	var choice:=HBoxContainer.new()
 	inner.add_child(choice)
 	for name in ["简单","普通","困难"]:
@@ -400,6 +463,7 @@ func reset_journey_views() -> void:
 	built_chapter=-1
 	sound_events.clear()
 	clear_controls()
+	if is_instance_valid(combat_view): combat_view.reset()
 
 func journey_primary() -> void:
 	match run.state:
@@ -409,6 +473,10 @@ func journey_primary() -> void:
 			if not run.restore_checkpoint(): run.retry(true)
 			reset_journey_views()
 		"complete": run.new_campaign();reset_journey_views()
+		"settlement":
+			run.confirm_step(false,false)
+			run.confirm_step(true,true)
+			reset_journey_views()
 	clear_controls()
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -416,9 +484,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if event.keycode==KEY_ESCAPE:
 		run.pause()
 		clear_controls()
-	elif event.keycode==KEY_R and run.state in ["running","failed","paused"]:
-		run.retry(run.state=="failed")
-		reset_journey_views()
+	elif event.keycode==KEY_R and run.state=="running": reload_requested=true
+	elif event.keycode==KEY_G and run.state=="running": drop_requested=true
 	elif event.keycode==KEY_ENTER and run.state in ["start","failed","complete"]: journey_primary()
 	elif event.keycode==KEY_F1:
 		if run.state in ["running","rescue"]: run.pause()
@@ -428,16 +495,41 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		set_meta("credits",true)
 
 func _physics_process(delta: float) -> void:
-	var first:=Vector2(float(key_down(KEY_D))-float(key_down(KEY_A)),float(key_down(KEY_W)))
-	var second:=Vector2(float(key_down(KEY_RIGHT))-float(key_down(KEY_LEFT)),float(key_down(KEY_UP)))
+	touch.set_enabled(touch_device and run.state in ["running","rescue","settlement"])
+	var first:=Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT))-float(key_down(KEY_A) or key_down(KEY_LEFT)),float(key_down(KEY_W) or key_down(KEY_UP)))
+	if touch.move!=Vector2.ZERO: first=touch.move
+	var touch_jump: bool=touch.take_jump()
+	var touch_actions: Dictionary=touch.take_combat()
+	var jump: bool=key_down(KEY_SPACE) or touch_jump
+	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): fire_blocked=false
+	var fire: bool=(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not fire_blocked and not touch_device) or touch_actions.fire
+	run.set_combat_input(fire,reload_requested or touch_actions.reload,drop_requested or touch_actions.drop)
+	reload_requested=false
+	drop_requested=false
 	var before:String=run.state
-	run.step(delta,first,second,key_down(KEY_SPACE),key_down(KEY_ENTER))
+	run.step(delta,first,Vector2.ZERO,jump,jump)
 	if run.state!=before:
 		clear_controls()
 		if run.state=="running": reset_journey_views()
 	frame_delta=delta
 	sync_view()
 	pump_ambience(delta)
+
+func clear_controls() -> void:
+	super()
+	reload_requested=false
+	drop_requested=false
+	fire_blocked=true
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch and is_instance_valid(touch):
+		touch_device=true
+		touch.set_enabled(run.state in ["running","rescue","settlement"])
+
+func _notification(what: int) -> void:
+	if what==NOTIFICATION_APPLICATION_FOCUS_OUT and is_instance_valid(touch):
+		if run.state in ["running","rescue"]: run.pause()
+		clear_controls()
 
 func sync_view() -> void:
 	if robots.size()<2: return
@@ -477,6 +569,7 @@ func sync_view() -> void:
 		for node in chunk.get_children():
 			if node.has_meta("wind"):node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
 	sync_journey_rewards()
+	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 
 func sync_journey_rewards() -> void:
@@ -500,27 +593,42 @@ func sync_journey_rewards() -> void:
 
 func update_journey_ui() -> void:
 	if not is_instance_valid(hud): return
-	region_banner.text="%d / 3   %s  ·  %s"%[run.level_index+1,run.CHAPTERS[run.level_index].name,run.zone_name()]
+	var viewport := get_viewport().get_visible_rect().size
+	panel.size.x=minf(800,viewport.x-32)
+	panel.position=Vector2((viewport.x-panel.size.x)/2,maxf(12,(viewport.y-panel.size.y)/2))
+	controls_hint.position=Vector2(24,viewport.y-68)
+	controls_hint.visible=not touch_device
+	region_banner.text=("战斗训练 · "+run.zone_name()) if run.combat_trial else "%d / 3   %s  ·  %s"%[run.level_index+1,run.CHAPTERS[run.level_index].name,run.zone_name()]
 	hud.text="%.0f / %.0f 米  ·  绳索 %.2f 米  ·  金币 %d  ·  奖品 %d  ·  护盾 %s"%[run.progress()/SCALE,run.finish_distance()/SCALE,run.rope.length/SCALE,run.coins,run.prizes,"有" if run.shield else "无"]
 	journey_hint.text=run.active_hint()
+	combat_health.value=run.combat.health[0]
+	var weapon: Dictionary=run.combat.weapons[0]
+	combat_status.text="生命 %d / 100 · 搭档 %d / 100 · 空手 · 自动拾取枪械"%[run.combat.health[0],run.combat.health[1]] if weapon.is_empty() else "生命 %d / 100 · 搭档 %d / 100 · 冲锋枪 %d / %d · %s"%[run.combat.health[0],run.combat.health[1],weapon.ammo,weapon.reserve,"换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP) if weapon.reload>0 else "移动 85%"]
 	progress_widget.value=run.progress()/run.finish_distance()*100
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"]
-	primary.visible=run.state!="settlement"
+	primary.visible=true
+	training_button.visible=run.state=="start"
+	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
+	restart_button.visible=run.state in ["paused","failed"]
+	pause_button.visible=run.state in ["running","rescue"]
+	if is_instance_valid(touch): touch.set_enabled(touch_device and run.state in ["running","rescue","settlement"])
 	for button in difficulty_buttons: button.visible=run.state=="start"
 	if get_meta("credits",false) and run.state=="paused": return
 	set_meta("credits",false)
 	match run.state:
 		"start":
-			title.text="共生连线 · 连续旅程"
-			subtitle.text="穿过森林与村庄，再沿河谷进入矿道。\n两人主动按键前进，松手停步，只能向前或左右移动。\n01：W / A / D，空格跳跃；02：↑ / ← / →，回车跳跃。\n倒树、野猪与村民都会预警。共同绕行，保护连接绳索。\n区域入口自动存档，出口需要供能和双人踏板。"
-			primary.text="共同出发"
+			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
+			subtitle.text="主动前进，松开停步；搭档自动跟随、共同跳跃与协助机关。\n靠近枪械自动拾取，开火自动锁定前方敌人。\n鼠标左键射击，R 换弹，G 丢枪；持枪移动速度为 85%。\n野猪与投掷攻击扣血；地形与重型机关仍需躲避。\n建议先进入短战斗训练，再开始三关旅程。"
+			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
+			primary.text="开始训练" if run.combat_trial else "出发"
 		"paused": title.text="旅程暂停";subtitle.text="人物、危险与计时均已暂停。\n恢复后请松开旧按键再操作。";primary.text="继续旅程"
 		"failed": title.text="两人共同重试";subtitle.text=run.reason+"\n回到本区域的安全存档点，危险与奖励恢复原状态。";primary.text="从存档点继续"
 		"settlement":
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
-			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n松开按键，再分别确认：01 空格 %s，02 回车 %s。"%[run.elapsed,run.coins,run.prizes,"✓" if run.confirmations[0] else "待确认","✓" if run.confirmations[1] else "待确认"]
-		"complete": title.text="归航完成";subtitle.text="三段旅程全部完成。团队总分：%d。\n重新开始会清空本轮成绩。"%run.total_score();primary.text="重新出发"
-	if run.state=="rescue": journey_hint.text="有人坠落！两人连按各自跳跃键，合力把队友拉上来。"
+			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n点击按钮或松开后按跳跃键，进入下一关。"%[run.elapsed,run.coins,run.prizes]
+			primary.text="下一关"
+		"complete": title.text="训练完成" if run.combat_trial else "归航完成";subtitle.text="击退 %d 个敌人 · 团队总分 %d。\n可以重新出发。"%[run.combat.kills,run.total_score()];primary.text="重新出发"
+	if run.state=="rescue": journey_hint.text="连点跳跃救援！进度 %.0f%% · 剩余 %.1f 秒"%[run.rescue.progress*100,maxf(0,Run.RESCUE_TIME-run.rescue.time)]
 
 func build_ambience() -> void:
 	ambient=AudioStreamPlayer.new()
