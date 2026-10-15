@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dtocqhufnmxx"
-path="res://.godot/imported/house_1_rock_boulder_dry_diff.jpg-aec0e1d3911702a673f9872a762c3de0.ctex"
+path.s3tc="res://.godot/imported/house_1_rock_boulder_dry_diff.jpg-aec0e1d3911702a673f9872a762c3de0.s3tc.ctex"
+path.etc2="res://.godot/imported/house_1_rock_boulder_dry_diff.jpg-aec0e1d3911702a673f9872a762c3de0.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "070172a6f2750d21c4b84d9214c14341"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/house_1_rock_boulder_dry_diff.jpg"
-dest_files=["res://.godot/imported/house_1_rock_boulder_dry_diff.jpg-aec0e1d3911702a673f9872a762c3de0.ctex"]
+dest_files=["res://.godot/imported/house_1_rock_boulder_dry_diff.jpg-aec0e1d3911702a673f9872a762c3de0.s3tc.ctex", "res://.godot/imported/house_1_rock_boulder_dry_diff.jpg-aec0e1d3911702a673f9872a762c3de0.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

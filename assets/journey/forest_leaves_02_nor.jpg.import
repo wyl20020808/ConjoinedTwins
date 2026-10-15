@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://el41obukcv1r"
-path="res://.godot/imported/forest_leaves_02_nor.jpg-bb4a72d5e090a84ef26a3d655a74a5b1.ctex"
+path.s3tc="res://.godot/imported/forest_leaves_02_nor.jpg-bb4a72d5e090a84ef26a3d655a74a5b1.s3tc.ctex"
+path.etc2="res://.godot/imported/forest_leaves_02_nor.jpg-bb4a72d5e090a84ef26a3d655a74a5b1.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/journey/forest_leaves_02_nor.jpg"
-dest_files=["res://.godot/imported/forest_leaves_02_nor.jpg-bb4a72d5e090a84ef26a3d655a74a5b1.ctex"]
+dest_files=["res://.godot/imported/forest_leaves_02_nor.jpg-bb4a72d5e090a84ef26a3d655a74a5b1.s3tc.ctex", "res://.godot/imported/forest_leaves_02_nor.jpg-bb4a72d5e090a84ef26a3d655a74a5b1.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -94,3 +94,10 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 上述资源均由 `scripts/journey_view.gd` 实际加载。野猪 Charge、车轮 WheelTurn、村民 Throw/Push、门 GateOpen 与桥 BridgeLower 按生产时间采样，暂停与存档恢复不依赖独立动画时钟。倒树使用 Blender 网格和游戏倒伏相位驱动旋转，Fall 动作同时保留在资产中。
 
 风、河水与鸟鸣是本项目的轻量合成音源，非自然实录。更真实的动物、村民、植被与环境音需求见 `docs/JOURNEY_ASSET_BRIEF.md`。游戏内 F1 提供来源摘要。Blender 联系表仅是资产预览，不是 Godot 运行截图。
+
+## 连续森林与村庄扩展（2026-10-15）
+
+- `assets/landscape/`：项目 Blender 后台脚本 `build-tools/journey/make_landscape.py` 生成的乔木、远景 LOD、蕨类、草、灌木、水井、木桶、柴堆和晾衣绳。房屋与栅栏转换自项目既有 GLB，移除重复嵌入贴图后按共享材质导入。逐文件大小与 SHA-256 见 `build-tools/journey/landscape-assets.json`。
+- 林地扫描纹理仍使用 Poly Haven 的 [Forest Leaves 02](https://polyhaven.com/a/forest_leaves_02)，Rob Tuytel，CC0；石板、岩面和天空沿用上文已记录资源。新地面 Shader 只改变这些纹理的连续混合与采样。
+- `assets/audio/forest_birds.ogg`：isaiah658 的 [Ambient Bird Sounds](https://opengameart.org/content/ambient-bird-sounds)，原始相机环境录音，CC0。原始下载、字节数与 SHA-256 见 `build-tools/journey/environment-audio-source.json`；游戏内设置循环，并随进入森林渐入、离开森林渐出。未将其描述成村落人声。
+- 本轮写实素材的程序生成替代与建议补充规格见 `docs/ENVIRONMENT_ASSET_WISHLIST.md`。

@@ -33,6 +33,11 @@ func ready(paths: Array) -> bool:
 	return paths.all(func(path): return resources.has(path))
 func progress() -> float:
 	return float(resources.size()) / maxi(total, 1)
+# 只释放队列持有的引用；仍被场景使用的网格/贴图由场景继续持有。
+func retain(paths:Array)->void:
+	for path in resources.keys():
+		if not paths.has(path):resources.erase(path)
+
 func dispose() -> void:
 	# 退出场景时回收已提交的 IO；运行帧从不通过 get 等待未完成资源。
 	pending.clear()
@@ -48,7 +53,7 @@ static func startup_paths() -> Array:
 			if ResourceLoader.exists(path): paths.append(path)
 	for name in ["Pine", "Bush", "TallGrass", "Column"]: paths.append("res://assets/decor/%s.glb" % name)
 	for name in ["Adventurer_A", "Adventurer_B", "rescue_climb", "rescue_ropepull"]: paths.append("res://assets/humans/%s.glb" % name)
-	for name in ["sign", "gate", "falling_tree"]: paths.append("res://assets/journey/%s.glb" % name)
+	for name in ["sign", "gate"]: paths.append("res://assets/journey/%s.glb" % name)
 	return paths
 static func hazard_paths(kinds: Array) -> Array:
 	var paths: Array=[]

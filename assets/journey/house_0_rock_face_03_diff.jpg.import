@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bxcgon8p766f1"
-path="res://.godot/imported/house_0_rock_face_03_diff.jpg-e4e48c3fe8ae8d30d010f80fd3f5c2c2.ctex"
+path.s3tc="res://.godot/imported/house_0_rock_face_03_diff.jpg-e4e48c3fe8ae8d30d010f80fd3f5c2c2.s3tc.ctex"
+path.etc2="res://.godot/imported/house_0_rock_face_03_diff.jpg-e4e48c3fe8ae8d30d010f80fd3f5c2c2.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "b03b683f41c9ce07757c6986226e7e13"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/house_0_rock_face_03_diff.jpg"
-dest_files=["res://.godot/imported/house_0_rock_face_03_diff.jpg-e4e48c3fe8ae8d30d010f80fd3f5c2c2.ctex"]
+dest_files=["res://.godot/imported/house_0_rock_face_03_diff.jpg-e4e48c3fe8ae8d30d010f80fd3f5c2c2.s3tc.ctex", "res://.godot/imported/house_0_rock_face_03_diff.jpg-e4e48c3fe8ae8d30d010f80fd3f5c2c2.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

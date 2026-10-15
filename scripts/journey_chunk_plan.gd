@@ -2,6 +2,8 @@ extends RefCounted
 # 纯数据规划：各区块独立随机源，保留原 build_chunk 的抽签和命令顺序。
 static func make(number: int, level: int, chapter: Dictionary, edge: float) -> Array:
 	var items: Array = []
+	if level==0 and chapter.length>20000:
+		return preload("res://scripts/journey_landscape.gd").plan(number,level)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = number*109+level*7919+42
 	var start := number*80.0
@@ -23,7 +25,7 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 				if theme=="ruins" and n%2==0: items.append(["model","Column",Vector3(side*18,0,z),6.5,0.0,0.0])
 		if village:
 			for n in range(3):
-				items.append(["asset","house_%d"%((number+n)%3),Vector3(side*23,0,-start-n*27-10),rng.randf_range(8,11),-side*PI/2])
+				items.append(["asset","house_%d"%posmod(number+n,3),Vector3(side*23,0,-start-n*27-10),rng.randf_range(8,11),-side*PI/2])
 				items.append(["asset","fence",Vector3(side*17,0,-start-n*27-18),1.6,0.0])
 				items.append(["asset","cart",Vector3(side*19,0,-start-n*27-3),2.3,side*PI/2])
 		if theme=="facility":
@@ -42,6 +44,11 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 static func paths(items: Array) -> Array:
 	var result: Array = []
 	for item in items:
+		if item[0]=="landscape_batch":
+			var asset_path:="res://assets/landscape/%s.glb"%item[1]
+			if not result.has(asset_path):result.append(asset_path)
+			if item[1] in ["oak_7","oak_17","birch"]:result.append("res://assets/landscape/%s_lod.glb"%item[1])
+			continue
 		var path := ""
 		if item[0]=="model": path="res://assets/decor/%s.glb"%item[1]
 		elif item[0]=="asset": path="res://assets/journey/%s.glb"%item[1]

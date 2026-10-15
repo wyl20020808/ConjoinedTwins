@@ -15,6 +15,8 @@ var preparation_peak_usec := 0
 var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
+const Landscape = preload("res://scripts/journey_landscape.gd")
+var landscape
 const Buddy=preload("res://scripts/journey_buddy.gd")
 var buddy=Buddy.new()
 var play_mode:="solo"
@@ -25,7 +27,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-combat-loading-20261015"
+const WEB_BUILD:="journey-continuous-landscape-20261015"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -42,6 +44,7 @@ var world_environment: Environment
 var ambient: AudioStreamPlayer
 var ambience_region := ""
 var ambience_streams := {}
+var forest_birds:AudioStreamPlayer
 var sound_events := {}
 var sound_clock := 0.0
 const CombatView = preload("res://scripts/journey_combat_view.gd")
@@ -72,17 +75,22 @@ func _ready() -> void:
 	run.state="start"
 	add_child(road)
 	build_lighting()
+	landscape=Landscape.new(self)
+	if landscape.mobile:
+		get_viewport().scaling_3d_scale=.75
+		get_viewport().msaa_3d=Viewport.MSAA_DISABLED
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
 	world_environment.ambient_light_energy=0.85
 	for node in get_children():
 		if node is DirectionalLight3D: canopy_light=node
+	canopy_light.directional_shadow_max_distance=65 if landscape.mobile else 110
 	canopy_light.rotation_degrees=Vector3(-48,120,0)
 	canopy_light.light_color=Color("fff1d4")
 	canopy_light.light_energy=1.8
-	camera.position=Vector3(0,13,23)
-	camera.look_at(Vector3(0,0,-22))
+	camera.position=Vector3(0,11.5,22)
+	camera.look_at(Vector3(0,1.2,-22))
 	camera_home=camera.transform
 	if incremental_loading:
 		set_physics_process(false)
@@ -117,7 +125,10 @@ func _exit_tree() -> void:
 	if is_instance_valid(ambient):
 		ambient.stop()
 		ambient.stream=null
+	if is_instance_valid(forest_birds):
+		forest_birds.stop();forest_birds.stream=null
 	ambience_streams.clear()
+	if landscape!=null:landscape.game=null
 	run.dispose()
 
 func ground_material(theme: String) -> Material:
@@ -174,8 +185,11 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	var pieces:Array=[Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)]
 	for gap:Rect2 in gaps: pieces=subtract_floor(pieces,gap)
 	var theme: String=run.theme_at(y0)
-	for piece:Rect2 in pieces:
-		box(floor_node,Vector3(piece.get_center().x/SCALE,-0.32,-piece.get_center().y/SCALE),Vector3(piece.size.x/SCALE,0.64,piece.size.y/SCALE),ground_material(theme))
+	if run.level_index==0 and not run.combat_trial:
+		landscape.ground(floor_node,pieces,run.level_index)
+	else:
+		for piece:Rect2 in pieces:
+			box(floor_node,Vector3(piece.get_center().x/SCALE,-0.32,-piece.get_center().y/SCALE),Vector3(piece.size.x/SCALE,0.64,piece.size.y/SCALE),ground_material(theme))
 	for i in range(run.kinds.size()):
 		if run.kinds[i]!="collapse": continue
 		var rect:Rect2=run.obstacles[i]
@@ -219,6 +233,18 @@ func build_chunk(number: int) -> Node3D:
 
 func install_chunk_item(chunk: Node3D, item: Array) -> void:
 	match item[0]:
+		"landscape_terrain":landscape.sides(chunk,item[1],item[2],item[3])
+		"landscape_batch":
+			var path:="res://assets/landscape/%s.glb"%item[1]
+			if item[1] in ["oak_7","oak_17","birch"]:
+				var split:=60.0 if landscape.mobile else 95.0
+				landscape.batch(chunk,path,item[2],split)
+				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
+			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile else 170)
+		"landscape_rock":
+			var cliff:Material=tex_material("cliff_face","rock_face_03",.11,Color("a89a90"))
+			var mesh:Mesh=rock_mesh("ridge_spire",44,8,2.8,70,.2) if item[3] else rock_mesh("ridge_buttress",60,3.6,1.8,24,.24)
+			rock(chunk,mesh,cliff,item[1],item[2],item[4])
 		"land": box(chunk,item[1],item[2],material("land_"+item[3],Color("48513b") if item[4] else Color("77765b")))
 		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
 		"model":
@@ -235,7 +261,8 @@ func prepare_journey_frame() -> bool:
 	var deadline := started + Run.PRELOAD_SLICE_USEC
 	sync_world()
 	var current := int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(0,current-1),current+6):
+	var ahead_chunks:=4 if landscape.mobile else 6
+	for number in range(maxi(-1,current-1),current+ahead_chunks):
 		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
 		if not chunk_jobs.has(number):
 			chunk_jobs[number] = {"items":null,"cursor":0,"node":null,"paths":[],"task":null}
@@ -262,6 +289,22 @@ func prepare_journey_frame() -> bool:
 		job.paths=ChunkPlan.paths(job.items)
 		chunk_assets.request(job.paths)
 	chunk_parallel_peak=maxi(chunk_parallel_peak,active)
+	var retained:Array=[]
+	for chunk in world_chunks.values():retained.append_array(chunk.get_meta("asset_paths",[]))
+	for job in chunk_jobs.values():retained.append_array(job.paths)
+	# 动态攻击与机关的资源仅在当前邻域保留，不随章节永久累积。
+	for event in run.journey_events:
+		if absf(event.y-run.distance)>5800:continue
+		match event.kind:
+			"tree":retained.append("res://assets/landscape/oak_7.glb")
+			"boar":retained.append("res://assets/journey/boar.glb")
+			"cart":retained.append("res://assets/journey/cart.glb")
+			"swing":retained.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
+		if event.kind in ["cart","stone"]:retained.append("res://assets/journey/villager_actions.glb")
+	for gate in run.charge_gates:
+		if absf(gate.receiver.y-run.distance)<5800:retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
+	retained.append_array(chunk_assets.pending);retained.append_array(chunk_assets.active)
+	chunk_assets.retain(retained)
 	chunk_assets.poll(deadline)
 	var events_ready := prepare_event_views(deadline)
 	for number in chunk_jobs.keys():
@@ -272,6 +315,7 @@ func prepare_journey_frame() -> bool:
 		if job.node==null:
 			job.node=Node3D.new()
 			job.node.name="World_%d"%number
+			job.node.set_meta("asset_paths",job.paths)
 			job.node.hide()
 			road.add_child(job.node)
 		while job.cursor<job.items.size() and Time.get_ticks_usec()<deadline:
@@ -286,13 +330,15 @@ func prepare_journey_frame() -> bool:
 	var ready := events_ready
 	var completed := 0
 	var required := 0
-	for number in range(maxi(0,current-1),current+4):
+	for number in range(maxi(-1,current-1),current+4):
 		if number*CHUNK*SCALE>run.finish_distance()+400: continue
 		required+=1
 		if world_chunks.has(number): completed+=1
 		else: ready=false
 	scene_preparation_progress=float(completed)/maxi(1,required)
 	preparation_peak_usec=maxi(preparation_peak_usec,Time.get_ticks_usec()-started)
+	if not chunk_assets.error.is_empty():
+		journey_hint.text="场景资源读取失败，请刷新网页重试："+chunk_assets.error.get_file()
 	if not ready: preparation_waits+=1
 	return ready
 
@@ -300,10 +346,10 @@ func prepare_event_views(deadline: int) -> bool:
 	var ready := true
 	for event in run.journey_events:
 		var ahead: float=event.y-run.distance
-		if ahead < -900 or ahead >= 5800 or event_views.has(event.id): continue
+		if ahead <= -900 or ahead >= 5800 or event_views.has(event.id): continue
 		var paths: Array=[]
 		match event.kind:
-			"tree": paths.append("res://assets/journey/falling_tree.glb")
+			"tree": paths.append("res://assets/landscape/oak_7.glb")
 			"boar": paths.append("res://assets/journey/boar.glb")
 			"cart": paths.append("res://assets/journey/cart.glb")
 			"swing": paths.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
@@ -341,7 +387,7 @@ func sync_world() -> void:
 		for view in static_views.values():view.queue_free()
 		static_views.clear()
 	var current:=int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(0,current-1),current+4):
+	for number in range(maxi(-1,current-1),current+4):
 		if number*CHUNK*SCALE>run.finish_distance()+400: continue
 		if not world_chunks.has(number) and not incremental_loading: world_chunks[number]=build_chunk(number)
 	for number in world_chunks.keys():
@@ -369,7 +415,7 @@ func build_event(event: Dictionary) -> Node3D:
 	var body:=Node3D.new()
 	body.name="Body"
 	root.add_child(body)
-	if kind=="tree": asset(body,"falling_tree",Vector3.ZERO,12)
+	if kind=="tree": landscape.batch(body,"res://assets/landscape/oak_7.glb",[Transform3D(Basis.IDENTITY.scaled(Vector3.ONE*.8),Vector3.ZERO)],240)
 	elif kind=="boar":
 		var boar:=asset(body,"boar",Vector3.ZERO,1.7,PI)
 		if boar:
@@ -389,10 +435,14 @@ func build_event(event: Dictionary) -> Node3D:
 		wood.albedo_texture=load("res://assets/journey/wood_planks_diff.jpg")
 		wood.uv1_triplanar=true
 		wood.uv1_scale=Vector3.ONE*0.5
-		box(body,Vector3(0,2,0),Vector3(4,4,3.5),wood)
+		var log:=cylinder(body,Vector3(0,2,0),2,4,wood)
+		log.rotation.z=PI/2
 		var arm:=cylinder(root,Vector3(0,6,0),0.18,8,wood)
 		arm.name="SwingArm"
-		asset(root,"waterwheel",Vector3(19,0,0),7,PI/2)
+		if run.theme_at(event.y) in ["village","river"]:asset(root,"waterwheel",Vector3(19,0,0),7,PI/2)
+		else:
+			for side in [-1,1]:cylinder(root,Vector3(side*12,5,0),.24,10,wood)
+			var beam:=cylinder(root,Vector3(0,10,0),.3,24,wood);beam.rotation.z=PI/2
 	if kind in ["cart","stone"]:
 		var actor:=model("res://assets/journey/villager_actions.glb",root,Vector3(event.side*18,0,0),3.0,-event.side*PI/2)
 		actor.name="Villager"
@@ -408,7 +458,7 @@ func build_event(event: Dictionary) -> Node3D:
 
 func sync_events() -> void:
 	for event in run.journey_events:
-		var near:bool=event.y-run.distance>-900 and event.y-run.distance<4200
+		var near:bool=event.y-run.distance>=-900 and event.y-run.distance<4200
 		if not near:
 			if event_views.has(event.id):
 				if incremental_loading and event.y-run.distance>=4200 and event.y-run.distance<5800: event_views[event.id].hide()
@@ -479,7 +529,7 @@ func build_gate(gate: Dictionary) -> Node3D:
 		plate.name=side
 	add_sign(root,gate.title,Vector3(0,6,0),32)
 	if gate.id=="waterwheel": asset(root,"waterwheel",Vector3(19,0,0),9,PI/2)
-	else:
+	elif "bridge" in gate.id:
 		asset(root,"drawbridge",Vector3(0,-0.1,-9),0.8)
 	return root
 
@@ -546,7 +596,7 @@ func build_journey_ui() -> void:
 	for text_label in [region_banner,hud,journey_hint,combat_status]:
 		text_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	var controls:=label("W / ↑ 前进 · A/D / ←→ 左右 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
+	var controls:=label("W / 上键前进 · A/D / 左右键移动 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
 	controls.position=Vector2(24,652)
 	controls_hint=controls
 	canvas.add_child(controls)
@@ -681,7 +731,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if incremental_loading and not prepare_journey_frame():
 		update_journey_ui()
-		journey_hint.text="正在准备前方路段…"
+		journey_hint.text="正在准备前方路段…" if chunk_assets.error.is_empty() else "资源读取失败，请刷新网页重试："+chunk_assets.error.get_file()
 		return
 	var input:=sample_local_input()
 	run.solo_control=play_mode=="solo"
@@ -752,9 +802,14 @@ func sync_view() -> void:
 	camera.transform=camera_home
 	camera.position.z=camera_home.origin.z-run.distance/SCALE
 	var theme:String=run.theme_at(run.distance)
-	var dark:=theme in ["forest","mine"]
-	canopy_light.light_energy=lerpf(canopy_light.light_energy,0.7 if dark else 1.8,clampf(frame_delta*0.8,0,1))
-	world_environment.fog_light_color=world_environment.fog_light_color.lerp(Color("405546") if dark else Color("a6b1a1"),clampf(frame_delta,0,1))
+	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
+	canopy_light.light_energy=lerpf(1.25,0.7,forest_weight)
+	canopy_light.light_color=Color("ffcfaa").lerp(Color("dbe4ba"),forest_weight)
+	world_environment.ambient_light_energy=lerpf(0.85,0.62,forest_weight)
+	world_environment.fog_density=lerpf(0.0026,0.007,forest_weight)
+	world_environment.fog_sky_affect=forest_weight*.85
+	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
+	world_environment.fog_light_color=Color("8b8589").lerp(Color("687461"),forest_weight)
 	for chunk in world_chunks.values():
 		for node in chunk.get_children():
 			if node.has_meta("wind"):node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
@@ -835,6 +890,12 @@ func build_ambience() -> void:
 	ambient=AudioStreamPlayer.new()
 	ambient.volume_db=-23
 	add_child(ambient)
+	forest_birds=AudioStreamPlayer.new()
+	var birds:AudioStreamOggVorbis=load("res://assets/audio/forest_birds.ogg")
+	birds.loop=true
+	forest_birds.stream=birds
+	forest_birds.volume_db=-60
+	add_child(forest_birds)
 	# 缓存有限 PCM 循环，避免流式生成器在退出时遗留音频播放句柄。
 	for kind in ["wind","forest","river"]:
 		var stream:AudioStreamWAV=load("res://assets/audio/ambience_%s.wav"%kind).duplicate()
@@ -855,7 +916,12 @@ func pump_ambience(_delta: float) -> void:
 	# 开始页和加载页无需创建一个立即暂停的播放句柄。
 	if run.state!="running":
 		ambient.stream_paused=true
+		forest_birds.stream_paused=true
 		return
+	var weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y
+	if not forest_birds.playing:forest_birds.play()
+	forest_birds.volume_db=linear_to_db(maxf(.001,weight*.33))
+	forest_birds.stream_paused=false
 	var theme:String=run.theme_at(run.distance)
 	var kind:="forest" if theme in ["forest","edge","meadow","farm"] else ("river" if theme=="river" else "wind")
 	if ambience_region!=kind:
@@ -885,10 +951,21 @@ func sample_animation(node:Node,token:String,time:float)->void:
 func sync_static_hazards()->void:
 	for i in range(run.kinds.size()):
 		var kind:String=run.kinds[i]
-		if kind not in ["rail","pillar"]:continue
+		if kind not in ["rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:continue
 		var rect:Rect2=run.obstacles[i]
 		if absf(rect.position.y-run.distance)>4200:
 			if static_views.has(i):static_views[i].queue_free();static_views.erase(i)
+			continue
+		if kind in ["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:
+			if not static_views.has(i):static_views[i]=make_hazard_view(i)
+			var old_view:Node3D=static_views[i]
+			var sample:Dictionary=run.hazard_sample(i,run.elapsed)
+			old_view.position=Vector3(sample.rect.get_center().x/SCALE,0,-sample.rect.get_center().y/SCALE)
+			if kind in Run.Terrain.KINDS:sync_terrain_model(old_view,i)
+			elif kind in Run.Industrial.KINDS:sync_industrial_model(old_view,i,sample)
+			else:
+				old_view.get_node("SweeperArm").rotation.y=sample.geometry.angle
+				old_view.get_node("WarningFootprint").visible=true
 			continue
 		if not static_views.has(i):
 			var view:=Node3D.new()
@@ -896,9 +973,27 @@ func sync_static_hazards()->void:
 			if kind=="rail":
 				var log:=cylinder(view,Vector3(0,0.3,0),0.3,rect.size.x/SCALE,material("log",Color("67482a")))
 				log.rotation.z=PI/2
-			else:cylinder(view,Vector3(0,1.2,0),rect.size.x/SCALE/2,2.4,material("stump",Color("59412d")))
+			elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,material("stump",Color("59412d")))
+			elif kind=="cargo":
+				rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
+				view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,1.5,rect.size.y/SCALE/2)
+				view.get_child(0).position.y=1.5
+			elif kind=="collapse":
+				box(view,Vector3(0,.012,0),Vector3(rect.size.x/SCALE,.02,rect.size.y/SCALE),material("fragile_ground",Color("5e5943")))
+				for n in range(7):
+					var crack:=box(view,Vector3(-rect.size.x/SCALE/2+n*1.6,.027,0),Vector3(.08,.025,rect.size.y/SCALE),material("fragile_cracks",Color("25261d")));crack.rotation.y=.18 if n%2==0 else -.18
+			else:
+				box(view,Vector3(0,.03,0),Vector3(rect.size.x/SCALE,.06,rect.size.y/SCALE),material("trap_base",Color("524935")))
+				for n in range(10):
+					var spike:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=0;mesh.bottom_radius=.18;mesh.height=.8;mesh.radial_segments=5
+					spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3(-rect.size.x/SCALE/2+.5+n*.95,.4,0);view.add_child(spike)
 			static_views[i]=view
 		static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
+		if kind=="collapse":static_views[i].visible=run.hazard_sample(i,run.elapsed).stage!="collapsed"
+		if kind=="active_spikes":
+			var sample:Dictionary=run.hazard_sample(i,run.elapsed)
+			for n in range(1,static_views[i].get_child_count()):
+				var spike:Node3D=static_views[i].get_child(n);spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
 
 func choose_mode(value:String)->void:
 	if run.state!="start" or net.active():return
@@ -1013,6 +1108,7 @@ func publish_web_verification()->void:
 		var circle:Vector3=touch.action_circles()[action]
 		circles[action]=[circle.x,circle.y,circle.z]
 	var payload:={"build":WEB_BUILD,"protocol":NetClient.Relay.PROTOCOL,"mode":play_mode,"state":run.state,"chapter":run.level_index,"zone":run.zone_name(),"progress":run.progress(),"a":[run.a.position.x,run.a.position.y],"b":[run.b.position.x,run.b.position.y],"height":run.heights,"ai":buddy.feedback,"network":net.in_match,"desynced":net.desynced,"role":net.role,"network_frame":net.next_frame,"nodes":get_tree().get_node_count(),"fps":Engine.get_frames_per_second(),"controls":buttons}
+	payload.render={"video_bytes":Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED),"texture_bytes":Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED),"mobile":landscape.mobile,"cached_assets":chunk_assets.resources.size(),"chunks":world_chunks.size(),"jobs":chunk_jobs.size()}
 	payload.combat={"health":run.combat.health,"weapon":run.combat.weapons[0],"kills":run.combat.kills,"training":run.combat_trial,"touch":touch_device,"buttons":circles,"input":{"enabled":touch.enabled,"move":[touch.move.x,touch.move.y],"fire":touch.action_fingers.values(),"jump":touch.jump_fingers.size()}}
 	var viewport:=get_viewport().get_visible_rect().size
 	payload.viewport=[viewport.x,viewport.y]

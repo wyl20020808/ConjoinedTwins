@@ -2,7 +2,7 @@ extends "res://scripts/road_run.gd"
 
 # 主动前进的连续旅程。位置是固定世界坐标；镜头进度不驱动物理。
 const CHAPTERS := [
-	{"name":"穿林入村", "length":38400.0, "zones":["林外小径","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["meadow","forest","broken","edge","village","village"]},
+	{"name":"穿林入村", "length":38400.0, "zones":["原野石板路","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["ridge","forest","broken","edge","village","village"]},
 	{"name":"水车河道", "length":30000.0, "zones":["村外田野","农田小路","河岸渡口","水车栈道","旧桥防线","河谷出口"], "themes":["farm","farm","river","river","village","river"]},
 	{"name":"矿道归航", "length":30000.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
 ]
@@ -15,6 +15,12 @@ var solo_control := false
 var external_companion := false
 var combat_trial := false
 const EVENT_NAMES := {"tree":"树木即将倒下：一起离开标记区", "boar":"野猪冲锋：共同避开直线路径", "stone":"村民投掷：离开落点", "cart":"推车横穿：观察轨迹再前进", "swing":"水车摆臂：等待或从侧面通过"}
+var terrain_index_signature:=0
+var terrain_indices:Array[int]=[]
+var ground_gap_cache_time:=-INF
+var ground_gap_cache_revision:=-1
+var ground_gap_cache:Array[Rect2]=[]
+var encounter_markers:Array=[]
 var journey_events: Array[Dictionary] = []
 var visited_zones: Array[int] = []
 var region_checkpoint := -1
@@ -47,12 +53,14 @@ func bounded(point: Vector2, floor: float = INF) -> Vector2:
 	return Vector2(clampf(point.x,-EDGE+Motion.RADIUS,EDGE-Motion.RADIUS),forward)
 
 func retry(count_failure: bool = false) -> void:
+	ground_gap_cache_time=-INF
 	generation_enabled = false
 	async_enabled = false
 	charge_tutorial = false
 	streaming = true
 	super(count_failure)
 	journey_events.clear()
+	encounter_markers.clear()
 	visited_zones.clear()
 	region_checkpoint = -1
 	event_serial = 0
@@ -119,52 +127,7 @@ func add_gate(y: float, plates: bool, suffix: String) -> void:
 	charge_gates.append(gate)
 
 func build_journey() -> void:
-	var zone_length := finish_distance()/6.0
-	for zone in range(6):
-		var start := zone*zone_length
-		var theme: String = CHAPTERS[level_index].themes[zone]
-		# 每段入口保留至少 8 秒无主要危险的过渡和存档空间。
-		var count := 3 if zone in [0,3] else 4
-		for n in range(count):
-			var y := start+1500+n*1000.0
-			if y>start+zone_length-600: continue
-			# 最后两道机关前留出完整攻击结束与重新站位的安全区。
-			if zone==5 and y>finish_distance()-3500:continue
-			var side := -1.0 if (n+zone+level_index)%2==0 else 1.0
-			if theme in ["meadow","farm"]:
-				if n==0: add_hazard("rail",Rect2(-80,y,160,12))
-				else: add_event("cart" if theme=="farm" else "tree",y,side)
-			elif theme in ["forest","edge"]:
-				add_event("boar" if n%2==1 else "tree",y,side)
-			elif theme=="broken":
-				var index := add_hazard("collapse",Rect2(-180,y,360,80))
-				hazard_specs[index].grace = 2.8
-				if n%2==1: add_hazard("road_gap",Rect2(side*190-70,y+280,140,110))
-			elif theme in ["village","facility"]:
-				add_event(["stone","cart","swing","stone"][n],y,side,zone==5 and n==0)
-				if zone==5 and n==0: add_event("cart",y+240,-side,true)
-			elif theme=="river":
-				if n%2==0:
-					# 中央桥宽 7 米，可并排或前后通过；绳长内有侧向修正空间。
-					add_hazard("road_gap",Rect2(-EDGE,y,EDGE-70,240))
-					add_hazard("road_gap",Rect2(70,y,EDGE-70,240))
-				else: add_event("swing",y,side)
-			else:
-				add_event("cart" if n%2==0 else "stone",y,side)
-			# 金币引导向当前危险的另一侧；奖品与护盾共享且实例稳定。
-			for k in range(4):
-				rewards.append({"id":"j:%d:%d:%d"%[zone,n,k],"kind":"coin","position":Vector2(-side*100,y-220+k*40),"radius":22.0,"claimed":false})
-		if zone in [1,4]: rewards.append({"id":"shield:%d"%zone,"kind":"shield","position":Vector2(0,start+800),"radius":28.0,"claimed":false})
-		if zone in [2,4]: rewards.append({"id":"prize:%d"%zone,"kind":"prize","position":Vector2(0,start+900),"radius":50.0,"claimed":false,"staggered":false})
-	# 一关两阶段出口：供能、双板、吊桥，机关附近不叠加攻击。
-	add_gate(finish_distance()-1900,false,"waterwheel")
-	add_gate(finish_distance()-1000,true,"drawbridge")
-	var bridge_y:float=charge_gates[-1].door.position.y+60
-	add_hazard("road_gap",Rect2(-EDGE,bridge_y,EDGE*2,160))
-	var bridge_index:=add_hazard("drawbridge",Rect2(-70,bridge_y-26,140,212))
-	hazard_specs[bridge_index].gate_id="drawbridge"
-	select_charge_gate()
-	revision += 1
+	preload("res://scripts/journey_encounters.gd").build(self)
 
 func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	input_a.y=maxf(0,input_a.y)
@@ -283,6 +246,9 @@ func active_hint() -> String:
 		return charge_gate.title+" · "+gate_hint(charge_gate)
 	for event in journey_events:
 		if event.phase=="warning": return EVENT_NAMES[event.kind]
+	for marker in encounter_markers:
+		if marker.y>=progress()-40 and marker.y<=progress()+450 and not marker.kind in EVENT_NAMES:
+			return hazard_name(marker.kind)
 	return ["主动前进，松开按键即可停下；两人保持同侧","注意树干与草丛的预警","裂纹地面会塌陷，提前选择落脚点","看见村庄了，整理站位后前进","观察村民抬手和推车轨迹","前方供能装置与双人踏板需要合作"][zone_index()]
 
 func build_combat_trial() -> void:
@@ -339,3 +305,49 @@ func companion_input(leader: Vector2) -> Vector2:
 
 func sync_hash() -> int:
 	return var_to_str([super(),journey_events,visited_zones,region_checkpoint,combat,solo_control,external_companion,combat_trial]).hash()
+
+# 一次物理时刻内地面支持会查询数十次；只缓存纯几何结果，不省略任何缺口。
+func ground_gaps(time:float=-1.0)->Array[Rect2]:
+	var sample_time:=elapsed if time<0 else time
+	if sample_time!=ground_gap_cache_time or revision!=ground_gap_cache_revision:
+		ground_gap_cache_time=sample_time;ground_gap_cache_revision=revision
+		ground_gap_cache=super(sample_time)
+	return ground_gap_cache
+
+func restore_checkpoint()->bool:
+	var restored:=super()
+	ground_gap_cache_time=-INF
+	return restored
+
+# 地面/绳索每步多次采样，先索引地形类型，再使用原解析判定；不按距离删掉有效机关。
+func indexed_terrain()->Array[int]:
+	var signature:=kinds.hash()
+	if signature!=terrain_index_signature:
+		terrain_index_signature=signature;terrain_indices.clear()
+		for i in range(kinds.size()):
+			if kinds[i] in Terrain.KINDS:terrain_indices.append(i)
+	return terrain_indices
+
+func surface_at(point:Vector2,time:float,radius:float=0.0)->Dictionary:
+	var surface:={"supported":absf(point.x)<=EDGE,"height":0.0,"normal":Vector3.UP,"friction":0.8,"velocity":Vector3.ZERO}
+	for gap in ground_gaps(time):
+		if gap.grow(radius).has_point(point):surface.supported=false
+	for i in indexed_terrain():
+		if kinds[i]!="ferry" and not obstacles[i].has_point(point):continue
+		var sample:=terrain_sample(i,time,point)
+		if sample.supported and sample.rect.grow(-radius).has_point(point):surface=sample
+	return surface
+
+func terrain_supports_sweep(from:Vector2,to:Vector2,time:float)->bool:
+	for i in indexed_terrain():
+		if kinds[i]!="ferry" and not obstacles[i].has_point(to):continue
+		var sample:=terrain_sample(i,time,to)
+		if sample.supported and sample.rect.grow(-Motion.RADIUS).has_point(from) and sample.rect.grow(-Motion.RADIUS).has_point(to):return true
+	return false
+
+func platform_motion(point:Vector2,start:float,end:float)->Vector2:
+	for i in indexed_terrain():
+		if kinds[i] not in Terrain.MOVING:continue
+		var first:=terrain_sample(i,start,point)
+		if first.rect.has_point(point):return terrain_sample(i,end,point).rect.position-first.rect.position
+	return Vector2.ZERO

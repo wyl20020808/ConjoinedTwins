@@ -9,6 +9,7 @@ let browser;
  page.on('console',msg=>{logs.push(msg.text());if(msg.text().includes('SCRIPT ERROR')||msg.text().includes('ERROR:'))errors.push(msg.text());if(msg.type()==='error')console.error('BROWSER',msg.text())});page.on('pageerror',e=>errors.push(String(e)));
  await page.goto((process.env.JOURNEY_URL||'http://127.0.0.1:8765/')+'?verify=1',{waitUntil:'domcontentloaded'});
  await page.waitForFunction(()=>window.__ctJourney,{timeout:180000});
+ await page.waitForTimeout(800);
  let state=await page.evaluate(()=>window.__ctJourney);console.log('READY',JSON.stringify(state));
  await page.screenshot({path:path.join(out,'web-start.png')});
  const rect=state.controls.primary;await page.mouse.click(rect[0]+rect[2]/2,rect[1]+rect[3]/2);

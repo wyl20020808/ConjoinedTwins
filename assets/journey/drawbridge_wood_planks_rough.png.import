@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dvfph5wdb6nol"
-path="res://.godot/imported/drawbridge_wood_planks_rough.png-728fa0798242cdb88c7b76ee2b908b47.ctex"
+path.s3tc="res://.godot/imported/drawbridge_wood_planks_rough.png-728fa0798242cdb88c7b76ee2b908b47.s3tc.ctex"
+path.etc2="res://.godot/imported/drawbridge_wood_planks_rough.png-728fa0798242cdb88c7b76ee2b908b47.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "d7b763bb28e8f5907bb9b21cd891166d"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/drawbridge_wood_planks_rough.png"
-dest_files=["res://.godot/imported/drawbridge_wood_planks_rough.png-728fa0798242cdb88c7b76ee2b908b47.ctex"]
+dest_files=["res://.godot/imported/drawbridge_wood_planks_rough.png-728fa0798242cdb88c7b76ee2b908b47.s3tc.ctex", "res://.godot/imported/drawbridge_wood_planks_rough.png-728fa0798242cdb88c7b76ee2b908b47.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

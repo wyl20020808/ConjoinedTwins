@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bo4f4vspgoupv"
-path="res://.godot/imported/monastery_stone_floor_nor.jpg-2b530015e7fc08189a711a646b375ae7.ctex"
+path.s3tc="res://.godot/imported/monastery_stone_floor_nor.jpg-2b530015e7fc08189a711a646b375ae7.s3tc.ctex"
+path.etc2="res://.godot/imported/monastery_stone_floor_nor.jpg-2b530015e7fc08189a711a646b375ae7.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/env/monastery_stone_floor_nor.jpg"
-dest_files=["res://.godot/imported/monastery_stone_floor_nor.jpg-2b530015e7fc08189a711a646b375ae7.ctex"]
+dest_files=["res://.godot/imported/monastery_stone_floor_nor.jpg-2b530015e7fc08189a711a646b375ae7.s3tc.ctex", "res://.godot/imported/monastery_stone_floor_nor.jpg-2b530015e7fc08189a711a646b375ae7.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

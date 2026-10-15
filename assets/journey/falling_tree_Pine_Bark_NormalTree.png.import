@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d2phscdphgvfx"
-path="res://.godot/imported/falling_tree_Pine_Bark_NormalTree.png-d5168ab962582e8bc232a74801f4c5ed.ctex"
+path.s3tc="res://.godot/imported/falling_tree_Pine_Bark_NormalTree.png-d5168ab962582e8bc232a74801f4c5ed.s3tc.ctex"
+path.etc2="res://.godot/imported/falling_tree_Pine_Bark_NormalTree.png-d5168ab962582e8bc232a74801f4c5ed.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "949bc03b138bfd71cc8da40076381612"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/falling_tree_Pine_Bark_NormalTree.png"
-dest_files=["res://.godot/imported/falling_tree_Pine_Bark_NormalTree.png-d5168ab962582e8bc232a74801f4c5ed.ctex"]
+dest_files=["res://.godot/imported/falling_tree_Pine_Bark_NormalTree.png-d5168ab962582e8bc232a74801f4c5ed.s3tc.ctex", "res://.godot/imported/falling_tree_Pine_Bark_NormalTree.png-d5168ab962582e8bc232a74801f4c5ed.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

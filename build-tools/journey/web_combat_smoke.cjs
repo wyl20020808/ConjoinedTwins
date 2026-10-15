@@ -11,7 +11,7 @@ let browser,lastPage;
  page.on('pageerror',e=>errors.push(String(e)));
  page.on('console',m=>{if(m.text().includes('SCRIPT ERROR')||m.text().includes('ERROR:')){errors.push(m.text());console.error(m.text())}});
  await page.goto((process.env.JOURNEY_URL||'http://127.0.0.1:8766/')+'?verify=1',{waitUntil:'domcontentloaded'});
- await page.waitForFunction(()=>window.__ctJourney?.build==='journey-combat-loading-20261015',{timeout:180000});
+ await page.waitForFunction(()=>window.__ctJourney?.build==='journey-continuous-landscape-20261015',{timeout:180000});
  // 启动页异步创建菜单后，等待布局和首轮资源预热完成再读取按钮坐标。
  await page.waitForFunction(()=>window.__ctJourney?.fps>5);
  await page.waitForTimeout(1000);

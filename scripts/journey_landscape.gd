@@ -1,0 +1,179 @@
+extends RefCounted
+# 连续世界空间地貌。相邻区块共用同一高度函数、材质和实例网格。
+const HALF := 16.0
+const EXTENT := 140.0
+const WIDTH := 80.0
+const SHADER = preload("res://scripts/journey_ground.gdshader")
+var game
+var terrain: ShaderMaterial
+var parts := {}
+var palette := {}
+var leaf_material:ShaderMaterial
+var mobile:=false
+
+static func profile(meters:float,chapter:int=0)->Vector3:
+	if chapter==0:
+		var land:=smoothstep(220.0,420.0,meters)
+		var village:=smoothstep(1020.0,1250.0,meters)
+		return Vector3(1.0-land,land*(1.0-village),village)
+	if chapter==1:return Vector3(0,0.3,0.7)
+	return Vector3(0.75,0.2,0.05)
+
+static func height_at(x:float,meters:float,chapter:int)->float:
+	var p:=profile(meters,chapter)
+	var shoulder:=maxf(0,absf(x)-HALF)
+	var cliff:=-minf(46.0,pow(shoulder,0.72)*4.2)
+	var hill:=(sin(x*.12+meters*.023)*1.4+sin(x*.051-meters*.045)*1.8+2.2)*smoothstep(0.0,35.0,shoulder)
+	return lerpf(hill,cliff,p.x)
+
+func _init(owner_game)->void:
+	game=owner_game
+	mobile=OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
+	terrain=ShaderMaterial.new();terrain.shader=SHADER
+	terrain.set_shader_parameter("stone",load("res://assets/env/monastery_stone_floor_diff.jpg"))
+	terrain.set_shader_parameter("soil",load("res://assets/journey/forest_leaves_02_diff.jpg"))
+	terrain.set_shader_parameter("rock",load("res://assets/env/rock_face_03_diff.jpg"))
+	terrain.set_shader_parameter("soil_normal",load("res://assets/journey/forest_leaves_02_nor.jpg"))
+	terrain.set_shader_parameter("stone_normal",load("res://assets/env/monastery_stone_floor_nor.jpg"))
+	palette.Bark=game.tex_material("landscape_bark","rock_face_03",0.7,Color("776856"))
+	palette.Bark.albedo_texture=load("res://assets/decor/Pine_Bark_NormalTree.png")
+	palette.Bark.normal_texture=load("res://assets/decor/Pine_Bark_NormalTree_Normal.png")
+	leaf_material=ShaderMaterial.new();leaf_material.shader=preload("res://scripts/journey_foliage.gdshader")
+	palette.Leaf=leaf_material
+	palette.Stone=game.tex_material("landscape_stone","rock_boulder_dry",0.4,Color("aaa895"))
+	palette.Wood=game.material("landscape_wood",Color("79634b"))
+	palette.Wood.albedo_texture=load("res://assets/journey/wood_planks_diff.jpg")
+	palette.Wood.uv1_triplanar=true;palette.Wood.uv1_scale=Vector3.ONE*.5
+	palette.Cloth=game.material("landscape_cloth",Color("b9a883"));palette.Cloth.cull_mode=BaseMaterial3D.CULL_DISABLED
+	palette.Plaster=game.tex_material("landscape_plaster","rock_face_03",.4,Color("c3bea8"))
+	palette.Roof=game.material("landscape_roof",Color("604638"))
+	palette.Window=game.material("landscape_window",Color("242d2b"))
+	palette.Iron=game.material("landscape_iron",Color("434a45"))
+
+func set_chapter(chapter:int)->void:terrain.set_shader_parameter("chapter",chapter)
+
+func ground(parent:Node3D,pieces:Array,chapter:int)->void:
+	set_chapter(chapter)
+	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for rect:Rect2 in pieces:
+		var x0:float=rect.position.x/20.0;var x1:float=rect.end.x/20.0
+		var z0:float=rect.position.y/20.0;var z1:float=rect.end.y/20.0
+		quad(tool,Vector3(x0,0,-z0),Vector3(x1,0,-z0),Vector3(x1,0,-z1),Vector3(x0,0,-z1))
+	var view:=MeshInstance3D.new();view.mesh=tool.commit();view.material_override=terrain
+	view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(view)
+
+func quad(tool:SurfaceTool,a:Vector3,b:Vector3,c:Vector3,d:Vector3)->void:
+	for v in [a,c,b,a,d,c]:
+		tool.set_normal(Vector3.UP);tool.add_vertex(v)
+
+func sides(parent:Node3D,number:int,chapter:int,section:int)->void:
+	set_chapter(chapter)
+	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var start:=number*WIDTH
+	for side:float in [-1.0,1.0]:
+		for row in range(section*2,section*2+2):
+			for col in range(int((EXTENT-HALF)/4)):
+				var x0:float=side*(HALF+col*4.0);var x1:float=side*(HALF+(col+1)*4.0)
+				var y0:=start+row*4.0;var y1:=y0+4
+				var a:=Vector3(x0,height_at(x0,y0,chapter),-y0)
+				var b:=Vector3(x1,height_at(x1,y0,chapter),-y0)
+				var c:=Vector3(x1,height_at(x1,y1,chapter),-y1)
+				var d:=Vector3(x0,height_at(x0,y1,chapter),-y1)
+				# 两侧绕序统一向上；接缝顶点使用全局坐标。
+				for vertices in [[a,b,c],[a,c,d]] if side>0 else [[a,c,b],[a,d,c]]:
+					var normal:Vector3=(vertices[1]-vertices[0]).cross(vertices[2]-vertices[0]).normalized()
+					for v in vertices:tool.set_normal(normal);tool.add_vertex(v)
+	var mesh:=tool.commit()
+	var view:=MeshInstance3D.new();view.mesh=mesh;view.material_override=terrain
+	view.name="SurroundingTerrain";view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(view)
+
+func load_parts(path:String)->Array:
+	if parts.has(path):return parts[path]
+	var scene:Node3D=load(path).instantiate()
+	var result:Array=[]
+	collect(scene,Transform3D.IDENTITY,result)
+	scene.free();parts[path]=result
+	return result
+
+func collect(node:Node3D,transform:Transform3D,result:Array)->void:
+	transform=transform*node.transform
+	if node is MeshInstance3D:
+		for surface in range(node.mesh.get_surface_count()):
+			var source:Material=node.mesh.surface_get_material(surface)
+			var mesh:=ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,node.mesh.surface_get_arrays(surface))
+			var mat:Material=palette.get(source.resource_name,source) if source else palette.Leaf
+			mesh.surface_set_material(0,mat)
+			result.append({"mesh":mesh,"transform":transform})
+	for child in node.get_children():
+		if child is Node3D:collect(child,transform,result)
+
+func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)->void:
+	for part in load_parts(path):
+		var multi:=MultiMesh.new();multi.transform_format=MultiMesh.TRANSFORM_3D
+		multi.mesh=part.mesh;multi.instance_count=transforms.size()
+		for i in range(transforms.size()):multi.set_instance_transform(i,transforms[i]*part.transform)
+		var view:=MultiMeshInstance3D.new();view.multimesh=multi
+		view.visibility_range_begin=begin
+		view.visibility_range_end=end
+		view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if begin==0 and "oak" in path or begin==0 and "birch" in path else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(view)
+
+static func plan(number:int,chapter:int)->Array:
+	var items:Array=[]
+	for section in range(10):items.append(["landscape_terrain",number,chapter,section])
+	var rng:=RandomNumberGenerator.new();rng.seed=number*109+chapter*7919+42
+	var batches:={}
+	var start:=number*WIDTH
+	for side:float in [-1.0,1.0]:
+		# 近处有独立树干与林下层，深处林带封住地平线。密度逐米过渡。
+		for n in range(115):
+			var meters:=start+rng.randf()*WIDTH
+			var p:=profile(meters,chapter)
+			var forest_density:=p.y+p.z*.18
+			if rng.randf()>forest_density:continue
+			var x:=side*(18+pow(rng.randf(),1.65)*100)
+			var kind:="birch" if n%5==0 else ("oak_7" if n%2==0 else "oak_17")
+			var scale:=rng.randf_range(.75,1.3)
+			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),scale,rng.randf()*TAU)
+		for n in range(650):
+			var meters:=start+rng.randf()*WIDTH;var p:=profile(meters,chapter)
+			if rng.randf()>p.y+p.z*.45:continue
+			var x:=side*rng.randf_range(16.2,55)
+			var kind:="fern" if n%4==0 else ("shrub" if n%5==0 else "grass")
+			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),rng.randf_range(.7,1.6),rng.randf()*TAU)
+		# 老山脊继续保留石壁、扶壁孤峰与半埋石块，逐渐被林地接住。
+		for n in range(10):
+			var meters:=start+n*8.0
+			var p:=profile(meters,chapter)
+			if p.x>.02:
+				items.append(["landscape_rock",Vector3(side*17,-24*p.x,-meters),p.x,false,side*.13])
+				if n%3==0:items.append(["landscape_rock",Vector3(side*rng.randf_range(45,105),-64*p.x,-meters),p.x,true,rng.randf()*TAU])
+		for n in range(6):
+			var meters:=start+n*13.2+6;var p:=profile(meters,chapter)
+			var x:=side*rng.randf_range(17.2,29)
+			if p.y>.2: add_instance(batches,"woodpile",Vector3(x,height_at(x,meters,chapter),-meters),.9,rng.randf()*TAU)
+			if p.z<.05 or rng.randf()>p.z:continue
+			# 两排住宅形成有纵深的院落；生活物件位于道路外，不影响物理。
+			if n%2==0:
+				add_instance(batches,"house_%d"%((number+n+300)%3),Vector3(side*24,0,-meters),rng.randf_range(.8,1.0),-side*PI/2)
+				add_instance(batches,"fence",Vector3(side*17.6,0,-meters-5),.7,0)
+				add_instance(batches,"washing_line",Vector3(side*22,0,-meters+5),1,0)
+				add_instance(batches,"barrel",Vector3(side*18.8,0,-meters+1.8),1.1,0)
+				add_instance(batches,"woodpile",Vector3(side*19.5,0,-meters-3),1,side*.3)
+			else:add_instance(batches,"house_%d"%((number+n+301)%3),Vector3(side*48,height_at(side*48,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
+			if n==2:add_instance(batches,"well",Vector3(side*20,0,-meters-5),1,0)
+			for k in range(4):
+				var plantx:=side*(19+k*.7)
+				add_instance(batches,"shrub",Vector3(plantx,0,-meters-6),.8,0)
+	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
+	return items
+
+static func add_instance(batches:Dictionary,kind:String,point:Vector3,size:float,yaw:float)->void:
+	if not batches.has(kind):batches[kind]=[]
+	var basis:=Basis(Vector3.UP,yaw)
+	if kind in ["oak_7","oak_17","birch"]:
+		basis=Basis(Vector3.BACK,signf(point.x)*0.12)*basis
+	batches[kind].append(Transform3D(basis.scaled(Vector3.ONE*size),point))
