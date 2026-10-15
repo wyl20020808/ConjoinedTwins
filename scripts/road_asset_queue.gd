@@ -33,6 +33,13 @@ func ready(paths: Array) -> bool:
 	return paths.all(func(path): return resources.has(path))
 func progress() -> float:
 	return float(resources.size()) / maxi(total, 1)
+func dispose() -> void:
+	# 退出场景时回收已提交的 IO；运行帧从不通过 get 等待未完成资源。
+	pending.clear()
+	for path in active:
+		if ResourceLoader.load_threaded_get_status(path) in [ResourceLoader.THREAD_LOAD_IN_PROGRESS,ResourceLoader.THREAD_LOAD_LOADED]: ResourceLoader.load_threaded_get(path)
+	active.clear()
+	resources.clear()
 static func startup_paths() -> Array:
 	var paths: Array = ["res://scenes/journey.tscn", "res://assets/env/belfast_sunset_puresky_2k.hdr"]
 	for prefix in ["res://assets/env/monastery_stone_floor", "res://assets/env/rock_boulder_dry", "res://assets/journey/forest_leaves_02"]:

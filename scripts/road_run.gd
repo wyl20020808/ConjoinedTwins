@@ -144,6 +144,7 @@ var async_peak_poll_usec := 0
 # 教学期间只证明、不安装。影子抽签器不消耗正式对局的随机序列。
 const STREAM_PRELOAD_SEGMENTS := 4
 const PRELOAD_SLICE_USEC := 2000
+const STARTUP_PREPARATION_USEC := 6000
 var async_startup_pending := false
 var async_preload_started := false
 var async_preload_cursor := -1
@@ -152,6 +153,13 @@ var preparation_deadline_usec := 0
 var async_prepare_waits := 0
 var async_preload_requests := {}
 var async_preload_tasks := {}
+const WorkerJob = preload("res://scripts/road_worker_job.gd")
+const MAX_GENERATION_WORKERS := 2
+var generation_worker_limit := MAX_GENERATION_WORKERS
+var parallel_tasks_started := 0
+var parallel_peak := 0
+var preload_segments := STREAM_PRELOAD_SEGMENTS
+var measured_generation_usec := 0
 var async_preload_order: Array = []
 var async_deadline_steps := 0
 var async_preload_peak_usec := 0
@@ -329,6 +337,9 @@ func dispose() -> void:
 
 func cancel_generation() -> void:
 	async_startup_pending = false
+	# 先同时发取消信号，再回收；最多等待一个验证检查点，不串行跑完整段。
+	for task in async_preload_tasks.values(): task.cancellation.cancel()
+	if cooperative_job != null: cooperative_job.cancellation.cancel()
 	for task in async_preload_tasks.values(): task.dispose()
 	async_preload_tasks.clear()
 	async_preload_requests.clear()
@@ -386,7 +397,7 @@ func schedule_generation(base: float) -> bool:
 		cooperative_job = async_preload_tasks.get(preload_key)
 		if cooperative_job == null:
 			cooperative_job = preload("res://scripts/road_generation_job.gd").new(async_job, Templates.Cancellation.new())
-		async_cancel = cooperative_job.verifier.cancellation
+		async_cancel = cooperative_job.cancellation
 		async_preload_tasks.erase(preload_key)
 		async_preload_requests.erase(preload_key)
 		async_preload_order.erase(preload_key)
@@ -429,7 +440,7 @@ func warm_tutorial_generation() -> void:
 		picker.bag = generator.bag.duplicate()
 		picker.bag_level = generator.bag_level
 		picker.last_kind = generator.last_kind
-		for number in range(first_number, first_number + STREAM_PRELOAD_SEGMENTS):
+		for number in range(first_number, first_number + preload_segments):
 			var request := generation_request(picker, number, Templates.START_DISTANCE + number * Templates.SEGMENT)
 			var key := str(number) + ":" + str(request.key)
 			wanted.append(key)
@@ -445,9 +456,30 @@ func warm_tutorial_generation() -> void:
 			async_preload_requests.erase(key)
 			async_preload_order.erase(key)
 	if async_preload_order.is_empty(): return
+	if supports_background_generation():
+		var active := 1 if async_thread != null or (cooperative_job != null and not cooperative_job.done) else 0
+		for task in async_preload_tasks.values():
+			if not task.done: active+=1
+		for key in async_preload_order.duplicate():
+			if async_preload_tasks.has(key):
+				var task=async_preload_tasks[key]
+				if task.done:
+					measured_generation_usec=maxi(measured_generation_usec,task.result.elapsed_usec)
+					async_preload_order.erase(key)
+			elif active<clampi(generation_worker_limit,1,MAX_GENERATION_WORKERS):
+				async_preload_tasks[key]=WorkerJob.new(async_preload_requests[key],Templates.Cancellation.new())
+				parallel_tasks_started+=1
+				active+=1
+		parallel_peak=maxi(parallel_peak,active)
+		# 只扩大证明缓存，不改变安装距离、种子及候选顺序；上限八段。
+		var needed:=clampi(int(ceil((float(measured_generation_usec)/1000000.0+2.0)*(level_speed()+LATERAL)/Templates.SEGMENT)),STREAM_PRELOAD_SEGMENTS,8)
+		if needed>preload_segments:
+			preload_segments=needed
+			async_preload_cursor=-1
+		return
 	var started := Time.get_ticks_usec()
 	var deadline_usec := preparation_deadline_usec
-	if deadline_usec == 0: deadline_usec = started + PRELOAD_SLICE_USEC
+	if deadline_usec == 0: deadline_usec = started + (STARTUP_PREPARATION_USEC if async_startup_pending else PRELOAD_SLICE_USEC)
 	var key: String = async_preload_order[0]
 	if not async_preload_tasks.has(key):
 		async_preload_tasks[key] = preload("res://scripts/road_generation_job.gd").new(async_preload_requests[key], Templates.Cancellation.new())
@@ -479,10 +511,11 @@ func startup_progress() -> float:
 		if task.done: completed += 1
 	return float(completed) / total
 
-func prepare_frame(deadline_usec: int = 0) -> bool:
+func prepare_frame() -> bool:
 	async_nonblocking = true
 	if state != "running": return true
-	if deadline_usec == 0: deadline_usec = Time.get_ticks_usec() + PRELOAD_SLICE_USEC
+	var deadline_usec := preparation_deadline_usec
+	if deadline_usec == 0: deadline_usec = Time.get_ticks_usec() + (STARTUP_PREPARATION_USEC if async_startup_pending else PRELOAD_SLICE_USEC)
 	preparation_deadline_usec = deadline_usec
 	warm_tutorial_generation()
 	preparation_deadline_usec = 0
@@ -532,6 +565,7 @@ func poll_cooperative_generation() -> void:
 		async_deadline_steps += 256
 		cooperative_job.advance(256)
 	var proven: Dictionary = cooperative_job.result
+	var backend := "pool" if cooperative_job.get_script()==WorkerJob else "cooperative"
 	cooperative_job.dispose()
 	cooperative_job = null
 	async_cancel = null
@@ -544,7 +578,7 @@ func poll_cooperative_generation() -> void:
 			if proven_blocks.size() > 256: proven_blocks.clear()
 			proven_blocks[async_job.key] = proven.block.duplicate(true)
 		install_generated(proven.block, "proven")
-	async_events[-1].backend = "cooperative"
+	async_events[-1].backend = backend
 	async_peak_poll_usec = maxi(async_peak_poll_usec, Time.get_ticks_usec() - started)
 
 func poll_generation() -> void:

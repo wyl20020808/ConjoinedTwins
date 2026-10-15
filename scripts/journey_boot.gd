@@ -10,6 +10,8 @@ var first_frame := true
 var scene_started := false
 var bootstrap_ready_usec := 0
 var started := Time.get_ticks_usec()
+func _exit_tree() -> void:
+	assets.dispose()
 func _ready() -> void:
 	overlay = CanvasLayer.new()
 	overlay.layer = 100

@@ -1528,9 +1528,11 @@ func prepare_generation_views(startup: bool = false, deadline_usec: int = 0) -> 
 	return true
 
 func prepare_game_frame(deadline_usec: int = 0) -> bool:
-	if deadline_usec == 0: deadline_usec = Time.get_ticks_usec() + Run.PRELOAD_SLICE_USEC
 	var startup: bool = run.async_startup_pending and run.state == "running"
-	var ready: bool = run.prepare_frame(deadline_usec)
+	if deadline_usec == 0: deadline_usec = Time.get_ticks_usec() + (Run.STARTUP_PREPARATION_USEC if startup else Run.PRELOAD_SLICE_USEC)
+	run.preparation_deadline_usec = deadline_usec
+	var ready: bool = run.prepare_frame()
+	run.preparation_deadline_usec = 0
 	# 证明期间同步逐个准备模型，避免计算进度完成后再集中建模。
 	var models_ready := prepare_generation_views(startup, deadline_usec)
 	if startup and (not ready or not models_ready):
@@ -1804,7 +1806,7 @@ func online_process(delta: float) -> void:
 	net.send_input(move, key_down(KEY_SPACE) or key_down(KEY_ENTER) or touch_jump)
 	var applied := 0
 	var started := Time.get_ticks_usec()
-	var preparation_deadline := started + Run.PRELOAD_SLICE_USEC
+	var preparation_deadline := started + (Run.STARTUP_PREPARATION_USEC if run.async_startup_pending else Run.PRELOAD_SLICE_USEC)
 	generation_waiting = false
 	var queued: int = net.frames.size()
 	var limit: int = mini(4, queued - 2) if queued > 8 else (2 if queued > 3 else 1)

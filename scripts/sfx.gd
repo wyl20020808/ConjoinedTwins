@@ -19,6 +19,12 @@ func _ready() -> void:
 	for key in SOUND_NAMES:
 		streams[key] = load("res://assets/audio/%s.wav" % key)
 
+func _exit_tree() -> void:
+	for player in players:
+		player.stop()
+		player.stream = null
+	streams.clear()
+
 func synthesize() -> void:
 	noise.seed = 7
 	streams.coin = render(0.16, func(t): return blip(t, 0.0, 0.06, 988.0) + blip(t, 0.05, 0.11, 1319.0))

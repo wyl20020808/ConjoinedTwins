@@ -3,6 +3,10 @@ extends "res://scripts/road_demo.gd"
 const Journey = preload("res://scripts/journey_run.gd")
 const ChunkPlan = preload("res://scripts/journey_chunk_plan.gd")
 const AssetQueue = preload("res://scripts/road_asset_queue.gd")
+const PreparationTask = preload("res://scripts/preparation_task.gd")
+var parallel_chunk_plans := true
+var chunk_parallel_peak := 0
+var chunk_plan_tasks_started := 0
 var chunk_assets = AssetQueue.new()
 var chunk_jobs := {}
 var scene_prepared := false
@@ -68,6 +72,9 @@ func _ready() -> void:
 	set_process_unhandled_key_input(true)
 
 func _exit_tree() -> void:
+	chunk_assets.dispose()
+	for job in chunk_jobs.values():
+		if job.task!=null: job.task.dispose()
 	if is_instance_valid(ambient):
 		ambient.stop()
 		ambient.stream=null
@@ -192,14 +199,36 @@ func prepare_journey_frame() -> bool:
 	for number in range(maxi(0,current-1),current+6):
 		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
 		if not chunk_jobs.has(number):
-			var items: Array = ChunkPlan.make(number,run.level_index,run.CHAPTERS[run.level_index],Run.EDGE)
-			chunk_jobs[number] = {"items":items,"cursor":0,"node":null,"paths":ChunkPlan.paths(items)}
-			chunk_assets.request(chunk_jobs[number].paths)
+			chunk_jobs[number] = {"items":null,"cursor":0,"node":null,"paths":[],"task":null}
+	var active := 0
+	for job in chunk_jobs.values():
+		if job.task!=null and not job.task.done: active+=1
+	for number in chunk_jobs:
+		var job: Dictionary=chunk_jobs[number]
+		if job.items!=null: continue
+		if job.task!=null:
+			if not job.task.done: continue
+			job.items=job.task.result
+			job.task.dispose()
+			job.task=null
+		elif parallel_chunk_plans and run.supports_background_generation():
+			if active>=2: continue
+			job.task=PreparationTask.new(ChunkPlan.make.bind(number,run.level_index,run.CHAPTERS[run.level_index].duplicate(true),Run.EDGE))
+			chunk_plan_tasks_started+=1
+			active+=1
+			continue
+		else:
+			if Time.get_ticks_usec()>=deadline: break
+			job.items=ChunkPlan.make(number,run.level_index,run.CHAPTERS[run.level_index],Run.EDGE)
+		job.paths=ChunkPlan.paths(job.items)
+		chunk_assets.request(job.paths)
+	chunk_parallel_peak=maxi(chunk_parallel_peak,active)
 	chunk_assets.poll(deadline)
 	var events_ready := prepare_event_views(deadline)
 	for number in chunk_jobs.keys():
 		if Time.get_ticks_usec()>=deadline: break
 		var job: Dictionary = chunk_jobs[number]
+		if job.items==null: continue
 		if not chunk_assets.ready(job.paths): continue
 		if job.node==null:
 			job.node=Node3D.new()
@@ -260,6 +289,7 @@ func sync_world() -> void:
 		for chunk in world_chunks.values(): chunk.queue_free()
 		world_chunks.clear()
 		for job in chunk_jobs.values():
+			if job.task!=null: job.task.dispose()
 			if is_instance_valid(job.node): job.node.queue_free()
 		chunk_jobs.clear()
 		for view in event_views.values(): view.queue_free()
@@ -281,6 +311,7 @@ func sync_world() -> void:
 	for number in world_chunks: world_chunks[number].visible=number<=current+3
 	for number in chunk_jobs.keys():
 		if number<current-1 or number>current+5:
+			if chunk_jobs[number].task!=null: chunk_jobs[number].task.dispose()
 			if is_instance_valid(chunk_jobs[number].node): chunk_jobs[number].node.queue_free()
 			chunk_jobs.erase(number)
 	var stamp:="%d:"%run.revision
@@ -643,6 +674,10 @@ static func ambience_wave(t:float,kind:String)->float:
 
 func pump_ambience(_delta: float) -> void:
 	if not is_instance_valid(ambient):return
+	# 开始页和加载页无需创建一个立即暂停的播放句柄。
+	if run.state!="running":
+		ambient.stream_paused=true
+		return
 	var theme:String=run.theme_at(run.distance)
 	var kind:="forest" if theme in ["forest","edge","meadow","farm"] else ("river" if theme=="river" else "wind")
 	if ambience_region!=kind:

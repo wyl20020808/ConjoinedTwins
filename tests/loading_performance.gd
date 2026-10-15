@@ -86,10 +86,13 @@ func measure() -> void:
 			var task = game.run.async_preload_tasks[key]
 			startups[backend].blocks[str(task.job.number)] = var_to_str(task.result.block).sha256_text()
 	report.startups = startups
+	var expected: Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/loading_baseline.json"))
+	var deterministic: bool=report.audio_hashes==expected.audio_hashes and report.routes==expected.routes and startups.cooperative.blocks==expected.startup_blocks and startups.native.blocks==expected.startup_blocks
+	report.deterministic=deterministic
 	game.free()
 	var path := OS.get_environment("PERFORMANCE_REPORT")
 	if path.is_empty(): path = "res://build-tools/cache/loading-performance/latest.json"
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	file.store_string(JSON.stringify(report, "\t"))
 	print("PERFORMANCE_REPORT ", path, " ", JSON.stringify(report))
-	quit(0 if startups.cooperative.ready and startups.native.ready and startups.cooperative.state_unchanged and startups.native.state_unchanged else 1)
+	quit(0 if deterministic and startups.cooperative.ready and startups.native.ready and startups.cooperative.state_unchanged and startups.native.state_unchanged else 1)
