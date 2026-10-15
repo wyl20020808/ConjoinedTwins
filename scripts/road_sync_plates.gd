@@ -2,14 +2,14 @@ extends RefCounted
 
 # 道路独立教学：角色可以交换板位，开门前必须连续地面占用。
 const HOLD_TIME := 0.35
-const PLATE_RADIUS := 18.0
+const PLATE_RADIUS := 26.0
 const HOLD_DISTANCE := 290.0
 
 static func make_tutorial() -> Dictionary:
 	return {"id": "sync_tutorial", "kind": "sync_plates", "active": true,
 		"open": false, "charge": 0.0, "occupied": [false, false],
 		"receiver": Vector2(0, HOLD_DISTANCE),
-		"left": Rect2(-63, 272, 36, 36), "right": Rect2(27, 272, 36, 36),
+		"left": Rect2(-71, 264, 52, 52), "right": Rect2(19, 264, 52, 52),
 		"door": Rect2(-380, 380, 760, 12)}
 
 static func advance(gate: Dictionary, a: Vector2, b: Vector2,

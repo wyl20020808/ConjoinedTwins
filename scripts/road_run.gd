@@ -138,6 +138,7 @@ var async_peak_poll_usec := 0
 # 教学期间只证明、不安装。影子抽签器不消耗正式对局的随机序列。
 const STREAM_PRELOAD_SEGMENTS := 4
 const PRELOAD_SLICE_USEC := 2000
+var async_startup_pending := false
 var async_preload_started := false
 var async_preload_cursor := -1
 var async_nonblocking := false
@@ -320,6 +321,7 @@ func dispose() -> void:
 	b.free()
 
 func cancel_generation() -> void:
+	async_startup_pending = false
 	for task in async_preload_tasks.values(): task.dispose()
 	async_preload_tasks.clear()
 	async_preload_requests.clear()
@@ -440,8 +442,8 @@ func warm_tutorial_generation() -> void:
 		async_preload_tasks[key] = preload("res://scripts/road_generation_job.gd").new(async_preload_requests[key], Templates.Cancellation.new())
 	var task = async_preload_tasks[key]
 	# 按时间与验证步数双重限额让出主线程，不在开门事件里集中补算。
-	for index in range(GENERATION_STEPS_PER_POLL):
-		if task.done or Time.get_ticks_usec() - started >= PRELOAD_SLICE_USEC: break
+	for index in range(256 if async_startup_pending else GENERATION_STEPS_PER_POLL):
+		if task.done or Time.get_ticks_usec() - started >= (6000 if async_startup_pending else PRELOAD_SLICE_USEC): break
 		task.advance(1)
 	if task.done: async_preload_order.pop_front()
 	async_preload_peak_usec = maxi(async_preload_peak_usec, Time.get_ticks_usec() - started)
@@ -457,14 +459,27 @@ func generation_ready() -> bool:
 	if cooperative_job != null: return cooperative_job.done
 	return async_thread == null or not async_thread.is_alive()
 
+# 进度来自实际完成的段落证明；预计算不改变随机序列或正式安装时点。
+func startup_progress() -> float:
+	var total := async_preload_requests.size() + (0 if async_job.is_empty() else 1)
+	if total == 0: return 1.0 if async_preload_cursor >= 0 or not async_startup_pending else 0.0
+	var completed := 0 if async_job.is_empty() or not generation_ready() else 1
+	for task in async_preload_tasks.values():
+		if task.done: completed += 1
+	return float(completed) / total
+
 func prepare_frame() -> bool:
 	async_nonblocking = true
+	if state != "running": return true
 	warm_tutorial_generation()
 	if cooperative_job != null and not cooperative_job.done:
 		var started := Time.get_ticks_usec()
 		for index in range(GENERATION_STEPS_PER_POLL):
 			if cooperative_job.done or Time.get_ticks_usec() - started >= PRELOAD_SLICE_USEC: break
 			cooperative_job.advance(1)
+	if async_startup_pending:
+		if startup_progress() < 1.0: return false
+		async_startup_pending = false
 	var ready := not generation_due() or generation_ready()
 	if not ready: async_prepare_waits += 1
 	return ready
@@ -650,6 +665,7 @@ func retry(count_failure: bool = false) -> void:
 	reset_input()
 	# 生产入口必须先完成跳跃、绳状态和输入重置，再生成真实入口证书。
 	if streaming: update_stream()
+	async_startup_pending = generation_enabled and async_enabled and streaming
 	# 起点即第一个存档点：开局附近失败也按同一布局恢复。
 	update_checkpoint()
 
@@ -1135,6 +1151,7 @@ func restore_checkpoint() -> bool:
 	state = "running"
 	reset_input()
 	if streaming: update_stream()
+	async_startup_pending = generation_enabled and async_enabled and streaming
 	return true
 
 func fall(role: int, point: Vector2) -> void:
@@ -1181,6 +1198,11 @@ func rescue_step(delta: float, jump_a: bool, jump_b: bool) -> void:
 		# 拉满后进入爬上阶段：世界仍冻结，表现层把人从崖下拉到落脚点。
 		rescue.climb = 0.0
 		rescue.anchor = rescue_anchor()
+		if rescue.anchor == Vector2.INF:
+			# 没有合法落脚点时保留失败结果，绝不把人放回坑边伪装救援成功。
+			fall(rescue.role, rescue.point)
+			rescue = {}
+			return
 	accumulator += clampf(delta, 0, 0.25)
 	while accumulator + 0.0000001 >= FIXED_STEP and state == "rescue":
 		accumulator -= FIXED_STEP
@@ -1205,30 +1227,23 @@ func rescue_anchor() -> Vector2:
 	var lookahead: float = (speed() if streaming else FORWARD) * 1.0
 	var best := Vector2.INF
 	var best_score := INF
-	for iy in range(-8, 5):
-		for ix in range(-16, 17):
+	var gaps := ground_gaps()
+	for iy in range(-16, 17):
+		for ix in range(-34, 35):
 			var candidate := bounded(partner_point + Vector2(ix * 4.0, iy * 8.0))
 			var gap := candidate.distance_to(partner_point)
-			if gap < BODY_GAP + 2.0 or gap > LINK_LIMIT * 0.6: continue
-			if not solid_sweep_clear(candidate, candidate, 0.0, 0.0): continue
-			var safe := true
-			for k in range(5):
-				var probe := candidate + Vector2(0, lookahead * k / 4.0)
-				if absf(probe.x) > EDGE - Motion.RADIUS or not Surfaces.supported(probe, Motion.RADIUS + 4.0, ground_gaps()):
-					safe = false
-					break
-			if not safe: continue
+			if gap < BODY_GAP + 2.0 or gap > LINK_LIMIT - 8.0: continue
+			if absf(candidate.x) > EDGE - Motion.RADIUS - 4.0: continue
+			var end := candidate + Vector2(0, lookahead)
+			if not Surfaces.supported_sweep(candidate, end, Motion.RADIUS + 4.0, gaps): continue
+			if not solid_sweep_clear(candidate, end, 0.0, 0.0): continue
+			# 爬上落点与队友之间不能隔着实体，也不能重建一根穿柱的绳。
+			if not solid_sweep_clear(partner_point, candidate, 0.0, 0.0): continue
 			var score := absf(candidate.x - partner_point.x) * 2.0 + absf(candidate.y - (partner_point.y - BODY_GAP - 8.0)) + candidate.distance_to(fallback) * 0.25
 			if score < best_score:
 				best_score = score
 				best = candidate
-	if best != Vector2.INF: return best
-	# 兜底：原规则，沿失足点到队友连线找最近可站点。
-	for n in range(21):
-		var candidate := fallback.lerp(partner_point, n / 20.0)
-		if has_ground_support(candidate) and candidate.distance_to(partner_point) >= BODY_GAP and solid_sweep_clear(candidate, candidate, 0.0, 0.0):
-			return candidate
-	return fallback
+	return best
 
 # 救起：爬上动画结束后站到安全落脚点，残余方向键须松开（或 0.6 秒后）才重新生效。
 func finish_rescue() -> void:

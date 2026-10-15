@@ -43,14 +43,15 @@ func test_rules(Gate) -> void:
 	var tilted = Gate.make_tutorial()
 	Gate.advance(tilted, straight, PackedFloat32Array([28,37]), 130.0/146.6, true, 0.8)
 	check("斜绳在接收圆盘边缘满足高度仍充能", tilted.open)
+	# 接收半径已扩大至 30：负例放到新圆盘之外，继续验证真路径和高度区间。
 	var negatives := [
 		["单人触碰接收器", PackedVector2Array([Vector2(0,60),Vector2(130,60)]), z, 130.0/146.6, true],
-		["连接未穿过接收器", PackedVector2Array([Vector2(-65,80),Vector2(65,80)]), z, 130.0/146.6, true],
+		["连接未穿过接收器", PackedVector2Array([Vector2(-65,100),Vector2(65,100)]), z, 130.0/146.6, true],
 		["张紧不足", PackedVector2Array([Vector2(-40,60),Vector2(40,60)]), z, 80.0/146.6, true],
-		["端点直线穿过而真路径绕开", PackedVector2Array([Vector2(-65,60),Vector2(0,85),Vector2(65,60)]), PackedFloat32Array([28,28,28]), 0.95, true],
+		["端点直线穿过而真路径绕开", PackedVector2Array([Vector2(-65,60),Vector2(0,120),Vector2(65,60)]), PackedFloat32Array([28,28,28]), 0.95, true],
 		["障碍遮断", straight, z, 130.0/146.6, false],
 		["绳索从接收器上方跳过", straight, PackedFloat32Array([64,64]), 130.0/146.6, true],
-		["斜绳高度区间与圆盘不相交", straight, PackedFloat32Array([28,38]), 130.0/146.6, true]
+		["斜绳高度区间与圆盘不相交", straight, PackedFloat32Array([28,44]), 130.0/146.6, true]
 	]
 	for entry in negatives:
 		var gate = Gate.make_tutorial()

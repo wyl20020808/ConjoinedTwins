@@ -37,6 +37,9 @@ var rescue_pulse := [0.0, 0.0]
 var rescue_seen := [0, 0]
 var view_revision := -1
 var generation_waiting := false
+var loading_box: Control
+var loading_label: Label
+var loading_progress: ProgressBar
 var prepared_online_frame := -1
 var hazard_build_count := 0
 var preview_runs := {}
@@ -1190,6 +1193,19 @@ func build_ui() -> void:
 	bottom.position = Vector2(40, 677)
 	root.add_child(bottom)
 	bottom_hint = bottom
+	loading_box = Control.new()
+	loading_box.position = Vector2(360, 280)
+	loading_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(loading_box)
+	loading_label = label("正在准备道路…", 28, Color.WHITE)
+	loading_label.size = Vector2(560, 80)
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_box.add_child(loading_label)
+	loading_progress = ProgressBar.new()
+	loading_progress.position = Vector2(0, 90)
+	loading_progress.size = Vector2(560, 28)
+	loading_box.add_child(loading_progress)
+	loading_box.hide()
 	rescue_box = Control.new()
 	rescue_box.position = Vector2(640 - RESCUE_BAR / 2, 520)
 	rescue_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1381,13 +1397,13 @@ func rebuild_hazard_views() -> void:
 	view_revision = run.revision
 
 # 已证明布局提前逐个准备隐藏模型；当前帧需要安装时若模型未齐，只保留帧等待，不一口气建一整段。
-func prepare_generation_views() -> bool:
+func prepare_generation_views(startup: bool = false) -> bool:
 	var targets: Array = []
 	if run.cooperative_job != null and run.cooperative_job.done:
 		targets.append({"job": run.async_job, "block": run.cooperative_job.result.block, "blocking": not run.lockstep or run.generation_due()})
 	for key in run.async_preload_tasks:
 		var task = run.async_preload_tasks[key]
-		if task.done: targets.append({"job": task.job, "block": task.result.block, "blocking": false})
+		if task.done: targets.append({"job": task.job, "block": task.result.block, "blocking": startup})
 	var current: Array = []
 	for target in targets: current.append(str(target.job.key))
 	for key in preview_runs.keys():
@@ -1423,8 +1439,15 @@ func prepare_generation_views() -> bool:
 	return true
 
 func prepare_game_frame() -> bool:
-	if not run.prepare_frame(): return false
-	return prepare_generation_views()
+	var startup: bool = run.async_startup_pending and run.state == "running"
+	var ready: bool = run.prepare_frame()
+	# 证明期间同步逐个准备模型，避免计算进度完成后再集中建模。
+	var models_ready := prepare_generation_views(startup)
+	if startup and (not ready or not models_ready):
+		run.async_startup_pending = true
+		return false
+	if startup: clear_controls()
+	return ready and models_ready
 
 func build_rewards() -> void:
 	# 固定奖励槽，不随领取或跨关增加节点；每次同步完整覆盖可复用槽的表现。
@@ -1516,12 +1539,12 @@ func build_charge_gate(view: Node3D = null) -> void:
 		var zone_width: float = (Run.ChargeGate.ZONE_OUTER - Run.ChargeGate.ZONE_INNER) / SCALE
 		var zone := box(view, Vector3(side * zone_center, 0.02, -3), Vector3(zone_width, 0.025, 3), zone_material("gate_zone", Color(0.3, 0.85, 0.8, 0.28)))
 		zone.name = "LeftZone" if side < 0 else "RightZone"
-	var receiver := cylinder(view, Vector3(0, 1.4, -3), 0.4, 0.3, energy)
+	var receiver := cylinder(view, Vector3(0, 1.4, -3), Run.ChargeGate.RECEIVER_RADIUS / SCALE, 0.3, energy)
 	receiver.name = "Receiver"
 	var stem := box(view, Vector3(0, 0.7, -3), Vector3(0.15, 1.4, 0.15), steel)
 	stem.name = "ReceiverStem"
 	for side in [-1, 1]:
-		var plate := cylinder(view, Vector3(side * 2.25, 0.04, -3), 0.9, 0.06, steel)
+		var plate := cylinder(view, Vector3(side * 2.25, 0.04, -3), Run.SyncPlates.PLATE_RADIUS / SCALE, 0.06, steel)
 		plate.name = "LeftPlate" if side < 0 else "RightPlate"
 		plate.visible = false
 	var bar := box(view, Vector3(0, 3.1, -3), Vector3(3, 0.16, 0.12), material("gate_progress", Color("68dce3"), 0.5))
@@ -2076,6 +2099,11 @@ func sync_view() -> void:
 func update_ui() -> void:
 	if not is_instance_valid(hud):
 		return
+	loading_box.visible = run.async_startup_pending and run.state == "running"
+	if loading_box.visible:
+		var progress: float = run.startup_progress()
+		loading_progress.value = progress * 100.0
+		loading_label.text = "正在准备道路 %d%%\n%s" % [int(progress * 100), "正在准备场景…" if progress >= 1.0 else "出发前预计算前方路段，减少途中等待"]
 	hud.text = "第 %d/3 关 · %s · 金币 %d · 奖品 %d · 护盾 %s" % [run.level_index + 1, run.difficulty, run.coins, run.prizes, "无敌 %.1fs" % maxf(0, run.invulnerable_until - run.elapsed) if run.elapsed < run.invulnerable_until else ("1" if run.shield else "0")]
 	if run.charge_gate.active: hud.text += "\n" + run.gate_hint(run.charge_gate)
 	hud.text += "\n单人 · 02 人机：%s（F 让它下一处失误）" % buddy.feedback if solo else "\nM 切换单人（人机做 02）"
