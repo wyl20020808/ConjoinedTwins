@@ -70,6 +70,12 @@ var camera_home := Transform3D()
 const FAIL_HIT_SHOW := 1.6
 const FAIL_FALL_SHOW := 2.6
 var rock_meshes := {}
+var support_run_id := 0
+var support_revision := -1
+var support_gaps: Array[Rect2] = []
+var support_mesh_build_count := 0
+var support_mesh_cache := {}
+const SUPPORT_MESH_CACHE_LIMIT := 128
 var mist_layers: Array[StandardMaterial3D] = []
 const RopeView = preload("res://scripts/rope_view.gd")
 const Sfx = preload("res://scripts/sfx.gd")
@@ -938,15 +944,21 @@ func build_surface_hazard(chunk: Node3D, index: int) -> void:
 	chunk.add_child(sign)
 
 func sync_road_support(chunk: Node3D) -> void:
-	var signature := "%d:%f" % [run.revision, snappedf(chunk.position.z, 0.001)]
-	if chunk.get_meta("support_signature", "") == signature: return
-	chunk.set_meta("support_signature", signature)
+	# 同一布局只收集一次地形；槽位循环或原点重定位后重新匹配。
+	if support_run_id != run.get_instance_id() or support_revision != run.revision:
+		support_run_id = run.get_instance_id()
+		support_revision = run.revision
+		support_gaps = run.ground_gaps()
+		for index in range(run.kinds.size()):
+			if run.kinds[index] in ["slope","steps","tilt"]: support_gaps.append(run.obstacles[index])
+	var slot_z := snappedf(chunk.position.z, 0.001)
+	if chunk.get_meta("support_run_id", 0) == support_run_id and chunk.get_meta("support_revision", -1) == support_revision and chunk.get_meta("support_z", INF) == slot_z: return
+	chunk.set_meta("support_run_id", support_run_id)
+	chunk.set_meta("support_revision", support_revision)
+	chunk.set_meta("support_z", slot_z)
 	var surface: MeshInstance3D = chunk.get_node("SupportSurface")
-	var gaps := run.ground_gaps()
-	for index in range(run.kinds.size()):
-		if run.kinds[index] in ["slope","steps","tilt"]: gaps.append(run.obstacles[index])
 	var cuts: Array[Rect2] = []
-	for gap in gaps:
+	for gap in support_gaps:
 		var local := Rect2(gap.position.x / SCALE, -gap.end.y / SCALE - chunk.position.z, gap.size.x / SCALE, gap.size.y / SCALE)
 		if local.intersects(Rect2(-ROAD_HALF, -4, ROAD_HALF * 2, 8)): cuts.append(local)
 	# 缺口下方不留实心路基，镂空直通崖下云雾；缺口自身的岩壁补齐断面。
@@ -958,6 +970,8 @@ func sync_road_support(chunk: Node3D) -> void:
 		chunk.get_node("EdgeWallLeft" if side < 0 else "EdgeWallRight").visible = not touches_edge
 	if cuts.is_empty():
 		surface.mesh = surface.get_meta("original_mesh")
+	elif support_mesh_cache.has(cuts):
+		surface.mesh = support_mesh_cache[cuts]
 	else:
 		var xs: Array[float] = [-ROAD_HALF, ROAD_HALF]
 		var zs: Array[float] = [-4.0, 4.0]
@@ -983,6 +997,9 @@ func sync_road_support(chunk: Node3D) -> void:
 					tool.set_normal(Vector3.UP)
 					tool.add_vertex(vertex)
 		surface.mesh = tool.commit()
+		support_mesh_build_count += 1
+		if support_mesh_cache.size() >= SUPPORT_MESH_CACHE_LIMIT: support_mesh_cache.erase(support_mesh_cache.keys()[0])
+		support_mesh_cache[cuts.duplicate()] = surface.mesh
 	for child in chunk.get_children():
 		if not child.has_meta("road_overlay"): continue
 		child.visible = true
@@ -1935,6 +1952,45 @@ func camera_shot() -> Transform3D:
 		look = focus + Vector3(0, 1.3, -1.5)
 	return Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP)
 
+func sync_gap_model(view: Node3D, rect: Rect2) -> void:
+	# 窄桥两侧缺口延伸到路外；显示只画路面以内部分，坑底不悬在悬崖外。
+	if view.get_meta("gap_rect", Rect2()) != rect:
+		view.set_meta("gap_rect", rect)
+		var left := maxf(rect.position.x / SCALE, -ROAD_HALF)
+		var right := minf(rect.end.x / SCALE, ROAD_HALF)
+		var width: float = maxf(0.05, right - left)
+		var length: float = rect.size.y / SCALE
+		view.position.x = (left + right) * 0.5
+		view.set_meta("gap_center_x", view.position.x)
+		view.get_node("GapMist").mesh.size = Vector3(width + 2.0, 0.05, length + 2.0)
+		var narrow: bool = rect.size.y >= Run.Templates.NARROW_LENGTH - 0.01
+		for edge_name in ["GapNear", "GapFar", "GapNearInner", "GapFarInner", "GapNearWall", "GapFarWall"]:
+			var edge: MeshInstance3D = view.get_node(edge_name)
+			edge.mesh.size.x = width
+			var inset: float = 0.07 if edge_name.ends_with("Inner") else (0.03 if edge_name.ends_with("Wall") else 0.2)
+			edge.position.z = (1 if edge_name.begins_with("GapNear") else -1) * (length / 2 + inset)
+		for wall_name in ["GapLeft", "GapRight"]:
+			var sign_x := -1 if wall_name == "GapLeft" else 1
+			var wall: MeshInstance3D = view.get_node(wall_name)
+			wall.mesh.size.z = length
+			wall.position.x = sign_x * (width / 2 + 0.03)
+			# 窄桥一侧只画桥板厚度，桥下悬空；其余缺口侧壁深入崖下。
+			var depth: float = PLANK_THICKNESS if narrow and (left if sign_x < 0 else right) * sign_x < ROAD_HALF - 0.01 else GAP_DEPTH
+			wall.mesh.size.y = depth
+			wall.position.y = -depth / 2
+			var rim: MeshInstance3D = view.get_node(wall_name + "Rim")
+			rim.mesh.size.z = length
+			rim.position.x = sign_x * (width / 2 + 0.15)
+			# 贴着悬崖外沿的一边不画桥边警戒条。
+			rim.visible = (left if sign_x < 0 else right) * sign_x < ROAD_HALF - 0.01
+		var approach: MeshInstance3D = view.get_node("GapApproach")
+		approach.mesh.size.x = width
+		approach.position.z = length / 2 + 0.4 + 1.2
+		view.get_node("WarningLabel").text = "独木窄桥 · 只容一人，前后依次通过" if narrow else ("长缺口 · 两人同侧绕行" if rect.size.y >= Run.Surfaces.LONG_GAP else Run.hazard_name("road_gap"))
+	view.position.x = view.get_meta("gap_center_x")
+	var approach: MeshInstance3D = view.get_node("GapApproach")
+	approach.material_override.albedo_color.a = 0.3 + 0.25 * sin(run.elapsed * 7.0)
+
 func sync_view() -> void:
 	if view_revision != run.revision: rebuild_hazard_views()
 	sync_rewards()
@@ -1978,38 +2034,7 @@ func sync_view() -> void:
 			view.get_node("WarningLabel").text = "旋转扫杆 · 支座须绕行 · 低杆可跳"
 			continue
 		if run.kinds[index] == "road_gap":
-			# 窄桥两侧缺口延伸到路外；显示只画路面以内部分，坑底不悬在悬崖外。
-			var left := maxf(rect.position.x / SCALE, -ROAD_HALF)
-			var right := minf(rect.end.x / SCALE, ROAD_HALF)
-			var width: float = maxf(0.05, right - left)
-			var length: float = rect.size.y / SCALE
-			view.position.x = (left + right) * 0.5
-			view.get_node("GapMist").mesh.size = Vector3(width + 2.0, 0.05, length + 2.0)
-			var narrow: bool = rect.size.y >= Run.Templates.NARROW_LENGTH - 0.01
-			for edge_name in ["GapNear", "GapFar", "GapNearInner", "GapFarInner", "GapNearWall", "GapFarWall"]:
-				var edge: MeshInstance3D = view.get_node(edge_name)
-				edge.mesh.size.x = width
-				var inset: float = 0.07 if edge_name.ends_with("Inner") else (0.03 if edge_name.ends_with("Wall") else 0.2)
-				edge.position.z = (1 if edge_name.begins_with("GapNear") else -1) * (length / 2 + inset)
-			for wall_name in ["GapLeft", "GapRight"]:
-				var sign_x := -1 if wall_name == "GapLeft" else 1
-				var wall: MeshInstance3D = view.get_node(wall_name)
-				wall.mesh.size.z = length
-				wall.position.x = sign_x * (width / 2 + 0.03)
-				# 窄桥一侧只画桥板厚度，桥下悬空；其余缺口侧壁深入崖下。
-				var depth: float = PLANK_THICKNESS if narrow and (left if sign_x < 0 else right) * sign_x < ROAD_HALF - 0.01 else GAP_DEPTH
-				wall.mesh.size.y = depth
-				wall.position.y = -depth / 2
-				var rim: MeshInstance3D = view.get_node(wall_name + "Rim")
-				rim.mesh.size.z = length
-				rim.position.x = sign_x * (width / 2 + 0.15)
-				# 贴着悬崖外沿的一边不画桥边警戒条。
-				rim.visible = (left if sign_x < 0 else right) * sign_x < ROAD_HALF - 0.01
-			var approach: MeshInstance3D = view.get_node("GapApproach")
-			approach.mesh.size.x = width
-			approach.position.z = length / 2 + 0.4 + 1.2
-			approach.material_override.albedo_color.a = 0.3 + 0.25 * sin(run.elapsed * 7.0)
-			view.get_node("WarningLabel").text = "独木窄桥 · 只容一人，前后依次通过" if narrow else ("长缺口 · 两人同侧绕行" if rect.size.y >= Run.Surfaces.LONG_GAP else Run.hazard_name("road_gap"))
+			sync_gap_model(view, rect)
 			continue
 		if run.hazard_specs[index].get("front", false):
 			var route: MeshInstance3D = view.get_node("FlightRoute")

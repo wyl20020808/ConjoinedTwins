@@ -1,6 +1,6 @@
 extends Node
 
-# 程序合成的音效：启动时把每种声音算成 16 位单声道 PCM，不依赖外部音频文件。
+# 音效由 build-tools/bake_sfx.gd 预生成；保留合成公式，便于可重复更新。
 # 用固定数量的播放器轮流播放，同一时刻最多叠 POOL 个声音。
 const RATE := 22050
 const POOL := 10
@@ -9,12 +9,18 @@ var players: Array[AudioStreamPlayer] = []
 var next_player := 0
 var noise := RandomNumberGenerator.new()
 
+const SOUND_NAMES := ["coin", "coin_land", "prize", "shield", "shield_break", "jump", "land", "hit", "fall", "warning", "whoosh", "clear", "rope", "buckle", "click"]
+
 func _ready() -> void:
-	noise.seed = 7
 	for n in range(POOL):
 		var player := AudioStreamPlayer.new()
 		add_child(player)
 		players.append(player)
+	for key in SOUND_NAMES:
+		streams[key] = load("res://assets/audio/%s.wav" % key)
+
+func synthesize() -> void:
+	noise.seed = 7
 	streams.coin = render(0.16, func(t): return blip(t, 0.0, 0.06, 988.0) + blip(t, 0.05, 0.11, 1319.0))
 	streams.coin_land = render(0.06, func(t): return 0.35 * sin(TAU * 1760.0 * t) * exp(-t * 60.0))
 	streams.prize = render(0.5, prize_wave)
