@@ -25,7 +25,7 @@ static func hazards(number: int, level: int, side: float) -> Array:
 	var x := 0.0 if kind == "pillar" else -side * 95.0
 	var result := [{"kind": kind, "rect": Rect2(Vector2(x, 240) - size * 0.5, size), "velocity": threats.CONFIG[kind].velocity if threats.CONFIG.has(kind) else Vector2.ZERO}]
 	if level == 2 and number % 3 == 2:
-		result.append({"kind": "fly_low", "rect": Rect2(Vector2(-side * 95 - 28, 430), Vector2(56, 24)), "velocity": Vector2(0, -180)})
+		result.append({"kind": "fly_low", "rect": Rect2(Vector2(-side * 95 - 28, 430), Vector2(56, 24)), "velocity": Vector2(0, -420)})
 	return result
 
 static func rewards(number: int, level: int, side: float) -> Array:

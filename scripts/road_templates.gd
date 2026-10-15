@@ -17,7 +17,7 @@ const COMBINATIONS := {"pillar_press": ["pillar", "press"], "low_steam": ["fly_l
 const ROAD_HALF_WIDTH := 320.0
 # 窄桥：桥面宽 2 米，扣除碰撞半径后中心只有 ±0.4 米可站，两人身体互不穿透，只能前后单列。
 # 桥长 22 米，超过最高关速下“前后调节 10 米 + 0.6 秒腾空”的最大跳程，不能并排跳过两侧断崖。
-const NARROW_PLANK := 40.0
+const NARROW_PLANK := 44.0
 const NARROW_START := 150.0
 const NARROW_LENGTH := 440.0
 const NARROW_SPACING := 40.0
@@ -38,9 +38,9 @@ const ROWS := {
 	# 摆锤与矿车原先靠路边封住外侧；加宽后用巨岩补上，不能从新增路面绕过整个摆幅或矿车起点。
 	"hammer": {"y": 420, "depth": 56, "open": [[-215, 240]]}, "forklift": {"y": 570, "depth": 68, "open": [[-215, ROAD_HALF_WIDTH]]}}
 const DIFFICULTIES := {
-	"简单": {"speed": 250.0, "cap": 250.0, "density": 1, "density_cap": 2, "fly_frequency": 0.15, "fly_cap": 0.25, "warning": 1.5, "front_warning": 1.9, "complexity": 1},
-	"普通": {"speed": 295.0, "cap": 295.0, "density": 2, "density_cap": 3, "fly_frequency": 0.3, "fly_cap": 0.4, "warning": 1.25, "front_warning": 1.6, "complexity": 2},
-	"困难": {"speed": 330.0, "cap": 330.0, "density": 3, "density_cap": 3, "fly_frequency": 0.45, "fly_cap": 0.55, "warning": 1.0, "front_warning": 1.4, "complexity": 3}}
+	"简单": {"speed": 280.0, "cap": 280.0, "density": 1, "density_cap": 2, "fly_frequency": 0.15, "fly_cap": 0.25, "warning": 1.5, "front_warning": 1.9, "complexity": 1},
+	"普通": {"speed": 330.0, "cap": 330.0, "density": 2, "density_cap": 3, "fly_frequency": 0.3, "fly_cap": 0.4, "warning": 1.25, "front_warning": 1.6, "complexity": 2},
+	"困难": {"speed": 370.0, "cap": 370.0, "density": 3, "density_cap": 3, "fly_frequency": 0.45, "fly_cap": 0.55, "warning": 1.0, "front_warning": 1.4, "complexity": 3}}
 
 const Threats = preload("res://scripts/dynamic_threats.gd")
 const Surfaces = preload("res://scripts/road_surfaces.gd")
@@ -55,7 +55,7 @@ const LEVEL_ROUTES := [
 	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right", "narrow", "narrow"],
 	["stone_ball", "ball", "rocket", "body", "hammer", "collapse", "steam", "drone", "forklift", "press", "sweep_bypass", "gap_bypass", "pillar", "low_jump", "jump", "stagger", "double", "sweep_single", "gap_single", "sweep_double", "gap_double", "gap_long", "left", "right", "narrow", "narrow"]]
 # 一个生产固定步的最大轴向手动位移；段尾只允许正常按键步距残差。
-const MANUAL_SPEED := 300.0
+const MANUAL_SPEED := 380.0
 const FIXED_STEP := 1.0 / 120.0
 const KEYBOARD_STEP := MANUAL_SPEED * FIXED_STEP
 const EXIT_TOLERANCE := KEYBOARD_STEP + 0.01

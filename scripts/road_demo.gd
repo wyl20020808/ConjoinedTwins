@@ -29,6 +29,12 @@ var blocked_keys: Array[int] = []
 var failed_animation_started := [false, false]
 var hazard_views: Array[Node3D] = []
 var last_actions := ["Idle", "Idle"]
+# 仅供表现：救援时每次按键的拉拽/攀爬抖动，逐帧衰减。
+const BuddyAI = preload("res://scripts/road_buddy_ai.gd")
+var solo := true
+var buddy = BuddyAI.new()
+var rescue_pulse := [0.0, 0.0]
+var rescue_seen := [0, 0]
 var view_revision := -1
 var difficulty_buttons: Array[Button] = []
 var hazard_pool := {}
@@ -237,11 +243,52 @@ func model_bounds(root: Node3D, node: Node) -> AABB:
 			bounds = sub if bounds.size == Vector3.ZERO else bounds.merge(sub)
 	return bounds
 
+# Blender 生成的救援动作（tools/blender/make_rescue_anims.py）：与冒险者共用骨架路径。
+const RESCUE_CLIPS := {"RopePull": "res://assets/humans/rescue_ropepull.glb", "Climb": "res://assets/humans/rescue_climb.glb"}
+var rescue_clips := {}
+
+func add_rescue_clips(player: AnimationPlayer) -> void:
+	if rescue_clips.is_empty():
+		for clip in RESCUE_CLIPS:
+			var scene: PackedScene = load(RESCUE_CLIPS[clip])
+			if scene == null: continue
+			var root := scene.instantiate()
+			var source: Array = root.find_children("*", "AnimationPlayer", true, false)
+			if not source.is_empty() and not source[0].get_animation_list().is_empty():
+				var anim: Animation = source[0].get_animation(source[0].get_animation_list()[0]).duplicate()
+				anim.loop_mode = Animation.LOOP_LINEAR
+				rescue_clips[clip] = anim
+			root.free()
+	var library: AnimationLibrary = player.get_animation_library("")
+	if library == null: return
+	for clip in rescue_clips:
+		if not library.has_animation(clip): library.add_animation(clip, rescue_clips[clip])
+
+# 两只手腕骨骼的世界坐标中点；找不到骨架时退回胸口高度。
+var hand_skeletons := {}
+
+func hand_point(i: int) -> Vector3:
+	var fallback: Vector3 = robots[i].position + Vector3(0, 1.4, 0)
+	if not hand_skeletons.has(i):
+		var found: Array = robots[i].find_children("*", "Skeleton3D", true, false)
+		hand_skeletons[i] = found[0] if not found.is_empty() else null
+	var skeleton: Skeleton3D = hand_skeletons[i]
+	if skeleton == null or not is_instance_valid(skeleton): return fallback
+	var sum := Vector3.ZERO
+	var count := 0
+	for bone_name in ["Wrist.L", "Wrist.R"]:
+		var bone := skeleton.find_bone(bone_name)
+		if bone >= 0:
+			sum += skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
+			count += 1
+	return sum / count if count > 0 else fallback
+
 func register_animation(node: Node) -> void:
 	if node is AnimationPlayer:
 		animation_players.append(node)
+		add_rescue_clips(node)
 		for name in node.get_animation_list():
-			if name.ends_with("Idle") or name.ends_with("Run"):
+			if name.ends_with("Idle") or name.ends_with("Run") or name.ends_with("Interact") or name.ends_with("HitRecieve_2"):
 				node.get_animation(name).loop_mode = Animation.LOOP_LINEAR
 		node.animation_finished.connect(func(name):
 			if name.contains("HitRecieve") and run.state == "failed":
@@ -255,6 +302,9 @@ func run_animation_speed() -> float:
 
 # 冒险者动画没有 Jump 和 HitRecieve_1：腾空用翻滚，受击用 HitRecieve。
 const ACTION_FALLBACK := {"Jump": "Roll", "HitRecieve_1": "HitRecieve"}
+# 纯预警表现节点：不属于机关或道具本体，同步时统一隐藏。
+const WARNING_NODES := ["WarningLabel", "WarningFootprint", "FlightRoute", "TrajectoryCorridor", "LaunchMarker",
+	"HammerZone", "GapApproach", "GapNear", "GapFar", "GapNearInner", "GapFarInner", "GapLeftRim", "GapRightRim"]
 
 func play_action(player: AnimationPlayer, action: String) -> void:
 	for wanted in [action, ACTION_FALLBACK.get(action, action)]:
@@ -354,20 +404,32 @@ func build_road() -> void:
 	for n in range(3): rock_mesh("island_%d" % n, 80 + n, rng.randf_range(4.0, 5.5), rng.randf_range(3.6, 4.6), 62.0, 0.16, "flat")
 	for n in range(4): rock_mesh("boulder_%d" % n, 100 + n, 1.0, 1.0, 1.5, 0.22, "round")
 	var trees := ["DeadTree_A", "DeadTree_B", "Pine", "Pine"]
+	# 地貌分段：每 9 段（72 米）换一种山脊风貌，63 段循环内依次出现石板山脊、松林、遗迹回廊、赤岩荒脊。
+	# 只换路面色调和路外装饰，路面宽度、高度与碰撞完全不变。
+	var zone_paving := [
+		paving,
+		tex_material("forest_paving", "monastery_stone_floor", 0.25, Color("8f9a7e")),
+		tex_material("ruin_paving", "monastery_stone_floor", 0.18, Color("c9b48f")),
+		tex_material("badland_paving", "rock_boulder_dry", 0.2, Color("b98a6a")),
+	]
+	var zone_moss := [moss, zone_material("forest_moss", Color(0.12, 0.22, 0.06, 0.5)), moss, zone_material("badland_dust", Color(0.35, 0.18, 0.08, 0.3))]
+	var ruin_stone := tex_material("ruin_stone", "monastery_stone_floor", 0.4, Color("d8c8a8"))
 	for i in range(-2, 61):
 		var chunk := Node3D.new()
 		road.add_child(chunk)
 		chunk.position.z = -i * 8.0
 		chunk.set_meta("road_slot", i + 2)
+		var zone: int = ((i + 2) / 9) % 4
+		chunk.set_meta("zone", zone)
 		scenery.append(chunk)
-		var surface := box(chunk, Vector3(0, -0.25, 0), Vector3(ROAD_HALF * 2, 0.5, 8), paving)
+		var surface := box(chunk, Vector3(0, -0.25, 0), Vector3(ROAD_HALF * 2, 0.5, 8), zone_paving[zone])
 		surface.name = "SupportSurface"
 		surface.set_meta("original_mesh", surface.mesh)
 		var seam := box(chunk, Vector3(0, 0.005, 3.95), Vector3(ROAD_HALF * 2 - 0.4, 0.02, 0.1), seam_mat)
 		seam.set_meta("road_overlay", true)
 		# 石缝里的苔斑和零星裂缝，跑动时脚下有东西掠过；没有碰撞。
 		for n in range(3):
-			var patch := cylinder(chunk, Vector3(rng.randf_range(-ROAD_HALF + 1.2, ROAD_HALF - 1.2), 0.008, rng.randf_range(-3.2, 3.2)), 1.0, 0.012, moss)
+			var patch := cylinder(chunk, Vector3(rng.randf_range(-ROAD_HALF + 1.2, ROAD_HALF - 1.2), 0.008, rng.randf_range(-3.2, 3.2)), 1.0, 0.012, zone_moss[zone])
 			patch.scale = Vector3(rng.randf_range(0.4, 1.3), 1, rng.randf_range(0.3, 0.9))
 			patch.rotation.y = rng.randf_range(0, PI)
 			patch.set_meta("road_overlay", true)
@@ -401,7 +463,44 @@ func build_road() -> void:
 		# 每隔几段在路外七八米处立一座平顶石台，上面是残柱、拱门、旗帜和火把；与路面之间隔着深渊。
 		if i >= 0 and i % 3 == 0:
 			build_ruin_island(chunk, -1.0 if (i / 3) % 2 == 0 else 1.0, rng, cliff)
+		build_zone_decor(chunk, zone, i, boulder, ruin_stone)
 	build_backdrop(far_rock)
+
+# 各地貌段的路外装饰。全部落在路沿以外的崖边岩台上，不进入可站立范围，也没有碰撞。
+# 用独立随机种子，避免改变原有山脊装饰的排布。
+func build_zone_decor(chunk: Node3D, zone: int, slot: int, boulder: Material, ruin_stone: Material) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7700 + slot
+	for side in [-1, 1]:
+		var outer: float = side * (ROAD_HALF + 0.9)
+		match zone:
+			1:
+				# 松林：崖边岩台上成排的松树和灌木，路沿草更密。
+				for z in [-2.5, 1.5]:
+					var ledge := rock(chunk, rock_meshes["boulder_%d" % rng.randi_range(0, 3)], boulder, Vector3(outer + side * rng.randf_range(0.4, 1.0), -1.1, z), rng.randf_range(1.4, 1.9), rng.randf_range(0, TAU))
+					ledge.scale.y *= 0.55
+					model("res://assets/decor/Pine.glb", chunk, Vector3(outer + side * rng.randf_range(0.6, 1.4), -0.4, z + rng.randf_range(-0.6, 0.6)), rng.randf_range(4.5, 7.5), rng.randf_range(0, TAU))
+				model("res://assets/decor/Bush.glb", chunk, Vector3(outer + side * 0.3, -0.25, rng.randf_range(-3.5, 3.5)), rng.randf_range(0.9, 1.4), rng.randf_range(0, TAU))
+				model("res://assets/decor/TallGrass.glb", chunk, Vector3(side * (ROAD_HALF - 0.05), 0, rng.randf_range(-3.5, 3.5)), rng.randf_range(0.6, 1.0), rng.randf_range(0, TAU))
+			2:
+				# 遗迹回廊：路两侧的石基残柱，隔段一座火把，偶尔一根断柱斜倒在崖边。
+				box(chunk, Vector3(outer + side * 0.5, -0.45, 0), Vector3(1.4, 1.0, 7.6), ruin_stone)
+				var column := model("res://assets/decor/%s.glb" % ("Column" if rng.randf() < 0.65 else "ColumnRound"), chunk, Vector3(outer + side * 0.5, 0.05, rng.randf_range(-1.5, 1.5)), rng.randf_range(3.2, 5.0), rng.randf_range(0, TAU))
+				if rng.randf() < 0.3: column.rotation.z = side * rng.randf_range(0.2, 0.45)
+				if slot % 2 == 0 and side > 0 or slot % 2 != 0 and side < 0:
+					var torch_spot := Vector3(outer + side * 0.6, 0.05, -3.0)
+					model("res://assets/decor/Torch.glb", chunk, torch_spot, 1.8)
+					box(chunk, torch_spot + Vector3(0, 1.95, 0), Vector3(0.18, 0.24, 0.18), material("torch_flame", Color("ffb347"), 3.0))
+				if rng.randf() < 0.35:
+					model("res://assets/decor/Banner.glb", chunk, Vector3(outer + side * 0.6, 0.05, 2.6), rng.randf_range(3.0, 3.8), PI / 2 * side)
+			3:
+				# 赤岩荒脊：路沿堆着风化巨石，枯树从石堆里伸出来。
+				for n in range(2):
+					var heap := rock(chunk, rock_meshes["boulder_%d" % rng.randi_range(0, 3)], boulder, Vector3(outer + side * rng.randf_range(0.3, 1.2), -0.6, rng.randf_range(-3.4, 3.4)), rng.randf_range(1.0, 1.8), rng.randf_range(0, TAU))
+					heap.scale.y *= rng.randf_range(0.6, 0.95)
+				if rng.randf() < 0.55:
+					var dead := model("res://assets/decor/%s.glb" % ("DeadTree_A" if rng.randf() < 0.5 else "DeadTree_B"), chunk, Vector3(outer + side * 1.0, -0.2, rng.randf_range(-2.5, 2.5)), rng.randf_range(3.5, 5.5), rng.randf_range(0, TAU))
+					dead.rotation.z = -side * rng.randf_range(0.05, 0.3)
 
 func build_ruin_island(chunk: Node3D, side: float, rng: RandomNumberGenerator, cliff: Material) -> void:
 	var island := Node3D.new()
@@ -696,9 +795,8 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 		if p.name == "floor":
 			body.position.y = 0.26
 			body.mesh.size.y = 0.02
-			# 完整时也是醒目的琥珀色裂纹石板；预警期间黄红闪烁。
-			var flash: bool = fmod(run.elapsed, 0.3) < 0.15
-			body.material_override.albedo_color = (Color("ffd23a") if flash else Color("ff4a1c")) if sample.warning else Color("c9963f")
+			# 琥珀色裂纹石板本身就是道具外形；不再做黄红闪烁预警。
+			body.material_override.albedo_color = Color("c9963f")
 			for child in body.get_children(): child.visible = true
 		if p.name == "nozzle": body.position.y = 0.26
 	if run.kinds[index] == "drone":
@@ -892,7 +990,7 @@ func build_rock_block(chunk: Node3D, index: int) -> void:
 	var size := Vector3(rect.size.x / SCALE, run.obstacle_heights[index] / SCALE, rect.size.y / SCALE)
 	# 顶板、警示圈与本体形成阶差，避免共面闪烁；总高度仍等于碰撞高度。
 	box(chunk, Vector3(0, (size.y - 0.1) / 2, 0), Vector3(size.x, size.y - 0.1, size.z), tex_material("rock_block", "rock_boulder_dry", 0.2, Color("a3907f")))
-	box(chunk, Vector3(0, size.y - 0.06, 0), Vector3(size.x, 0.08, size.z), material("rock_block_rim", Color("ff5a2e"), 0.7))
+	box(chunk, Vector3(0, size.y - 0.06, 0), Vector3(size.x, 0.08, size.z), material("rock_block_rim", Color("8a7a66")))
 	box(chunk, Vector3(0, size.y - 0.06, 0), Vector3(size.x - 0.3, 0.12, size.z - 0.3), tex_material("rock_block_top", "rock_boulder_dry", 0.2, Color("b8a694")))
 	var sign := Label3D.new()
 	sign.name = "WarningLabel"
@@ -1453,6 +1551,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		command("pause")
 	elif event.keycode == KEY_R:
 		command("retry")
+	elif event.keycode == KEY_M and not net.active() and run.state in ["start", "paused", "failed"]:
+		# M：切换单人（02 由人机控制）/ 本地双人。
+		solo = not solo
+		buddy.reset()
+	elif event.keycode == KEY_F and solo:
+		# F：测试用，让人机在下一处断崖/障碍必定失误。
+		buddy.force_miss = true
 	elif event.keycode == KEY_ENTER or event.keycode == KEY_SPACE:
 		# 空格/回车也是跳跃键：失败演出期间不能被跳跃误触直接重试；R 仍可主动跳过。
 		if run.state not in ["running", "rescue"] and not fail_showing():
@@ -1471,9 +1576,17 @@ func _physics_process(delta: float) -> void:
 	var second := Vector2(float(key_down(KEY_RIGHT)) - float(key_down(KEY_LEFT)), float(key_down(KEY_UP)) - float(key_down(KEY_DOWN)))
 	var touch_jump: bool = touch.take_jump()
 	if touch.move != Vector2.ZERO: first = touch.move
+	var second_jump := key_down(KEY_ENTER)
+	if solo:
+		# 单人：02 交给人机，真人只用 01 的按键（方向键也可以控制 01）。
+		var arrows := second
+		if first == Vector2.ZERO: first = arrows
+		var decision: Dictionary = buddy.think(run, delta)
+		second = decision.move
+		second_jump = decision.jump
 	var previous_state: String = run.state
 	var before := {"heights": run.heights.duplicate(), "shield": run.shield, "shield_uses": run.shield_uses, "locked": locked_threats(), "presses": rescue_presses()}
-	run.step(delta, first, second, key_down(KEY_SPACE) or touch_jump, key_down(KEY_ENTER))
+	run.step(delta, first, second, key_down(KEY_SPACE) or touch_jump or (solo and key_down(KEY_ENTER)), second_jump)
 	play_events(before, previous_state)
 	fall_clock = fall_clock + delta if falling() else 0.0
 	if run.state != previous_state: clear_controls()
@@ -1573,7 +1686,6 @@ func play_events(before: Dictionary, previous_state: String) -> void:
 		for i in range(2):
 			if before.heights[i] == 0.0 and run.heights[i] > 0.0: sfx.play("jump", -10.0, 1.0 if i == 0 else 1.15)
 			if before.heights[i] > 0.0 and run.heights[i] == 0.0: sfx.play("land", -9.0, 1.0 if i == 0 else 1.1)
-		if locked_threats() > before.locked: sfx.play("warning", -9.0)
 	if run.shield_uses > before.shield_uses: sfx.play("shield_break", -3.0)
 	if rescue_presses() > before.get("presses", 0): sfx.play("jump", -8.0, 0.8 + run.rescue.get("progress", 0.0) * 0.6)
 	if run.state == previous_state: return
@@ -1638,6 +1750,11 @@ func sync_view() -> void:
 	for layer in range(mist_layers.size()):
 		mist_layers[layer].uv1_offset = Vector3(run.elapsed * 0.004 * (layer + 1), run.total_distance() / SCALE / 300.0, 0)
 	var forward: float = run.distance / SCALE
+	for i in range(2):
+		var presses: int = 0 if run.rescue.is_empty() else run.rescue.presses[i]
+		if presses > rescue_seen[i]: rescue_pulse[i] = 1.0
+		rescue_seen[i] = presses
+		rescue_pulse[i] = maxf(0.0, rescue_pulse[i] - frame_delta * 6.0)
 	road.position.z = forward
 	for chunk in scenery:
 		if chunk.has_meta("road_slot"):
@@ -1745,10 +1862,15 @@ func sync_view() -> void:
 			sign.visible = sample.active or sample.warning
 			if run.hazard_specs[index].get("front", false):
 				sign.text = "迎面 %.1f 秒 · " % sample.ttc + Run.hazard_name(run.kinds[index])
-	# 场景里不显示任何机关或道具的文字说明，危险只靠外形、颜色和地面预警区表达。
+	# 场景里只保留机关和道具本体：文字说明、地面预警区、轨迹线、警戒条和透明危险包围盒一律隐藏。
 	for view in hazard_views:
-		var sign: Label3D = view.get_node_or_null("WarningLabel")
-		if sign != null: sign.visible = false
+		for warning_name in WARNING_NODES:
+			var node: Node3D = view.get_node_or_null(warning_name)
+			if node != null: node.visible = false
+		# 火箭和地刺的危险盒只是半透明包络，外形已由机身/刺锥表达。
+		var volume: MeshInstance3D = view.get_node_or_null("DangerVolume")
+		if volume != null and volume.material_override != null and volume.material_override.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA:
+			volume.visible = false
 	for i in range(2):
 		var p: Vector2 = run.a.position if i == 0 else run.b.position
 		robots[i].position = Vector3(p.x / SCALE, run.heights[i] / SCALE, -p.y / SCALE + forward)
@@ -1756,6 +1878,7 @@ func sync_view() -> void:
 		robots[i].rotation.z = -run.move_directions[i].x * 0.06 if run.state == "running" else 0.0
 		# 跑动时身体前倾，加速前冲时更明显；角色背对镜头，负角度是向前。
 		robots[i].rotation.x = -0.13 - run.move_directions[i].y * 0.07 if run.state == "running" else 0.0
+		robots[i].rotation.y = 0.0
 		shadows[i].position = Vector3(p.x / SCALE, 0.018, -p.y / SCALE + forward)
 		# 阴影随生产跳跃高度缩小，最高点（JUMP_APEX）缩至 0.64。
 		shadows[i].scale = Vector3.ONE * (1.0 - 0.36 * run.heights[i] / Run.JUMP_APEX + run.land_time[i] * 1.2)
@@ -1766,14 +1889,28 @@ func sync_view() -> void:
 		var hanging: bool = not run.rescue.is_empty() and i == run.rescue.role
 		if not run.rescue.is_empty():
 			# 救援：坠落者吊在崖边绳下，随进度被拉上来；救援者后仰拉绳。
+			var climb: float = clampf(run.rescue.get("climb", 0.0) / Run.RESCUE_CLIMB_TIME, 0.0, 1.0)
+			# 两人面对面：救援者朝坠落者收绳，坠落者面朝崖壁往上爬。
+			var holder_p: Vector2 = run.b.position if run.rescue.role == 0 else run.a.position
+			var facing: Vector2 = (run.rescue.hang - holder_p) * (1.0 if not hanging else -1.0)
+			if facing.length() > 1.0 and climb < 0.5:
+				robots[i].rotation.y = atan2(-facing.x, facing.y)
 			if hanging:
+				# 吊着时随连按往上蹭，每按一下身体一抖；拉满后沿弧线翻上崖沿、走到落脚点。
 				var hang: Vector2 = run.rescue.hang
-				robots[i].position.x = hang.x / SCALE
-				robots[i].position.z = -hang.y / SCALE + forward
-				robots[i].position.y = lerpf(-2.0, -0.4, run.rescue.progress) + sin(run.rescue.time * 9.0) * 0.06
-				robots[i].rotation.x = -0.35
+				var hang_y: float = lerpf(-2.0, -0.4, run.rescue.progress) + sin(run.rescue.time * 9.0) * 0.06 + rescue_pulse[i] * 0.18
+				var spot := Vector3(hang.x / SCALE, hang_y, -hang.y / SCALE + forward)
+				if run.rescue.has("climb"):
+					var anchor: Vector2 = run.rescue.anchor
+					var top := Vector3(anchor.x / SCALE, 0.0, -anchor.y / SCALE + forward)
+					var lift: float = smoothstep(0.0, 0.55, climb)
+					var walk: float = smoothstep(0.45, 1.0, climb)
+					spot = Vector3(lerpf(spot.x, top.x, walk), lerpf(spot.y, 0.0, lift) + sin(climb * PI) * 0.5, lerpf(spot.z, top.z, walk))
+				robots[i].position = spot
+				robots[i].rotation.x = lerpf(-0.08 - rescue_pulse[i] * 0.12, 0.0, climb)
 			else:
-				robots[i].rotation.x = 0.3
+				# 救援者的后仰与倒手收绳由 RopePull 动作表现；每次按键再猛拽一下。
+				robots[i].rotation.x = lerpf(0.08 + rescue_pulse[i] * 0.25, 0.0, climb)
 		if drop > 0:
 			# 从路边坠落的角色边翻滚边向外飘离崖壁，不被扶壁岩挡住。
 			if absf(robots[i].position.x) > ROAD_HALF - 1.5: robots[i].position.x += signf(robots[i].position.x) * minf(5.0, drop * 3.5)
@@ -1793,7 +1930,15 @@ func sync_view() -> void:
 				else:
 					failed_animation_started[i] = false
 					var waiting: bool = run.charge_gate.active and not run.charge_gate.open and run.distance >= run.charge_gate.receiver.y and run.move_directions[i] == Vector2.ZERO
-					play_action(player, "Jump" if run.heights[i] > 0 else ("Run" if run.state == "running" and not waiting else "Idle"))
+					if not run.rescue.is_empty() and run.state == "rescue":
+						# 救援者倒手收绳；坠落者沿绳倒手攀爬，翻上崖沿后期改为跑步迈上来。
+						# 两个循环的播放速度跟随连按节奏，按得越快拉得越快。
+						var climb_t: float = run.rescue.get("climb", 0.0) / Run.RESCUE_CLIMB_TIME
+						play_action(player, "RopePull" if i != run.rescue.role else ("Run" if climb_t > 0.5 else "Climb"))
+						if not player.current_animation.ends_with("Run"):
+							player.speed_scale = 0.8 + rescue_pulse[i] * 1.6 + (0.6 if climb_t > 0.0 else 0.0)
+					else:
+						play_action(player, "Jump" if run.heights[i] > 0 else ("Run" if run.state == "running" and not waiting else "Idle"))
 					if player.current_animation.ends_with("Run"):
 						player.speed_scale = run_animation_speed()
 					# 动画与物理抛物线同步；不让 Jump 自带位移改变碰撞中心。
@@ -1814,6 +1959,9 @@ func sync_view() -> void:
 			if n > 0: travelled += rope_path[n - 1].distance_to(rope_path[n])
 			var lift := lerpf(run.heights[0], run.heights[1], travelled / maxf(span, 0.0001)) / SCALE + 1.4
 			rope_points.append(Vector3(rope_path[n].x / SCALE, lift, -rope_path[n].y / SCALE + forward))
+	elif run.state == "rescue":
+		# 救援时绳子两端握在两人手中，随倒手动作一收一放。
+		rope_points = [hand_point(0), hand_point(1)]
 	else:
 		rope_points = [robots[0].position + Vector3(0, 1.4, 0), robots[1].position + Vector3(0, 1.4, 0)]
 	# 去掉切点重合的零长度段，剩下的折线交给绳子模拟。
@@ -1839,6 +1987,7 @@ func update_ui() -> void:
 		return
 	hud.text = "第 %d/3 关 · %s · 金币 %d · 奖品 %d · 护盾 %s" % [run.level_index + 1, run.difficulty, run.coins, run.prizes, "无敌 %.1fs" % maxf(0, run.invulnerable_until - run.elapsed) if run.elapsed < run.invulnerable_until else ("1" if run.shield else "0")]
 	if run.charge_gate.active: hud.text += "\n" + run.gate_hint(run.charge_gate)
+	hud.text += "\n单人 · 02 人机：%s（F 让它下一处失误）" % buddy.feedback if solo else "\nM 切换单人（人机做 02）"
 	distance_label.text = "绳 %.1f/%.2fm · 终点 %.0fm" % [run.rope.length / SCALE, Run.LINK_LIMIT / SCALE, maxf(0, run.finish_distance() - run.progress()) / SCALE]
 	match run.rope_status():
 		"contact": distance_label.text += (" · 滚球带绳 张力 %d%%" if run.ball_contact() else " · 绳索挂柱 张力 %d%%") % int(run.rope_tension() * 100)
@@ -1865,7 +2014,7 @@ func update_ui() -> void:
 	match run.state:
 		"start":
 			title.text = "共生归航"
-			subtitle.text = "01：WASD 移动 / 空格跳；02：方向键移动 / 回车跳。\n两侧是悬崖，没有护栏：走出路面会坠落，并把队友拖下去。\n自动推进 · 前后调节 ±5 米 · 连线最多 7.33 米。\n三关各约 100 秒，每局地图、陷阱和奖励随机；两人共同到终点后分别确认。
+			subtitle.text = ("【单人模式】你控制 01（WASD/方向键 + 空格/回车），02 是人机。按 M 切到本地双人。\n" if solo else "【本地双人】01：WASD 移动 / 空格跳；02：方向键移动 / 回车跳。按 M 切到单人+人机。\n") + "两侧是悬崖，没有护栏：走出路面会坠落，并把队友拖下去。\n自动推进 · 前后调节 ±5 米 · 连线最多 7.33 米。\n三关各约 100 秒，每局地图、陷阱和奖励随机；两人共同到终点后分别确认。
 吃到的金币会飞进右上角得分。\n金币共享，奖品需两人到位；护盾吸收一次角色伤害，不解绳索受阻。松开启动键再跳。"
 			primary.text = "开始归航  /  Enter"
 		"paused":
