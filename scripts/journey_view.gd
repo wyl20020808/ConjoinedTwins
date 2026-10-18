@@ -15,6 +15,11 @@ var preparation_peak_usec := 0
 var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
+# 单位为道路单位（20/米）。预热窗口比展示窗口多 40 米，退出窗口再留 20 米迟滞。
+const MODEL_AHEAD := 2400.0
+const MODEL_PREFETCH := 3200.0
+const MODEL_RETAIN := 3600.0
+const MODEL_BEHIND := 600.0
 const Landscape = preload("res://scripts/journey_landscape.gd")
 var landscape
 const Buddy=preload("res://scripts/journey_buddy.gd")
@@ -34,6 +39,7 @@ var gate_views := {}
 var static_views := {}
 var floor_stamp := ""
 var built_chapter := -1
+var built_seed := -1
 var built_training := false
 var journey_hint: Label
 var credits_panel: PanelContainer
@@ -68,7 +74,16 @@ var journey_camera_returning:=false
 
 func create_run():
 	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
-	return Journey.new()
+	return Journey.new(true)
+
+func model_visible(y: float) -> bool:
+	return y-run.distance >= -MODEL_BEHIND and y-run.distance < MODEL_AHEAD
+
+func model_preload(y: float) -> bool:
+	return y-run.distance >= -MODEL_BEHIND and y-run.distance < MODEL_PREFETCH
+
+func model_resident(y: float) -> bool:
+	return y-run.distance >= -MODEL_BEHIND-200 and y-run.distance < MODEL_RETAIN
 
 func _ready() -> void:
 	# 本地也限制长帧追赶，避免补算持续挤占输入和绘制。
@@ -325,8 +340,7 @@ func prepare_journey_frame() -> bool:
 	var deadline := started + Run.PRELOAD_SLICE_USEC
 	sync_world()
 	var current := int(run.distance/SCALE/CHUNK)
-	var ahead_chunks:=4 if landscape.mobile or OS.has_feature("web") else 6
-	for number in range(maxi(-1,current-1),current+ahead_chunks):
+	for number in range(maxi(-1,current-1),current+4):
 		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
 		if not chunk_jobs.has(number):
 			chunk_jobs[number] = {"items":null,"cursor":0,"node":null,"paths":[],"task":null}
@@ -358,7 +372,7 @@ func prepare_journey_frame() -> bool:
 	for job in chunk_jobs.values():retained.append_array(job.paths)
 	# 动态攻击与机关的资源仅在当前邻域保留，不随章节永久累积。
 	for event in run.journey_events:
-		if absf(event.y-run.distance)>5800:continue
+		if not model_resident(event.y):continue
 		match event.kind:
 			"tree":retained.append("res://assets/landscape/oak_7.glb")
 			"boar":retained.append("res://assets/journey/boar.glb")
@@ -366,9 +380,9 @@ func prepare_journey_frame() -> bool:
 			"swing":retained.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["cart","stone"]:retained.append("res://assets/journey/villager_actions.glb")
 	for gate in run.charge_gates:
-		if absf(gate.receiver.y-run.distance)<5800:retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
+		if model_resident(gate.receiver.y):retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
 	retained.append_array(chunk_assets.pending);retained.append_array(chunk_assets.active)
-	if run.kinds.has("drone"):
+	if visual_hazard_candidates().any(func(i):return run.kinds[i]=="drone"):
 		var flying_assets:Array=["res://assets/props/Eagle_Flying.glb"]
 		retained.append_array(flying_assets);chunk_assets.request(flying_assets)
 	chunk_assets.retain(retained)
@@ -378,6 +392,7 @@ func prepare_journey_frame() -> bool:
 		if Time.get_ticks_usec()>=deadline: break
 		var job: Dictionary = chunk_jobs[number]
 		if job.items==null: continue
+		chunk_assets.request(job.paths)
 		if not chunk_assets.ready(job.paths): continue
 		if job.node==null:
 			job.node=Node3D.new()
@@ -394,7 +409,7 @@ func prepare_journey_frame() -> bool:
 			job.node.visible=number<=current+3
 			chunk_jobs.erase(number)
 			chunk_install_count+=1
-	var ready := events_ready
+	var ready := events_ready and prepare_hazard_views(deadline)
 	var completed := 0
 	var required := 0
 	for number in range(maxi(-1,current-1),current+4):
@@ -412,8 +427,7 @@ func prepare_journey_frame() -> bool:
 func prepare_event_views(deadline: int) -> bool:
 	var ready := true
 	for event in run.journey_events:
-		var ahead: float=event.y-run.distance
-		if ahead <= -900 or ahead >= 5800 or event_views.has(event.id): continue
+		if not model_preload(event.y) or event_views.has(event.id): continue
 		var paths: Array=[]
 		match event.kind:
 			"tree": paths.append("res://assets/landscape/oak_7.glb")
@@ -425,19 +439,19 @@ func prepare_event_views(deadline: int) -> bool:
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
 			event_views[event.id]=build_event(event)
 			event_views[event.id].hide()
-		elif ahead<4200: ready=false
+		elif model_visible(event.y): ready=false
 	for gate in run.charge_gates:
-		if absf(gate.receiver.y-run.distance)>=5800 or gate_views.has(gate.id): continue
+		if not model_preload(gate.receiver.y) or gate_views.has(gate.id): continue
 		var paths: Array=["res://assets/journey/gate.glb", "res://assets/journey/%s.glb"%("waterwheel" if gate.id=="waterwheel" else "drawbridge")]
 		chunk_assets.request(paths)
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
 			gate_views[gate.id]=build_gate(gate)
 			gate_views[gate.id].hide()
-		elif absf(gate.receiver.y-run.distance)<4200: ready=false
+		elif model_visible(gate.receiver.y): ready=false
 	return ready
 
 func sync_world() -> void:
-	if built_chapter!=run.level_index or built_training!=run.combat_trial:
+	if built_chapter!=run.level_index or built_training!=run.combat_trial or built_seed!=run.seed_value:
 		for chunk in world_chunks.values(): chunk.queue_free()
 		world_chunks.clear()
 		for job in chunk_jobs.values():
@@ -449,6 +463,7 @@ func sync_world() -> void:
 		for view in gate_views.values(): view.queue_free()
 		gate_views.clear()
 		built_chapter=run.level_index
+		built_seed=run.seed_value
 		built_training=run.combat_trial
 		floor_stamp=""
 		for view in static_views.values():view.queue_free()
@@ -530,10 +545,10 @@ func build_event(event: Dictionary) -> Node3D:
 
 func sync_events() -> void:
 	for event in run.journey_events:
-		var near:bool=event.y-run.distance>=-900 and event.y-run.distance<4200
+		var near:bool=model_visible(event.y)
 		if not near:
 			if event_views.has(event.id):
-				if incremental_loading and event.y-run.distance>=4200 and event.y-run.distance<5800: event_views[event.id].hide()
+				if incremental_loading and model_resident(event.y): event_views[event.id].hide()
 				else:
 					event_views[event.id].queue_free()
 					event_views.erase(event.id)
@@ -617,7 +632,11 @@ func build_gate(gate: Dictionary) -> Node3D:
 
 func sync_gates() -> void:
 	for gate in run.charge_gates:
-		if absf(gate.receiver.y-run.distance)>4200: continue
+		if not model_visible(gate.receiver.y):
+			if gate_views.has(gate.id):
+				if model_resident(gate.receiver.y):gate_views[gate.id].hide()
+				else:gate_views[gate.id].queue_free();gate_views.erase(gate.id)
+			continue
 		if not gate_views.has(gate.id):
 			if incremental_loading: continue
 			gate_views[gate.id]=build_gate(gate)
@@ -632,6 +651,9 @@ func sync_gates() -> void:
 		for side in ["left","right"]:
 			view.get_node(side).visible=not gate.open
 	# 终点固定在世界中，双方都到达才结算。
+	if not model_resident(run.finish_distance()):
+		if road.has_node("JourneyFinish"):road.get_node("JourneyFinish").queue_free()
+		return
 	if not road.has_node("JourneyFinish"):
 		var end:=Node3D.new()
 		end.name="JourneyFinish"
@@ -946,6 +968,7 @@ func sync_view() -> void:
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
 	for chunk in world_chunks.values():
+		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
 			node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
 	sync_journey_rewards()
@@ -1256,76 +1279,113 @@ func sample_animation(node:Node,token:String,time:float)->void:
 	if not node.has_meta(key): node.set_meta(key,animation_targets(node,token))
 	for target in node.get_meta(key):
 		var player: AnimationPlayer=target[0]
+		var sample_time:float=fposmod(time,target[2]) if token in ["Charge","WheelTurn"] else clampf(time,0,target[2])
+		if not player.is_playing() and player.current_animation==target[1] and player.current_animation_position==sample_time:continue
 		player.play(target[1])
-		player.seek(fposmod(time,target[2]) if token in ["Charge","WheelTurn"] else clampf(time,0,target[2]),true)
+		player.seek(sample_time,true)
 		player.pause()
 
+func visual_hazard_candidates() -> Array[int]:
+	var bounds:=Rect2(-Run.EDGE-1000,run.distance-MODEL_BEHIND,Run.EDGE*2+2000,MODEL_PREFETCH+MODEL_BEHIND)
+	return run.obstacles_in_bounds(bounds)
+
+func hazard_view_y(index: int) -> float:
+	if run.hazard_specs[index].get("front",false):return run.obstacles[index].get_center().y+run.hazard_specs[index].offset.y
+	if run.kinds[index] in ["drone","forklift"]:return run.hazard_sample(index,run.elapsed).rect.get_center().y
+	return run.obstacles[index].get_center().y
+
+func hazard_has_view(index: int) -> bool:
+	return run.hazard_specs[index].get("front",false) or run.kinds[index] in ["drone","rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
+
+func prepare_hazard_views(deadline: int) -> bool:
+	var ready:=true
+	for index in visual_hazard_candidates():
+		if static_views.has(index) or not hazard_has_view(index):continue
+		if Time.get_ticks_usec()>=deadline:
+			if model_visible(hazard_view_y(index)):ready=false
+			continue
+		if run.kinds[index]=="drone" and not chunk_assets.ready(["res://assets/props/Eagle_Flying.glb"]):
+			if model_visible(hazard_view_y(index)):ready=false
+			continue
+		sync_static_hazard(index)
+	return ready
+
 func sync_static_hazards()->void:
-	for i in range(run.kinds.size()):
-		var kind:String=run.kinds[i]
-		if kind=="drone" or run.hazard_specs[i].get("front",false):
-			sync_moving_threat(i)
-			continue
-		if kind not in ["rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:continue
-		var rect:Rect2=run.obstacles[i]
-		if absf(rect.position.y-run.distance)>4200:
-			if static_views.has(i):static_views[i].queue_free();static_views.erase(i)
-			continue
-		if kind in ["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:
-			if not static_views.has(i):static_views[i]=make_hazard_view(i)
-			var old_view:Node3D=static_views[i]
-			var sample:Dictionary=run.hazard_sample(i,run.elapsed)
-			old_view.position=Vector3(sample.rect.get_center().x/SCALE,0,-sample.rect.get_center().y/SCALE)
-			if kind in Run.Terrain.KINDS:sync_terrain_model(old_view,i)
-			elif kind in Run.Industrial.KINDS:sync_industrial_model(old_view,i,sample)
-			else:
-				old_view.get_node("SweeperArm").rotation.y=sample.geometry.angle
-				old_view.get_node("WarningFootprint").visible=true
-			continue
-		if not static_views.has(i):
-			var view:=Node3D.new()
-			road.add_child(view)
-			if kind=="rail":
-				var log:=cylinder(view,Vector3(0,0.3,0),0.3,rect.size.x/SCALE,landscape.palette.Bark)
-				log.rotation.z=PI/2
-				for side in [-1,1]:
-					var end:=cylinder(view,Vector3(side*(rect.size.x/SCALE/2-.01),.3,0),.305,.035,landscape.palette.Wood)
-					end.rotation.z=PI/2
-			elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
-			elif kind=="cargo":
-				rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
-				var half_height:float=run.obstacle_heights[i]/SCALE/2 if run.hazard_specs[i].get("small",false) else 1.5
-				view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,half_height,rect.size.y/SCALE/2)
-				view.get_child(0).position.y=half_height
-			elif kind=="collapse":
-				box(view,Vector3(0,.012,0),Vector3(rect.size.x/SCALE,.02,rect.size.y/SCALE),material("fragile_ground",Color("5e5943")))
-				for n in range(7):
-					var crack:=box(view,Vector3(-rect.size.x/SCALE/2+n*1.6,.027,0),Vector3(.08,.025,rect.size.y/SCALE),material("fragile_cracks",Color("25261d")));crack.rotation.y=.18 if n%2==0 else -.18
-			else:
-				box(view,Vector3(0,.03,0),Vector3(rect.size.x/SCALE,.06,rect.size.y/SCALE),material("trap_base",Color("524935")))
-				var spike_count:int=maxi(1,floori(rect.size.x/SCALE/.65))
-				for n in range(spike_count):
-					var spike:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=0;mesh.bottom_radius=.18;mesh.height=.8;mesh.radial_segments=5
-					spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3((float(n)+.5)/spike_count*rect.size.x/SCALE-rect.size.x/SCALE/2,.4,0);view.add_child(spike)
-				var warning:=box(view,Vector3(0,.065,0),Vector3(rect.size.x/SCALE+.08,.025,rect.size.y/SCALE+.08),material("small_trap_warning",Color("e7ae43"),.25))
-				warning.name="SpikeWarning"
-			static_views[i]=view
-		static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
-		if kind=="collapse":static_views[i].visible=run.hazard_sample(i,run.elapsed).stage!="collapsed"
-		if kind=="active_spikes":
-			var sample:Dictionary=run.hazard_sample(i,run.elapsed)
-			for n in range(1,static_views[i].get_child_count()):
-				var spike:Node3D=static_views[i].get_child(n)
-				if spike.name=="SpikeWarning":
-					spike.visible=sample.warning
-					continue
-				spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
+	for index in static_views.keys():
+		if index>=run.kinds.size() or not model_resident(hazard_view_y(index)):
+			static_views[index].queue_free();static_views.erase(index)
+		elif not model_visible(hazard_view_y(index)):static_views[index].hide()
+	for index in visual_hazard_candidates():
+		if incremental_loading and not static_views.has(index):continue
+		sync_static_hazard(index)
+
+func sync_static_hazard(i: int) -> void:
+	var kind:String=run.kinds[i]
+	if kind=="drone" or run.hazard_specs[i].get("front",false):
+		sync_moving_threat(i)
+		return
+	if kind not in ["rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:return
+	var rect:Rect2=run.obstacles[i]
+	if not model_preload(rect.get_center().y):
+		if static_views.has(i):static_views[i].hide()
+		return
+	if kind in ["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:
+		if not static_views.has(i):static_views[i]=make_hazard_view(i)
+		var old_view:Node3D=static_views[i]
+		var sample:Dictionary=run.hazard_sample(i,run.elapsed)
+		old_view.position=Vector3(sample.rect.get_center().x/SCALE,0,-sample.rect.get_center().y/SCALE)
+		if kind in Run.Terrain.KINDS:sync_terrain_model(old_view,i)
+		elif kind in Run.Industrial.KINDS:sync_industrial_model(old_view,i,sample)
+		else:
+			old_view.get_node("SweeperArm").rotation.y=sample.geometry.angle
+			old_view.get_node("WarningFootprint").visible=true
+		old_view.visible=model_visible(sample.rect.get_center().y)
+		return
+	if not static_views.has(i):
+		var view:=Node3D.new()
+		road.add_child(view)
+		if kind=="rail":
+			var log:=cylinder(view,Vector3(0,0.3,0),0.3,rect.size.x/SCALE,landscape.palette.Bark)
+			log.rotation.z=PI/2
+			for side in [-1,1]:
+				var end:=cylinder(view,Vector3(side*(rect.size.x/SCALE/2-.01),.3,0),.305,.035,landscape.palette.Wood)
+				end.rotation.z=PI/2
+		elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
+		elif kind=="cargo":
+			rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
+			var half_height:float=run.obstacle_heights[i]/SCALE/2 if run.hazard_specs[i].get("small",false) else 1.5
+			view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,half_height,rect.size.y/SCALE/2)
+			view.get_child(0).position.y=half_height
+		elif kind=="collapse":
+			box(view,Vector3(0,.012,0),Vector3(rect.size.x/SCALE,.02,rect.size.y/SCALE),material("fragile_ground",Color("5e5943")))
+			for n in range(7):
+				var crack:=box(view,Vector3(-rect.size.x/SCALE/2+n*1.6,.027,0),Vector3(.08,.025,rect.size.y/SCALE),material("fragile_cracks",Color("25261d")));crack.rotation.y=.18 if n%2==0 else -.18
+		else:
+			box(view,Vector3(0,.03,0),Vector3(rect.size.x/SCALE,.06,rect.size.y/SCALE),material("trap_base",Color("524935")))
+			var spike_count:int=maxi(1,floori(rect.size.x/SCALE/.65))
+			for n in range(spike_count):
+				var spike:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=0;mesh.bottom_radius=.18;mesh.height=.8;mesh.radial_segments=5
+				spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3((float(n)+.5)/spike_count*rect.size.x/SCALE-rect.size.x/SCALE/2,.4,0);view.add_child(spike)
+			var warning:=box(view,Vector3(0,.065,0),Vector3(rect.size.x/SCALE+.08,.025,rect.size.y/SCALE+.08),material("small_trap_warning",Color("e7ae43"),.25))
+			warning.name="SpikeWarning"
+		static_views[i]=view
+	static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
+	static_views[i].visible=model_visible(rect.get_center().y)
+	if kind=="collapse":static_views[i].visible=static_views[i].visible and run.hazard_sample(i,run.elapsed).stage!="collapsed"
+	if kind=="active_spikes":
+		var sample:Dictionary=run.hazard_sample(i,run.elapsed)
+		for n in range(1,static_views[i].get_child_count()):
+			var spike:Node3D=static_views[i].get_child(n)
+			if spike.name=="SpikeWarning":
+				spike.visible=sample.warning
+				continue
+			spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
 
 func sync_moving_threat(index:int)->void:
 	var kind:String=run.kinds[index]
 	var sample:Dictionary=run.hazard_sample(index,run.elapsed)
 	var rect:Rect2=sample.rect
-	if rect.get_center().y-run.distance< -900 or rect.get_center().y-run.distance>4200 or (kind=="drone" and sample.stage=="spent"):
+	if not model_resident(rect.get_center().y) or (kind=="drone" and sample.stage=="spent"):
 		if static_views.has(index):static_views[index].queue_free();static_views.erase(index)
 		return
 	if not static_views.has(index):
@@ -1338,8 +1398,10 @@ func sync_moving_threat(index:int)->void:
 	var view:Node3D=static_views[index]
 	view.position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 	if kind=="drone":
+		view.visible=model_visible(rect.get_center().y)
 		sync_industrial_model(view,index,sample)
 		return
+	view.visible=model_visible(rect.get_center().y)
 	var route:MeshInstance3D=view.get_node("FlightRoute")
 	var length:float=clampf(absf(run.hazard_specs[index].velocity.y)*sample.ttc/SCALE,.05,80)
 	route.scale.z=length/route.mesh.size.z;route.position.z=length/2;route.visible=sample.warning
@@ -1442,6 +1504,7 @@ func toggle_online()->void:
 	if net.active():
 		net.disconnect_from()
 		run.lockstep=false
+		run.random_seed=true
 		run.new_campaign();run.state="start"
 		reset_journey_views()
 		net_status.text="已断开，可重新连接或选择单人模式"

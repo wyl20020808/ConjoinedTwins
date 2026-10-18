@@ -131,7 +131,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	if died and death_age>.48:
 		view.hide();return
 	# 不把加载队列中尚未进入显示窗口的敌人重新显示出来。
-	if event.y-run.distance< -900 or event.y-run.distance>=4200: return
+	if not game.model_visible(event.y): return
 	# 模拟窗口外的敌人尚未行动，静止远景只初始化一次；进入近景立即恢复动画。
 	var far:bool=event.kind=="monster" and absf(event.y-run.distance)>1400
 	if far and view.get_meta("enemy_far_ready",false):return

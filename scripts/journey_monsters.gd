@@ -1,6 +1,7 @@
 extends RefCounted
 
 # 固定步追击、绕障和落点攻击。导航路径也保存在事件中，存档与联机完整复现。
+const RandomLayout=preload("res://scripts/journey_random.gd")
 const WINDUP := 0.75
 const FLIGHT := 0.5
 const CYCLE := 2.8
@@ -41,16 +42,22 @@ static func safe_supply(run,point:Vector2)->bool:
 	return true
 
 static func populate(run) -> void:
+	var layout=RandomLayout.new(run.seed_value,run.level_index,2)
 	var pack := 0
-	for base in range(900,int(run.finish_distance())-1200,900):
+	for anchor in range(900,int(run.finish_distance())-1200,900):
+		# 每四群计划 16 只；局部 3~5 只波动，实体与合作门安全检查优先。
+		var base:float=anchor+float(layout.draw("spacing",[-120,-60,0,60,120]))
+		var count:int=layout.draw("pack_size",[3,4,4,5])
 		var points: Array[Vector2]=[]
-		for member in range(4):
+		for member in range(count):
 			var found := false
-			for offset in [0,100,-100,200]:
-				for x in ([-250,-120,120,250] if member%2==0 else [250,120,-120,-250]):
+			var offsets:Array=layout.shuffled([0,100,-100,200])
+			var lanes:Array=layout.shuffled([-250,-120,120,250])
+			for offset in offsets:
+				for x in lanes:
 					var point := Vector2(x,base+member*100+offset)
 					if points.any(func(p):return p.distance_to(point)<90) or not safe_spawn(run,point): continue
-					var variant:String=["archer","dasher","wolf",""][(pack+member)%4]
+					var variant:String=layout.draw("archetype",["archer","dasher","wolf",""])
 					add(run,point,run.theme_at(point.y),variant)
 					points.append(point);found=true;break
 				if found: break

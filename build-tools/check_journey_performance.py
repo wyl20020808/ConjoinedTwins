@@ -13,6 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
+    "journey_random_layout", "journey_streaming", "journey_warning_window",
     "journey_spatial_regression", "journey_front_sweep", "web_performance_regression",
     "physical_rope_terrain", "journey_pursuit", "journey_combat",
     "journey_monsters", "journey_combat_variety", "journey_world_view", "journey_failure_presentation", "journey_narrow_routes", "journey_polish", "journey_encounter_density",

@@ -92,7 +92,8 @@ func verify()->void:
 		for n in range(1,count):
 			var gap:float=run.encounter_markers[n].y-run.encounter_markers[n-1].y
 			if gap<600:
-				grouped=grouped and gap in [80.0,240.0,400.0]
+				# 组内中拍允许零均值的 ±18 扰动；换侧边界仍须保留原来的 400。
+				grouped=grouped and (absf(gap-80)<=18 or absf(gap-240)<=18 or gap==400)
 				if run.encounter_markers[n].blocked!=run.encounter_markers[n-1].blocked:grouped=grouped and gap>=400
 		check(grouped,"dense groups preserve 20 m side-change spacing")
 		print("PURSUIT LAYOUT chapter=",chapter," encounters=",count," monsters=",run.journey_events.filter(func(e):return e.kind=="monster").size())

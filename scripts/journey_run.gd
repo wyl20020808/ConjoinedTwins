@@ -35,6 +35,16 @@ var unbounded_obstacles:Array[int]=[]
 var obstacle_bin_epoch:=-INF
 var obstacle_bin_revision:=-1
 var obstacle_bin_count:=-1
+var obstacle_layout_signature := -1
+var dynamic_obstacles: Array[int] = []
+var dynamic_obstacle_bins := {}
+var terrain_layout_signature := -1
+var spatial_rebuilds := 0
+var gap_layout_signature := -1
+var gap_layout_count := -1
+var gap_indices: Array[int] = []
+var collapsing_indices: Array[int] = []
+var collapsed_indices: Array[int] = []
 var ground_gap_cache_time:=-INF
 var ground_gap_cache_revision:=-1
 var ground_gap_cache:Array[Rect2]=[]
@@ -53,8 +63,9 @@ var region_checkpoint := -1
 var event_serial := 0
 var last_floor := [0.0,0.0]
 
-func _init() -> void:
+func _init(randomize_layout:bool=false) -> void:
 	health_hazards=true
+	random_seed=randomize_layout
 	super(false, false)
 
 func hazard_contact(index: int, role: int, _message: String) -> bool:
@@ -381,25 +392,38 @@ func sync_hash() -> int:
 # 一次物理时刻内地面支持会查询数十次；只缓存纯几何结果，不省略任何缺口。
 func ground_gaps(time:float=-1.0)->Array[Rect2]:
 	var sample_time:=elapsed if time<0 else time
-	if ground_gap_cache_time==-INF or elapsed!=ground_gap_cache_epoch or revision!=ground_gap_cache_revision:
+	if ground_gap_cache_time==-INF or elapsed!=ground_gap_cache_epoch or revision!=ground_gap_cache_revision or gap_layout_count!=kinds.size():
 		ground_gap_queries.clear()
 		ground_gap_bins.clear()
 		ground_gap_cache_epoch=elapsed;ground_gap_cache_revision=revision
+		gap_layout_count=kinds.size()
+		var signature:=hash([kinds,obstacles,revision])
+		if signature!=gap_layout_signature:
+			gap_layout_signature=signature;gap_indices.clear();collapsing_indices.clear()
+			for i in range(kinds.size()):
+				if kinds[i] in ["road_gap","collapse"]:gap_indices.append(i)
+				if kinds[i]=="collapse":collapsing_indices.append(i)
+			# 强制首次查询建立完整几何；之后只求值少数会塌陷的地面。
+			collapsed_indices=[-1]
 	if not ground_gap_queries.has(sample_time):
 		# 固定步内混用当前、子步和预测时间，分别缓存，不互相覆盖。
 		if ground_gap_queries.size()>=16:
 			var oldest:float=ground_gap_queries.keys()[0]
 			ground_gap_queries.erase(oldest);ground_gap_bins.erase(oldest)
-		ground_gap_queries[sample_time]=super(sample_time)
-		# 多数时刻只有静态缺口。比较完整几何，复用相同分桶，避免每个
-		# 物理子步和预测时刻都分配整张地图；塌陷/开桥变化仍立即重建。
-		if ground_gap_queries[sample_time]!=ground_gap_layout:
-			ground_gap_layout=ground_gap_queries[sample_time]
-			ground_gap_layout_bins={}
+		var active: Array[int]=[]
+		for i in collapsing_indices:
+			if hazard_sample(i,sample_time).stage=="collapsed":active.append(i)
+		if active!=collapsed_indices:
+			collapsed_indices=active
+			# 新建数组，旧预测时刻的缓存仍指向原来的几何和分桶。
+			ground_gap_layout=[];ground_gap_layout_bins={}
+			for i in gap_indices:
+				if kinds[i]=="road_gap" or i in active:ground_gap_layout.append(obstacles[i])
 			for gap:Rect2 in ground_gap_layout:
 				for cell in range(floori(gap.position.y/400.0),floori(gap.end.y/400.0)+1):
 					if not ground_gap_layout_bins.has(cell):ground_gap_layout_bins[cell]=[]
 					ground_gap_layout_bins[cell].append(gap)
+		ground_gap_queries[sample_time]=ground_gap_layout
 		ground_gap_bins[sample_time]=ground_gap_layout_bins
 	ground_gap_cache_time=sample_time
 	ground_gap_cache=ground_gap_queries[sample_time]
@@ -418,29 +442,50 @@ func restore_checkpoint()->bool:
 func obstacles_in_bounds(bounds:Rect2)->Array[int]:
 	if obstacle_bin_epoch!=elapsed or obstacle_bin_revision!=revision or obstacle_bin_count!=kinds.size():
 		obstacle_bin_epoch=elapsed;obstacle_bin_revision=revision;obstacle_bin_count=kinds.size()
-		obstacle_bins.clear();unbounded_obstacles.clear();obstacle_envelopes.clear()
-		for i in range(kinds.size()):
-			var envelope:Rect2=obstacles[i]
-			if hazard_specs[i].get("front",false):
-				var spec:Dictionary=hazard_specs[i]
-				envelope.position+=spec.offset
-				var travel:Vector2=spec.velocity*FIXED_STEP
-				envelope=envelope.merge(Rect2(envelope.position-travel,envelope.size)).merge(Rect2(envelope.position+travel,envelope.size))
-			elif kinds[i] in Industrial.KINDS:envelope=Industrial.motion_envelope(kinds[i],envelope,hazard_specs[i])
-			elif kinds[i]=="sweeper":envelope=envelope.merge(Rect2(envelope.get_center()-Vector2.ONE*32,Vector2.ONE*64))
-			obstacle_envelopes.append(envelope)
-			if (hazard_specs[i].get("front",false) and rope.has_contact(obstacle_ids[i])) or (not hazard_specs[i].get("front",false) and kinds[i] not in Industrial.KINDS and kinds[i] not in ["cargo","pillar","rail","spikes","active_spikes","scanner","road_gap","sweeper","slope","steps","tilt","lift","drawbridge"]):
-				unbounded_obstacles.append(i)
-				continue
-			for cell in range(floori(envelope.position.y/400.0),floori(envelope.end.y/400.0)+1):
-				if not obstacle_bins.has(cell):obstacle_bins[cell]=[]
-				obstacle_bins[cell].append(i)
+		# 静态布局只在真实几何变化时重建。类型/位置的原生哈希保留外部替换与倒树落地的失效路径。
+		var signature := hash([kinds, obstacles, revision])
+		if signature != obstacle_layout_signature:
+			obstacle_layout_signature=signature;spatial_rebuilds+=1
+			obstacle_bins.clear();unbounded_obstacles.clear();dynamic_obstacles.clear();obstacle_envelopes.clear()
+			for i in range(kinds.size()):
+				var envelope:Rect2=obstacles[i]
+				if hazard_specs[i].get("front",false) or kinds[i] in ["drone","forklift"]:
+					dynamic_obstacles.append(i);obstacle_envelopes.append(envelope);continue
+				if kinds[i] in Industrial.KINDS:envelope=Industrial.motion_envelope(kinds[i],envelope,hazard_specs[i])
+				elif kinds[i]=="sweeper":envelope=envelope.merge(Rect2(envelope.get_center()-Vector2.ONE*32,Vector2.ONE*64))
+				obstacle_envelopes.append(envelope)
+				if kinds[i] not in Industrial.KINDS and kinds[i] not in ["cargo","pillar","rail","spikes","active_spikes","scanner","road_gap","sweeper","slope","steps","tilt","lift","drawbridge"]:
+					unbounded_obstacles.append(i);continue
+				for cell in range(floori(envelope.position.y/400.0),floori(envelope.end.y/400.0)+1):
+					if not obstacle_bins.has(cell):obstacle_bins[cell]=[]
+					obstacle_bins[cell].append(i)
+		refresh_moving_bins()
 	var result:Array[int]=unbounded_obstacles.duplicate()
-	for cell in range(floori(bounds.position.y/400.0),floori(bounds.end.y/400.0)+1):
-		for index:int in obstacle_bins.get(cell,[]):
-			if bounds.intersects(obstacle_envelopes[index],true) and not result.has(index):result.append(index)
+	if not rope.contacts.is_empty():
+		for i in dynamic_obstacles:
+			if rope.has_contact(obstacle_ids[i]):result.append(i)
+	for bins:Dictionary in [obstacle_bins,dynamic_obstacle_bins]:
+		for cell in range(floori(bounds.position.y/400.0),floori(bounds.end.y/400.0)+1):
+			for index:int in bins.get(cell,[]):
+				if bounds.intersects(obstacle_envelopes[index],true) and not result.has(index):result.append(index)
 	result.sort()
 	return result
+
+func refresh_moving_bins() -> void:
+	dynamic_obstacle_bins.clear()
+	# 只对运动物体计算当前完整步包络；不更新远处模型，也不跳过已挂绳的滚球。
+	for i in dynamic_obstacles:
+		var spec: Dictionary=hazard_specs[i]
+		var envelope: Rect2=obstacles[i]
+		if spec.get("front",false):
+			envelope.position+=spec.offset
+			var travel:Vector2=spec.velocity*FIXED_STEP
+			envelope=envelope.merge(Rect2(envelope.position-travel,envelope.size)).merge(Rect2(envelope.position+travel,envelope.size))
+		else:envelope=Industrial.motion_envelope(kinds[i],envelope,spec)
+		obstacle_envelopes[i]=envelope
+		for cell in range(floori(envelope.position.y/400.0),floori(envelope.end.y/400.0)+1):
+			if not dynamic_obstacle_bins.has(cell):dynamic_obstacle_bins[cell]=[]
+			dynamic_obstacle_bins[cell].append(i)
 
 # 地面/绳索每步多次采样，先索引地形类型，再使用原解析判定；不按距离删掉有效机关。
 func indexed_terrain()->Array[int]:
@@ -451,7 +496,10 @@ func indexed_terrain()->Array[int]:
 		terrain_index_signature=signature;terrain_indices.clear()
 		for i in range(kinds.size()):
 			if kinds[i] in Terrain.KINDS:terrain_indices.append(i)
-	# 几何每个物理时刻重建，避免同类型障碍移动、重试或读档后沿用旧位置。
+	var layout_signature := hash([kinds, obstacles, revision])
+	if terrain_layout_signature == layout_signature: return terrain_indices
+	terrain_layout_signature = layout_signature
+	# 只缓存纵向范围；升降、开桥和横向渡船仍按真实查询时刻求值。
 	terrain_bins.clear();moving_terrain.clear()
 	for i in terrain_indices:
 		if kinds[i]=="ferry":
@@ -464,16 +512,11 @@ func indexed_terrain()->Array[int]:
 
 func prepare_terrain_lookup() -> void:
 	terrain_step_bins.clear()
-	for index in indexed_terrain():
-		# 现有渡船只沿 x 轴移动，其他地形只改变高度；y 包络在本固定步内不变。
-		var rect: Rect2 = obstacles[index]
-		for cell in range(floori(rect.position.y / 400.0), floori(rect.end.y / 400.0) + 1):
-			if not terrain_step_bins.has(cell): terrain_step_bins[cell] = []
-			terrain_step_bins[cell].append(index)
+	indexed_terrain()
 	terrain_step_active = true
 
 func terrain_candidates(y: float) -> Array:
-	if terrain_step_active: return terrain_step_bins.get(floori(y / 400.0), [])
+	if terrain_step_active: return terrain_at(Vector2(0,y))
 	return indexed_terrain()
 
 func terrain_at(point:Vector2)->Array:

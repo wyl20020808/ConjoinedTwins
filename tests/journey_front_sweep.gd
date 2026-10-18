@@ -3,6 +3,7 @@ const Journey=preload("res://scripts/journey_run.gd")
 class FullScan:
 	extends "res://scripts/journey_run.gd"
 	func front_sweep_near(_index:int,_previous:Rect2,_current:Rect2,_bounds:Rect2)->bool:return true
+	func front_warning_near(_index:int,_forward_speed:float)->bool:return true
 	func obstacles_in_bounds(_bounds:Rect2)->Array[int]:
 		var all:Array[int]=[]
 		for index in range(kinds.size()):all.append(index)

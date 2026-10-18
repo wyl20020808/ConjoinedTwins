@@ -7,6 +7,8 @@ func validate()->void:
 	root.add_child(game)
 	await process_frame
 	game.set_physics_process(false)
+	# 生命周期逐位置比较须使用同一布局；生产入口仍默认每局换种子。
+	game.run.random_seed=false;game.run.seed_value=20261012
 	game.web_test_mode=true
 	game.incremental_loading=true
 	var samples:Array=[]
@@ -22,9 +24,11 @@ func validate()->void:
 				# 否则不同的分帧进度会被误判为节点泄漏。
 				while waits<2000:
 					var ready:bool=game.prepare_journey_frame()
-					var events_done:bool=game.run.journey_events.all(func(e):return e.y-game.run.distance<=-900 or e.y-game.run.distance>=5800 or game.event_views.has(e.id))
-					var gates_done:bool=game.run.charge_gates.all(func(g):return absf(g.receiver.y-game.run.distance)>=5800 or game.gate_views.has(g.id))
-					if ready and events_done and gates_done and game.chunk_jobs.is_empty() and game.chunk_assets.pending.is_empty() and game.chunk_assets.active.is_empty():break
+					var events_done:bool=game.run.journey_events.all(func(e):return not game.model_preload(e.y) or game.event_views.has(e.id))
+					var gates_done:bool=game.run.charge_gates.all(func(g):return not game.model_preload(g.receiver.y) or game.gate_views.has(g.id))
+					# 机关也分帧预热；先完成同一个预热窗口，再比较驻留数量。
+					var hazards_done:bool=game.visual_hazard_candidates().all(func(i):return not game.hazard_has_view(i) or not game.model_preload(game.hazard_view_y(i)) or (game.run.kinds[i]=="drone" and game.run.hazard_sample(i,game.run.elapsed).stage=="spent") or game.static_views.has(i))
+					if ready and events_done and gates_done and hazards_done and game.chunk_jobs.is_empty() and game.chunk_assets.pending.is_empty() and game.chunk_assets.active.is_empty():break
 					waits+=1;await process_frame
 				if waits>=2000: failures.append("preparation stalled")
 				game.sync_view()

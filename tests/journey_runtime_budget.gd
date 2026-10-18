@@ -35,6 +35,10 @@ func verify()->void:
 			check(false,"生产入口准备超时");boot.queue_free();await process_frame;finish();return
 		await process_frame
 	var game=boot.game
+	# 固定 CPU 回归地图，避免随机开局改变每轮测量的敌群与碰撞拓扑。
+	game.run.random_seed=false;game.run.seed_value=20261012;game.run.retry()
+	game.run.state="paused";game.reset_journey_views()
+	while not game.prepare_journey_frame():await process_frame
 	game.web_verify=true;game.run.state="running"
 	for frame in range(60):await process_frame
 	game.frame_costs.clear()

@@ -815,7 +815,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			if kinds[index] == "drone": approach = maxf(spec.warning, spec.warning + (approach * maximum_forward - maximum_forward * spec.warning) / (maximum_forward - spec.velocity.y))
 			if kinds[index] in ["hammer", "steam"]: approach = maxf(spec.warning, approach)
 			spec.warning_evidence = {"warning": spec.warning, "maximum_forward": maximum_forward, "joint_change_time": joint_change, "earliest_approach": approach, "reaction_margin": approach - joint_change, "side": spec.side, "locked_velocity": [spec.velocity.x, spec.velocity.y], "leading_y": maxf(a.position.y, b.position.y), "rear_y": minf(a.position.y, b.position.y)}
-		if spec.get("front", false):
+		if spec.get("front", false) and front_warning_near(index, forward_speed):
 			Threats.warn(spec, hazard_sample(index, elapsed).rect, [a.position, b.position],
 				[Vector2(0, forward_speed * rope_resume) + input_a * LATERAL, Vector2(0, forward_speed * rope_resume) + input_b * LATERAL], LATERAL, EDGE, Motion.RADIUS, elapsed, level_speed() + LATERAL)
 	# 绕柱受阻期间自动推进停滞；解围后按 rope_resume 恢复，平时为 1（与原推进完全一致）。
@@ -1613,6 +1613,17 @@ func ball_contact() -> bool:
 
 # 球的驱动与绳索硬约束共同求解：连续推进接触圆，长度耗尽时停在最后合法位置。
 # 不把端点拉过障碍，不瞬移球或角色；这是有界运动驱动，非质量/弹性/摆荡物理。
+func front_warning_near(index:int, forward_speed:float)->bool:
+	var spec:Dictionary=hazard_specs[index]
+	if spec.locked:return false
+	var rect:Rect2=obstacles[index]
+	# 无侧向出口的自定义威胁仍执行完整预警。普通威胁以全路宽换侧时间
+	# 和最高合法接近速度建立保守窗口，窗口外不可能触发 warn 的锁定条件。
+	if rect.size.x+2*Motion.RADIUS+4>=2*EDGE:return true
+	var lead:=maxf(spec.warning,2*EDGE/LATERAL+.35)+FIXED_STEP
+	var closing:=maxf(maxf(forward_speed,level_speed())+LATERAL-spec.velocity.y,0)
+	return rect.position.y+spec.offset.y-Motion.RADIUS-maxf(a.position.y,b.position.y)<=closing*lead
+
 func advance_threats(dt: float) -> Dictionary:
 	var previous := {}
 	for index in range(hazard_specs.size()):
