@@ -7,6 +7,56 @@ const ITERATIONS := 12
 const COMPLIANCE := 0.00000002
 const GRAVITY := Vector3(0, -800, 0)
 
+# 同一次绳索求解会投影数百次。边界只准备一次，保持碰撞体顺序及双精度半径。
+class ContactQuery:
+	var floor_query: Callable
+	var circles: Array[bool] = []
+	var centers: Array[Vector2] = []
+	var radii: Array[float] = []
+	var bottoms: Array[float] = []
+	var tops: Array[float] = []
+	var lows: Array[Vector3] = []
+	var highs: Array[Vector3] = []
+	func _init(floor_callback: Callable, colliders: Array) -> void:
+		floor_query = floor_callback
+		for collider in colliders:
+			var circle: bool = collider.has("radius")
+			circles.append(circle)
+			centers.append(collider.center if circle else Vector2.ZERO)
+			radii.append(collider.radius + RADIUS if circle else 0.0)
+			bottoms.append(collider.bottom - RADIUS if circle else 0.0)
+			tops.append(collider.top + RADIUS if circle else 0.0)
+			lows.append(Vector3.ZERO if circle else collider.low - Vector3.ONE * RADIUS)
+			highs.append(Vector3.ZERO if circle else collider.high + Vector3.ONE * RADIUS)
+	func project(point: Vector3, from: Vector3) -> Vector3:
+		var floor_height: float = floor_query.call(Vector2(point.x, point.z))
+		if is_finite(floor_height) and point.y < floor_height + RADIUS and from.y >= floor_height - RADIUS:
+			point.y = floor_height + RADIUS
+		for i in range(circles.size()):
+			if circles[i]:
+				if point.y < bottoms[i] or point.y > tops[i]: continue
+				var direction := Vector2(point.x, point.z) - centers[i]
+				var radius: float = radii[i]
+				if direction.length_squared() >= radius * radius: continue
+				if direction.length_squared() < 0.000001: direction = Vector2.RIGHT
+				direction = direction.normalized() * radius + centers[i]
+				point.x = direction.x
+				point.z = direction.y
+			else:
+				var low: Vector3 = lows[i]
+				var high: Vector3 = highs[i]
+				if point.x <= low.x or point.x >= high.x or point.y <= low.y or point.y >= high.y or point.z <= low.z or point.z >= high.z: continue
+				var distances := [point.x-low.x, high.x-point.x, point.y-low.y, high.y-point.y, point.z-low.z, high.z-point.z]
+				var side := distances.find(distances.min())
+				match side:
+					0: point.x = low.x
+					1: point.x = high.x
+					2: point.y = low.y
+					3: point.y = high.y
+					4: point.z = low.z
+					5: point.z = high.z
+		return point
+
 static func create(a: Vector3, b: Vector3, length: float) -> Dictionary:
 	var points := PackedVector3Array()
 	for i in range(COUNT + 1):
@@ -27,6 +77,7 @@ static func shift(state: Dictionary, offset: Vector3) -> void:
 static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 		floor_query: Callable, colliders: Array, guide: PackedVector3Array) -> void:
 	if dt <= 0: return
+	var contact_query := ContactQuery.new(floor_query, colliders)
 	var points: PackedVector3Array = state.points
 	var previous: PackedVector3Array = state.previous
 	var bound_a:bool=state.bound[0]
@@ -53,7 +104,7 @@ static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 	if taut and guide.size() >= 2:
 		for i in range(COUNT + 1):
 			points[i] = along(guide, span * i / COUNT)
-			if i>0 and i<COUNT: points[i] = project(points[i],points[i],floor_query,colliders)
+			if i>0 and i<COUNT: points[i] = contact_query.project(points[i],points[i])
 			if i>0 and i<COUNT: previous[i] = points[i]
 	else:
 		for iteration in range(ITERATIONS):
@@ -90,7 +141,7 @@ static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
 				var projected := previous[i]
 				for step in range(1,samples+1):
 					var target := projected+(points[i]-previous[i])/samples
-					projected = project(target,projected,floor_query,colliders)
+					projected = contact_query.project(target,projected)
 				points[i] = projected
 				if not before.is_equal_approx(points[i]):
 					# 接触时保留法向修正并衰减切向速度，形成麻绳拖地摩擦。

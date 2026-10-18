@@ -11,6 +11,7 @@ func validate()->void:
 		var selected:=OS.get_environment("MONSTER_CHAPTER")
 		if not selected.is_empty() and chapter!=int(selected):run.dispose();continue
 		var ai=Buddy.new();var frames:=0;var lowest:=0.0;var camera_lowest:=0.0;var max_rope:=0.0
+		var furthest:float=run.progress();var stalled:=0
 		while frames<60000 and run.state=="running":
 			var human:Dictionary=Route.input(run)
 			var weapon:Dictionary=run.combat.weapons[0]
@@ -24,8 +25,12 @@ func validate()->void:
 			camera_lowest=minf(camera_lowest,run.distance-camera_before)
 			lowest=minf(lowest,minf(run.a.position.y-a.y,run.b.position.y-b.y));max_rope=maxf(max_rope,run.rope.length)
 			frames+=1
-			if frames%1000==0:print("MONSTER PROGRESS ",chapter," ",frames," ",run.progress()," ",run.state);await process_frame
+			if run.progress()>furthest+1:furthest=run.progress();stalled=0
+			else:stalled+=1
+			if stalled>=1200:print("MONSTER STALLED ",run.a.position," / ",run.b.position," input=",human," buddy=",choice," feedback=",ai.feedback);break
+			if frames%1000==0:print("MONSTER PROGRESS ",chapter," ",frames," ",run.progress()," ",run.state," ",run.a.position," / ",run.b.position," ",ai.feedback);await process_frame
 		var r:={"chapter":chapter,"frames":frames,"state":run.state,"reason":run.reason,"progress":run.progress(),"gates":run.charge_gates.size(),"opened":run.charge_gates.filter(func(g):return g.open).size(),"encounters":run.encounter_markers.size(),"rewards":run.rewards.size(),"lowest_forward_delta":lowest,"lowest_camera_delta":camera_lowest,"max_rope":max_rope,"health":run.combat.health,"ai":ai.feedback,"kills":run.combat.kills,"ammo":run.combat.weapons[0].duplicate()}
+		r.positions=[run.a.position,run.b.position];r.rescue=run.rescue.duplicate(true)
 		print("MONSTER CAMPAIGN ",JSON.stringify(r));reports.append(r)
 		# 当前需求允许角色后移，改为检查镜头永不后移；保留并加强真实通关要求。
 		if run.state!="settlement" or camera_lowest<-.001 or max_rope>run.LINK_LIMIT+.02 or r.opened!=r.gates or run.combat.health.min()<=0:failures.append(r)

@@ -6,11 +6,12 @@ const CHAPTERS := [
 	{"name":"水车河道", "length":30000.0, "zones":["村外田野","农田小路","河岸渡口","水车栈道","旧桥防线","河谷出口"], "themes":["farm","farm","river","river","village","river"]},
 	{"name":"矿道归航", "length":30000.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
 ]
-const WALK_SPEED := 160.0
+const WALK_SPEED := 320.0
 # 镜头只前进；允许在可见后沿前后调整，不把玩家夹回上一帧位置。
 const RETREAT_DISTANCE := 200.0
 const Combat = preload("res://scripts/journey_combat.gd")
 const Monsters = preload("res://scripts/journey_monsters.gd")
+const Encounters = preload("res://scripts/journey_encounters.gd")
 const TRIAL_ZONES := ["拾取与射击","单只冲锋兽","换弹与补给","交替应敌","护盾与医疗","共同抵达"]
 var combat: Dictionary = {}
 # 模拟默认兼容既有双输入夹具；新生产界面仅向单人入口提供输入。
@@ -23,12 +24,25 @@ var terrain_index_epoch:=-INF
 var terrain_index_revision:=-1
 var terrain_index_count:=-1
 var terrain_indices:Array[int]=[]
+# 只在父模拟的一次固定步内使用；结束后立即丢弃，外部直接改布局的查询仍读实时几何。
+var terrain_step_bins: Dictionary = {}
+var terrain_step_active := false
+var terrain_bins:={}
+var moving_terrain:Array[int]=[]
+var obstacle_bins:={}
+var obstacle_envelopes:Array[Rect2]=[]
+var unbounded_obstacles:Array[int]=[]
+var obstacle_bin_epoch:=-INF
+var obstacle_bin_revision:=-1
+var obstacle_bin_count:=-1
 var ground_gap_cache_time:=-INF
 var ground_gap_cache_revision:=-1
 var ground_gap_cache:Array[Rect2]=[]
 var ground_gap_cache_epoch:=-INF
 var ground_gap_queries:={}
 var ground_gap_bins:={}
+var ground_gap_layout:Array[Rect2]=[]
+var ground_gap_layout_bins:={}
 var solid_query_epoch:=-INF
 var solid_query_revision:=-1
 var solid_query_count:=-1
@@ -40,7 +54,16 @@ var event_serial := 0
 var last_floor := [0.0,0.0]
 
 func _init() -> void:
+	health_hazards=true
 	super(false, false)
+
+func hazard_contact(index: int, role: int, _message: String) -> bool:
+	# 身体只扣命中的角色；绳段命中将伤害传给两端，共用同一机关冷却。
+	var amount: int=Combat.HAZARD_DAMAGE.get(kinds[index],25)
+	for target in ([0,1] if role<0 else [role]):
+		Combat.hit(self,target,"trap:%d"%obstacle_ids[index],amount,true)
+		if state!="running": return true
+	return false
 
 func speed() -> float:
 	return 0.0
@@ -62,9 +85,14 @@ func bounded(point: Vector2, _floor: float = INF) -> Vector2:
 	if charge_gate.get("active",false) and not charge_gate.open:
 		var hold: float=charge_gate.receiver.y+(46.0 if charge_gate.get("kind","")=="sync_plates" else 15.0)
 		forward=minf(forward,hold)
+	# 主动跑动也必须等桥板落平；父类只暂停自动推进，不能约束旅程的手动前进。
+	for gate in charge_gates:
+		if gate.get("bridge",false) and gate.open and elapsed-gate.opened_at<0.6:
+			forward=minf(forward,gate.door.position.y+60-Motion.RADIUS-2)
 	return Vector2(clampf(point.x,-EDGE+Motion.RADIUS,EDGE-Motion.RADIUS),forward)
 
 func retry(count_failure: bool = false) -> void:
+	obstacle_bin_epoch=-INF
 	ground_gap_cache_time=-INF
 	terrain_index_epoch=-INF
 	solid_query_epoch=-INF
@@ -83,6 +111,10 @@ func retry(count_failure: bool = false) -> void:
 	else:
 		build_journey()
 		Monsters.populate(self)
+		# 合作站是战斗间歇；补给位于已留空的到达区域，仍须实际走近拾取。
+		for gate in charge_gates:
+			for x in [-65,65]:Combat.add_pickup(self,"medkit",Vector2(x,gate.receiver.y-100))
+			Combat.add_pickup(self,"ammo",Vector2(-65,gate.receiver.y-60))
 		for zone in range(6):
 			var start: float=zone*finish_distance()/6.0
 			Combat.add_pickup(self,"gun",Vector2(-42,start+200))
@@ -152,7 +184,10 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	if state!="running": return
 	var scale_a: float=Combat.MOVE_SCALE if not combat.weapons[0].is_empty() else 1.0
 	var scale_b: float=Combat.MOVE_SCALE if not combat.weapons[1].is_empty() else 1.0
+	prepare_terrain_lookup()
 	super(input_a*(WALK_SPEED/LATERAL)*scale_a,input_b*(WALK_SPEED/LATERAL)*scale_b)
+	terrain_step_active = false
+	terrain_step_bins.clear()
 	if state!="running": return
 	# 前后移动共用父求解器的实体扫掠、地面支持与绳索约束。
 	for role in range(2):
@@ -190,7 +225,7 @@ func event_sample(event: Dictionary,time: float) -> Dictionary:
 			top=bottom+20
 			if flight>0.65: phase="spent"
 		elif kind=="swing":
-			rect.position.x=sin(flight*2.0)*180-40
+			rect.position.x=sin(flight*2.0)*150-40
 			top=80
 	return {"rect":rect,"phase":phase,"bottom":bottom,"top":top}
 
@@ -203,7 +238,7 @@ func advance_events(_dt: float) -> void:
 			Monsters.advance(self,event)
 			continue
 		# 以最快合法前进速度预留 >2.8 秒；锁定后不跟踪改道。
-		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-620:
+		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-maxf(620.0,WALK_SPEED*3.0):
 			event.trigger=elapsed
 			if event.kind=="stone": event.locked_x=clampf((a.position.x+b.position.x)*0.5,-EDGE+30,EDGE-30)
 			event.warning_positions=[a.position,b.position]
@@ -226,21 +261,25 @@ func check_event_hits(previous: Array) -> void:
 			var motion: Vector2=current.position-old.position
 			if swept_body_hits(previous[role],point-motion,foot_height(role),foot_height(role),old.grow(Motion.RADIUS),event.bottom,event.top):
 				if event.kind=="monster":
-					if Combat.line_of_sight(self,event.origin,point,38.0,foot_height(role)+24):
-						Combat.hit(self,role,"monster:%d"%event.id,15)
+					if Combat.line_of_sight(self,event.origin,point,Combat.enemy_height(event),foot_height(role)+24):
+						Combat.hit(self,role,"monster:%d"%event.id,Monsters.profile(event).damage)
 					if state!="running": return
 				elif event.kind in ["boar","stone"]:
 					Combat.hit(self,role,"journey:%d"%event.id)
 					if state!="running": return
-				elif damage("journey:%d"%event.id,"%02d %s，两人共同重试"%[role+1,EVENT_NAMES[event.kind]]): return
-		# 推车、摆臂和倒树保留绳段危险；野猪与投掷攻击只造成角色战斗伤害。
+				else:
+					Combat.hit(self,role,"journey:%d"%event.id,Combat.HAZARD_DAMAGE[event.kind],true)
+					if state!="running": return
+		# 绳段接触同样扣血；与角色命中共用事件冷却，避免同帧重复伤害。
 		if event.kind in ["cart","swing","tree"]:
 			var path:=rope.physical_path()
 			var z:=rope.physical_heights()
 			for n in range(1,path.size()):
 				if minf(z[n-1],z[n])<=event.top and maxf(z[n-1],z[n])>=event.bottom and segment_hits(path[n-1],path[n],current):
-					fail_threat("绳索被%s命中，两人共同重试"%EVENT_NAMES[event.kind].split("：")[0])
-					return
+					for role in range(2):
+						Combat.hit(self,role,"journey:%d"%event.id,Combat.HAZARD_DAMAGE[event.kind],true)
+						if state!="running": return
+					break
 
 func update_checkpoint() -> void:
 	if journey_events.is_empty(): return
@@ -265,6 +304,8 @@ func check_finish() -> void:
 
 func active_hint() -> String:
 	if combat_trial: return combat.get("notice","")
+	var narrow:Dictionary=Encounters.narrow_at(self,progress(),maxf(a.position.y,b.position.y))
+	if not narrow.is_empty():return {"center_path":"中央独木道：对准中线，前后依次通过", "edge_path":"崖边单行道：提前靠边，前后依次通过", "twin_paths":"双线镂空桥：各走一条，保持同步", "triple_paths":"三线镂空桥：选择相邻通道，别把绳拉满"}[narrow.kind]
 	if charge_gate.active and not charge_gate.open and charge_gate.receiver.y-progress()<800:
 		var conditions:Dictionary=charge_gate.get("conditions",{})
 		var plates:bool=charge_gate.get("kind","")=="sync_plates"
@@ -350,22 +391,56 @@ func ground_gaps(time:float=-1.0)->Array[Rect2]:
 			var oldest:float=ground_gap_queries.keys()[0]
 			ground_gap_queries.erase(oldest);ground_gap_bins.erase(oldest)
 		ground_gap_queries[sample_time]=super(sample_time)
-		var bins:={}
-		for gap:Rect2 in ground_gap_queries[sample_time]:
-			for cell in range(floori(gap.position.y/400.0),floori(gap.end.y/400.0)+1):
-				if not bins.has(cell):bins[cell]=[]
-				bins[cell].append(gap)
-		ground_gap_bins[sample_time]=bins
+		# 多数时刻只有静态缺口。比较完整几何，复用相同分桶，避免每个
+		# 物理子步和预测时刻都分配整张地图；塌陷/开桥变化仍立即重建。
+		if ground_gap_queries[sample_time]!=ground_gap_layout:
+			ground_gap_layout=ground_gap_queries[sample_time]
+			ground_gap_layout_bins={}
+			for gap:Rect2 in ground_gap_layout:
+				for cell in range(floori(gap.position.y/400.0),floori(gap.end.y/400.0)+1):
+					if not ground_gap_layout_bins.has(cell):ground_gap_layout_bins[cell]=[]
+					ground_gap_layout_bins[cell].append(gap)
+		ground_gap_bins[sample_time]=ground_gap_layout_bins
 	ground_gap_cache_time=sample_time
 	ground_gap_cache=ground_gap_queries[sample_time]
 	return ground_gap_cache
 
 func restore_checkpoint()->bool:
 	var restored:=super()
+	obstacle_bin_epoch=-INF
 	terrain_index_epoch=-INF
 	solid_query_epoch=-INF
 	ground_gap_cache_time=-INF
 	return restored
+
+# 已知静止物使用保守分桶；运动、旋转与未知类型不剔除。原索引顺序不变。
+# 每个固定时刻重建一次，避免永久缓存随迭代、重试或行进增长。
+func obstacles_in_bounds(bounds:Rect2)->Array[int]:
+	if obstacle_bin_epoch!=elapsed or obstacle_bin_revision!=revision or obstacle_bin_count!=kinds.size():
+		obstacle_bin_epoch=elapsed;obstacle_bin_revision=revision;obstacle_bin_count=kinds.size()
+		obstacle_bins.clear();unbounded_obstacles.clear();obstacle_envelopes.clear()
+		for i in range(kinds.size()):
+			var envelope:Rect2=obstacles[i]
+			if hazard_specs[i].get("front",false):
+				var spec:Dictionary=hazard_specs[i]
+				envelope.position+=spec.offset
+				var travel:Vector2=spec.velocity*FIXED_STEP
+				envelope=envelope.merge(Rect2(envelope.position-travel,envelope.size)).merge(Rect2(envelope.position+travel,envelope.size))
+			elif kinds[i] in Industrial.KINDS:envelope=Industrial.motion_envelope(kinds[i],envelope,hazard_specs[i])
+			elif kinds[i]=="sweeper":envelope=envelope.merge(Rect2(envelope.get_center()-Vector2.ONE*32,Vector2.ONE*64))
+			obstacle_envelopes.append(envelope)
+			if (hazard_specs[i].get("front",false) and rope.has_contact(obstacle_ids[i])) or (not hazard_specs[i].get("front",false) and kinds[i] not in Industrial.KINDS and kinds[i] not in ["cargo","pillar","rail","spikes","active_spikes","scanner","road_gap","sweeper","slope","steps","tilt","lift","drawbridge"]):
+				unbounded_obstacles.append(i)
+				continue
+			for cell in range(floori(envelope.position.y/400.0),floori(envelope.end.y/400.0)+1):
+				if not obstacle_bins.has(cell):obstacle_bins[cell]=[]
+				obstacle_bins[cell].append(i)
+	var result:Array[int]=unbounded_obstacles.duplicate()
+	for cell in range(floori(bounds.position.y/400.0),floori(bounds.end.y/400.0)+1):
+		for index:int in obstacle_bins.get(cell,[]):
+			if bounds.intersects(obstacle_envelopes[index],true) and not result.has(index):result.append(index)
+	result.sort()
+	return result
 
 # 地面/绳索每步多次采样，先索引地形类型，再使用原解析判定；不按距离删掉有效机关。
 func indexed_terrain()->Array[int]:
@@ -376,7 +451,39 @@ func indexed_terrain()->Array[int]:
 		terrain_index_signature=signature;terrain_indices.clear()
 		for i in range(kinds.size()):
 			if kinds[i] in Terrain.KINDS:terrain_indices.append(i)
+	# 几何每个物理时刻重建，避免同类型障碍移动、重试或读档后沿用旧位置。
+	terrain_bins.clear();moving_terrain.clear()
+	for i in terrain_indices:
+		if kinds[i]=="ferry":
+			moving_terrain.append(i)
+			continue
+		for cell in range(floori(obstacles[i].position.y/400.0),floori(obstacles[i].end.y/400.0)+1):
+			if not terrain_bins.has(cell):terrain_bins[cell]=[]
+			terrain_bins[cell].append(i)
 	return terrain_indices
+
+func prepare_terrain_lookup() -> void:
+	terrain_step_bins.clear()
+	for index in indexed_terrain():
+		# 现有渡船只沿 x 轴移动，其他地形只改变高度；y 包络在本固定步内不变。
+		var rect: Rect2 = obstacles[index]
+		for cell in range(floori(rect.position.y / 400.0), floori(rect.end.y / 400.0) + 1):
+			if not terrain_step_bins.has(cell): terrain_step_bins[cell] = []
+			terrain_step_bins[cell].append(index)
+	terrain_step_active = true
+
+func terrain_candidates(y: float) -> Array:
+	if terrain_step_active: return terrain_step_bins.get(floori(y / 400.0), [])
+	return indexed_terrain()
+
+func terrain_at(point:Vector2)->Array:
+	indexed_terrain()
+	var local:Array=terrain_bins.get(floori(point.y/400.0),[])
+	if moving_terrain.is_empty():return local
+	# 覆盖关系依赖原索引顺序；移动渡船仍按实际时间采样。
+	var merged:=local+moving_terrain
+	merged.sort()
+	return merged
 
 func surface_at(point:Vector2,time:float,radius:float=0.0)->Dictionary:
 	var surface:={"supported":absf(point.x)<=EDGE,"height":0.0,"normal":Vector3.UP,"friction":0.8,"velocity":Vector3.ZERO}
@@ -385,11 +492,25 @@ func surface_at(point:Vector2,time:float,radius:float=0.0)->Dictionary:
 	for cell in range(floori((point.y-radius)/400.0),floori((point.y+radius)/400.0)+1):
 		for gap:Rect2 in bins.get(cell,[]):
 			if gap.grow(radius).has_point(point):surface.supported=false
-	for i in indexed_terrain():
+	for i in terrain_candidates(point.y):
 		if kinds[i]!="ferry" and not obstacles[i].has_point(point):continue
 		var sample:=terrain_sample(i,time,point)
 		if sample.supported and sample.rect.grow(-radius).has_point(point):surface=sample
 	return surface
+
+func has_ground_support(point:Vector2,time:float=-1.0)->bool:
+	var sample_time:=elapsed if time<0 else time
+	# 普通路面无需为每个寻路采样分配完整表面字典；平台仍走原精确采样。
+	for i in terrain_at(point):
+		if kinds[i]=="ferry" or obstacles[i].has_point(point):
+			return surface_at(point,sample_time,Motion.RADIUS).supported
+	if absf(point.x)>EDGE:return false
+	ground_gaps(sample_time)
+	var bins:Dictionary=ground_gap_bins[sample_time]
+	for cell in range(floori((point.y-Motion.RADIUS)/400.0),floori((point.y+Motion.RADIUS)/400.0)+1):
+		for gap:Rect2 in bins.get(cell,[]):
+			if gap.grow(Motion.RADIUS).has_point(point):return false
+	return true
 
 func surface_rope_length(p:Vector2,q:Vector2,h0:float,h1:float)->float:
 	# 两端高于平地时，普通路面/缺口不会抬高绳段；仅局部平台可能改变原有十二点采样。
@@ -420,14 +541,14 @@ func surface_rope_length(p:Vector2,q:Vector2,h0:float,h1:float)->float:
 	return maxf(total,distance)
 
 func terrain_supports_sweep(from:Vector2,to:Vector2,time:float)->bool:
-	for i in indexed_terrain():
+	for i in terrain_candidates(to.y):
 		if kinds[i]!="ferry" and not obstacles[i].has_point(to):continue
 		var sample:=terrain_sample(i,time,to)
 		if sample.supported and sample.rect.grow(-Motion.RADIUS).has_point(from) and sample.rect.grow(-Motion.RADIUS).has_point(to):return true
 	return false
 
 func platform_motion(point:Vector2,start:float,end:float)->Vector2:
-	for i in indexed_terrain():
+	for i in terrain_candidates(point.y):
 		if kinds[i] not in Terrain.MOVING:continue
 		var first:=terrain_sample(i,start,point)
 		if first.rect.has_point(point):return terrain_sample(i,end,point).rect.position-first.rect.position

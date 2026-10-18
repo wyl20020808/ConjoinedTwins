@@ -41,6 +41,8 @@ func _init(owner_game)->void:
 	palette.Bark.normal_texture=load("res://assets/decor/Pine_Bark_NormalTree_Normal.png")
 	leaf_material=ShaderMaterial.new();leaf_material.shader=preload("res://scripts/journey_foliage.gdshader")
 	palette.Leaf=leaf_material
+	var natural:=ShaderMaterial.new();natural.shader=preload("res://scripts/journey_natural_leaf.gdshader")
+	palette.NaturalLeaf=natural
 	palette.Stone=game.tex_material("landscape_stone","rock_boulder_dry",0.4,Color("aaa895"))
 	cut_material=palette.Stone.duplicate()
 	cut_material.vertex_color_use_as_albedo=true
@@ -177,7 +179,7 @@ static func plan(number:int,chapter:int)->Array:
 			var forest_density:=p.y+p.z*.10
 			if rng.randf()>forest_density:continue
 			var x:=side*(lerpf(24.0,49.0,p.z)+pow(rng.randf(),1.65)*88)
-			var kind:="grove_birch" if n%5==0 else ("grove_oak_7" if n%2==0 else "grove_oak_17")
+			var kind:="natural_birch" if n%5==0 else ("natural_oak_7" if n%2==0 else "natural_oak_17")
 			var scale:=rng.randf_range(.75,1.3)
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),scale,rng.randf()*TAU)
 		for n in range(420):
@@ -201,15 +203,15 @@ static func plan(number:int,chapter:int)->Array:
 			# 两排住宅形成有纵深的院落；生活物件位于道路外，不影响物理。
 			if n%2==0:
 				add_instance(batches,"house_%d"%((number+n+300)%3),Vector3(side*23,height_at(side*23,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
-				add_instance(batches,"fence",Vector3(side*17.6,0,-meters-5),.7,PI/2)
-				add_instance(batches,"washing_line",Vector3(side*22,0,-meters+5),1,0)
-				add_instance(batches,"barrel",Vector3(side*18.8,0,-meters+1.8),1.1,0)
-				add_instance(batches,"woodpile",Vector3(side*19.5,0,-meters-3),1,side*.3)
+				add_instance(batches,"fence",Vector3(side*17.6,height_at(side*17.6,meters+5,chapter),-meters-5),.7,PI/2)
+				add_instance(batches,"washing_line",Vector3(side*22,height_at(side*22,meters-5,chapter),-meters+5),1,0)
+				add_instance(batches,"barrel",Vector3(side*18.8,height_at(side*18.8,meters-1.8,chapter),-meters+1.8),1.1,0)
+				add_instance(batches,"woodpile",Vector3(side*19.5,height_at(side*19.5,meters+3,chapter),-meters-3),1,side*.3)
 			else:add_instance(batches,"house_%d"%((number+n+301)%3),Vector3(side*48,height_at(side*48,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
-			if n==2:add_instance(batches,"well",Vector3(side*20,0,-meters-5),1,0)
+			if n==2:add_instance(batches,"well",Vector3(side*20,height_at(side*20,meters+5,chapter),-meters-5),1,0)
 			for k in range(4):
 				var plantx:=side*(19+k*.7)
-				add_instance(batches,"shrub",Vector3(plantx,0,-meters-6),.8,0)
+				add_instance(batches,"shrub",Vector3(plantx,height_at(plantx,meters+6,chapter),-meters-6),.8,0)
 	decorate(batches,number,chapter)
 	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
 	return items
@@ -217,7 +219,7 @@ static func plan(number:int,chapter:int)->Array:
 static func add_instance(batches:Dictionary,kind:String,point:Vector3,size:float,yaw:float)->void:
 	if not batches.has(kind):batches[kind]=[]
 	var basis:=Basis(Vector3.UP,yaw)
-	if kind in ["grove_oak_7","grove_oak_17","grove_birch"]:
+	if kind in ["natural_oak_7","natural_oak_17","natural_birch"]:
 		basis=Basis(Vector3.BACK,signf(point.x)*0.12)*basis
 	batches[kind].append(Transform3D(basis.scaled(Vector3.ONE*size),point))
 
@@ -251,7 +253,7 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			add_instance(batches,"detail_porch",house.origin+Vector3(-side*3.6*size,0,0),.85*size,-side*PI/2)
 	# 接触暗部使用低成本透明网格，不恢复 Web 端整片树林的动态阴影。
 	for kind in batches.keys():
-		if kind not in ["grove_oak_7","grove_oak_17","grove_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks"]:continue
+		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks"]:continue
 		for transform:Transform3D in batches[kind]:
 			if absf(transform.origin.x)>52:continue
 			var point:=transform.origin+Vector3(0,.035,0)

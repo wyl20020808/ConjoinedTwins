@@ -119,3 +119,10 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 - 新增 `assets/landscape/detail_*.glb` 共八件：枯木树桩、苔石、蕨类蘑菇、遮阳摊位、门廊、菜圃、灯笼及接触暗部平面。均为项目原创程序几何，由 `build-tools/journey/make_set_dressing.py` 使用 Blender 后台生成，无新下载素材、内嵌贴图或新增第三方许可。合计 342,932 字节；逐件大小、三角形与 SHA-256 见 `build-tools/journey/set-dressing-assets.json`。
 - 六份 `grove_*` 树冠更新为较小的 24 组叶簇，近景 2,520 三角形、远景 1,080 三角形，合计 475,520 字节。当前值及哈希见 `canopy-assets.json`；前文 1,376 / 596 为上一版记录。密度上限从每侧每区块 115 棵调为 85 棵，继续使用距离 LOD、空间批次和缓存，不承诺单项改动降低 GPU 开销。
 - 地面、树皮继续使用已记录的共享纹理；灰泥墙与接触暗部使用项目 Shader，灯笼使用自发光材质而非新增动态灯。房屋、瓦顶和门廊均在生产区块路径中加载。截图来自实际 Godot WebAssembly 渲染，见 `build-tools/journey/evidence/atmosphere/`。
+
+
+## 2026-10-16 自制自然树木
+
+- assets/landscape/natural_oak_7、natural_oak_17、natural_birch 及各自 _lod.glb：本项目使用 Blender 程序生成的树根、分叉树干、枝条、几何叶片。生成器为 build-tools/journey/make_natural_trees.py，尺寸、三角形数量、SHA-256 见同目录 natural-tree-assets.json。未下载或引入外部模型。
+- 树干继续复用本文件已有来源记录的 Pine_Bark_NormalTree 贴图与法线；叶脉使用本项目 journey_natural_leaf.gdshader 程序材质，无新增外部贴图。
+- 弓手、冲锋者、灰鬃狼由本项目基础网格组合生成；造型、关节动作、预警线与箭矢无新增外部素材。

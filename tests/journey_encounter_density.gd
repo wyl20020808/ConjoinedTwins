@@ -16,10 +16,11 @@ func _initialize()->void:
 		check(run.charge_gates.size()>2,"cooperation gates distributed through route")
 		check(run.rewards.size()<=run.Levels.MAX_REWARDS,"finite bounded reward pool")
 		var missing:=0
-		# 采样实际最快持枪步行的三秒距离。门前后由合作门与桥本身承接，不计为空白。
+		# 跑速翻倍后，门前完整机关包络退至 48 米外，门后留 42 米离桥空间。
+		# 按与机关相同的 10 米采样余量覆盖合作区域边界，其余区域继续要求相邻机关覆盖。
 		for y in range(400,int(run.finish_distance()-400),100):
 			var near:bool=run.encounter_markers.any(func(m):return absf(m.y-y)<=200)
-			near=near or run.charge_gates.any(func(g):return absf(g.receiver.y-y)<=800)
+			near=near or run.charge_gates.any(func(g):return y>=g.receiver.y-1160 and y<=g.receiver.y+1040)
 			if not near:missing+=1
 		check(missing==0,"no unaccounted encounter gaps")
 		# 缓存只减少重复查询，与父类完整几何求值逐项一致。

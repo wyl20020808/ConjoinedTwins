@@ -7,7 +7,7 @@ if not exist "%ENGINE%" (
   exit /b 1
 )
 rem A trailing backslash before the closing quote breaks Godot argument parsing.
-"%ENGINE%" --path "%~dp0." res://scenes/road_demo.tscn %*
+"%ENGINE%" --path "%~dp0." res://scenes/journey_boot.tscn %*
 set "RESULT=%ERRORLEVEL%"
 if not "%RESULT%"=="0" (
   echo Game failed to start. Exit code: %RESULT%

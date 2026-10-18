@@ -9,6 +9,15 @@ const FIRE_STEPS := 20
 const RANGE := 400.0
 const PICKUP_RADIUS := 20.0
 const MOVE_SCALE := 0.85
+# 接触伤害按机关类型区分；持续接触每秒最多结算一次。
+const CONTACT_INTERVAL := 1.0
+const HAZARD_DAMAGE := {
+	"steam":15, "scanner":15, "spikes":20, "active_spikes":25,
+	"rail":15, "pillar":20, "sweeper":25, "shuttle":35, "piston":45,
+	"drone":35, "fly_low":25, "fly_body":35, "fly_tall":45, "rocket":40,
+	"stone_ball":45, "iron_ball":60, "forklift":65, "press":80, "hammer":80,
+	"tree":60, "cart":50, "swing":65, "boar":20, "stone":20, "monster":15
+}
 
 static func fresh() -> Dictionary:
 	return {"health":[100,100], "weapons":[{},{}], "pickups":[], "serial":0,
@@ -84,6 +93,7 @@ static func enemy_position(event: Dictionary) -> Vector2:
 	return Vector2(event.side*360.0,event.y) if event.kind=="stone" else event.sample.get_center()
 
 static func enemy_height(event: Dictionary) -> float:
+	if event.kind=="monster": return event.get("ground_height",0.0)+(24.0 if event.archetype=="wolf" else 38.0)
 	return 38.0 if event.kind in ["stone","monster"] else 17.0
 
 # 线段进入实体的区间与同区间枪线高度相交才挡弹，低栏不会挡住头顶枪线。
@@ -107,13 +117,15 @@ static func visible_target(run, role: int, event: Dictionary) -> bool:
 	var from: Vector2=run.a.position if role==0 else run.b.position
 	var to := enemy_position(event)
 	var delta := to-from
-	if delta.length()>RANGE or delta.y<0 or (delta.length()>0.01 and delta.y/delta.length()<0.5): return false
+	if delta.length()>RANGE: return false
+	# 追击怪会绕到侧后方；这些敌人沿用射程和遮挡，但允许转身还击。
+	if event.kind!="monster" and (delta.y<0 or (delta.length()>0.01 and delta.y/delta.length()<0.5)): return false
 	var gun_height: float=run.foot_height(role)+36.0
 	var target_height := enemy_height(event)
 	return line_of_sight(run,from,to,gun_height,target_height)
 
 static func line_of_sight(run, from: Vector2, to: Vector2, gun_height: float, target_height: float) -> bool:
-	for i in range(run.kinds.size()):
+	for i in run.obstacles_in_bounds(Rect2(from,Vector2.ZERO).expand(to).grow(.001)):
 		if run.kinds[i] in ["cargo","pillar","rail"] and box_blocks(from,to,gun_height,target_height,run.obstacles[i],run.obstacle_heights[i]): return false
 	for gate in run.charge_gates:
 		if not gate.open and box_blocks(from,to,gun_height,target_height,gate.door,INF): return false
@@ -135,8 +147,9 @@ static func select_target(run, role: int, current: int) -> Dictionary:
 
 static func blind_shot_end(run, from: Vector2, to: Vector2, height: float) -> Vector2:
 	var blockers: Array[Rect2]=[]
-	for i in range(run.kinds.size()):
-		if run.kinds[i] in ["cargo","pillar","rail"] and box_blocks(from,to,height,height,run.obstacles[i],run.obstacle_heights[i]): blockers.append(run.obstacles[i])
+	var bounds:=Rect2(from,Vector2.ZERO).expand(to)
+	for i in run.indices_for_types(["cargo","pillar","rail"]):
+		if bounds.intersects(run.obstacles[i],true) and box_blocks(from,to,height,height,run.obstacles[i],run.obstacle_heights[i]): blockers.append(run.obstacles[i])
 	for gate in run.charge_gates:
 		if not gate.open: blockers.append(gate.door)
 	var end := to
@@ -191,11 +204,15 @@ static func tick(run, previous: Array) -> void:
 				run.combat.notice="敌人已击退"
 		if weapon.ammo==0: start_reload(run,role)
 
-static func hit(run, role: int, event_id: String, amount: int=20) -> void:
+static func hit(run, role: int, event_id: String, amount: int=20, repeatable: bool=false) -> void:
 	var key := "%s:%d"%[event_id,role]
-	if run.combat.hits.has(key): return
-	run.combat.hits[key]=true
+	if repeatable:
+		if run.elapsed < float(run.combat.hits.get(key,-INF))+CONTACT_INTERVAL: return
+	else:
+		if run.combat.hits.has(key): return
+		run.combat.hits[key]=true
 	if run.elapsed<run.invulnerable_until or run.elapsed<run.combat.invulnerable[role]: return
+	if repeatable: run.combat.hits[key]=run.elapsed
 	if run.shield:
 		run.shield=false
 		run.shield_uses+=1

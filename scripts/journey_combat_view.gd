@@ -65,6 +65,7 @@ func reset() -> void:
 
 func sync() -> void:
 	var run=game.run
+	var visual_state:String=run.paused_from if run.state=="paused" else run.state
 	# 一次建立可见拾取集合，同时清理已领取和离开窗口的节点。
 	var nearby:={}
 	for pickup in run.combat.pickups:
@@ -94,10 +95,12 @@ func sync() -> void:
 		var view: Node3D=pickup_views[pickup.id]
 		view.position=Vector3(pickup.position.x/20,0.65+sin(run.elapsed*2)*0.08,-pickup.position.y/20)
 		view.visible=absf(pickup.position.y-run.distance)<3000
+		for child in view.get_children():
+			if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
 	for role in range(2):
 		game.robots[role].get_node("CombatShield").visible=run.shield
 		var weapon: Dictionary=run.combat.weapons[role]
-		guns[role].visible=not weapon.is_empty() and run.state not in ["rescue","failed","complete","settlement"]
+		guns[role].visible=not weapon.is_empty() and visual_state not in ["rescue","failed","complete","settlement"]
 		# 与既有角色右手骨骼同步，枪身朝向模拟选中的目标。
 		var known:Skeleton3D=game.hand_skeletons.get(role)
 		if is_instance_valid(known):known.clear_bones_global_pose_override()
@@ -115,11 +118,11 @@ func sync() -> void:
 					target=Vector3(point.x/20,run.Combat.enemy_height(event)/20,-point.y/20)
 		if hand.distance_to(target)>0.01: guns[role].look_at(target)
 		apply_reload(guns[role],int(weapon.get("reload",0)))
-		if is_instance_valid(skeleton) and int(weapon.get("reload",0))>0:
+		if guns[role].visible and is_instance_valid(skeleton) and int(weapon.get("reload",0))>0:
 			reach_hand(skeleton,"R",guns[role].global_position)
 			reach_hand(skeleton,"L",guns[role].to_global(guns[role].get_node("Magazine").position))
 		var shot: Dictionary=run.combat.shots[role]
-		var recent: bool=not shot.is_empty() and run.elapsed-shot.time<0.065 and run.state in ["running","paused"]
+		var recent: bool=not shot.is_empty() and run.elapsed-shot.time<0.065 and visual_state=="running"
 		guns[role].get_node("Flash").visible=recent
 		beams[role].visible=recent
 		if recent:
@@ -131,7 +134,8 @@ func sync() -> void:
 			var to := Vector3(shot.to.x/20,shot.target_height/20,-shot.to.y/20)
 			beams[role].position=(from+to)/2
 			if from.distance_to(to)>0.001: beams[role].quaternion=Quaternion(Vector3.UP,(to-from).normalized())
-			beams[role].mesh.height=from.distance_to(to)
+			# 光束拓扑固定，长度由变换表达，避免每次射击销毁并重建渲染表面。
+			beams[role].scale.y=maxf(.001,from.distance_to(to)/beams[role].mesh.height)
 			if shot.id!=last_shots[role]: game.sfx.play("gunshot",-13.0)
 		if not shot.is_empty(): last_shots[role]=shot.id
 		if run.combat.health[role]<previous_health[role]: game.sfx.play("hit",-9.0)

@@ -1,0 +1,38 @@
+[
+  {
+    "file": "assets/landscape/natural_oak_7.glb",
+    "bytes": 587700,
+    "triangles": 6368,
+    "sha256": "15495ec1070f83f3e9aad34659295b82270a0997afd9656f42b3f692680c822c"
+  },
+  {
+    "file": "assets/landscape/natural_oak_7_lod.glb",
+    "bytes": 295288,
+    "triangles": 3266,
+    "sha256": "69e73eeeed41538374d5dfc14df66ef8189bc5b2fad77591824d30b4da8f016c"
+  },
+  {
+    "file": "assets/landscape/natural_oak_17.glb",
+    "bytes": 587704,
+    "triangles": 6368,
+    "sha256": "ceb57478fb373cfbc64bc721685bb46142a7c23b22097849c16da0ad2d8081a7"
+  },
+  {
+    "file": "assets/landscape/natural_oak_17_lod.glb",
+    "bytes": 295288,
+    "triangles": 3266,
+    "sha256": "e88ccc1502c984af39f4679333cdb6438f265931935db96fa683ce6351282542"
+  },
+  {
+    "file": "assets/landscape/natural_birch.glb",
+    "bytes": 587708,
+    "triangles": 6368,
+    "sha256": "1a0ff9055fe296379bc5114d1a2635b7af92c3595b6dcddf8d764d19b3724fdf"
+  },
+  {
+    "file": "assets/landscape/natural_birch_lod.glb",
+    "bytes": 295292,
+    "triangles": 3266,
+    "sha256": "425d48dc104a612357354a4b7cdf46889a7861baea3c04fe5923a2e1e0cf76bd"
+  }
+]

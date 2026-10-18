@@ -2318,7 +2318,8 @@ func build_terrain_model(view: Node3D, index: int) -> void:
 		for side in [-1,1]:
 			box(deck,Vector3(side*(rect.size.x/SCALE/2-0.1),0.14,0),Vector3(0.16,0.06,rect.size.y/SCALE),material("deck_rim",Color("cda45d")))
 		if kind == "lift":
-			for side in [-1,1]: cylinder(view,Vector3(side*(rect.size.x/SCALE/2+0.2),0.8,0),0.1,2.0,material("lift_post",Color("655b4e")))
+			var support_height:float=spec.get("amplitude",28.0)/SCALE+0.5
+			for side in [-1,1]: cylinder(view,Vector3(side*(rect.size.x/SCALE/2+0.2),support_height/2,0),0.1,support_height,material("lift_post",Color("655b4e")))
 	else:
 		var tool := SurfaceTool.new()
 		tool.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -2341,6 +2342,19 @@ func build_terrain_model(view: Node3D, index: int) -> void:
 					for corner in [Vector3(x0,old_height,y0),Vector3(x1,new_height,y0),Vector3(x1,old_height,y0),Vector3(x0,old_height,y0),Vector3(x0,new_height,y0),Vector3(x1,new_height,y0)]:
 						tool.set_uv(Vector2(corner.x,corner.y)/SCALE)
 						tool.add_vertex(Vector3((corner.x-rect.get_center().x)/SCALE,corner.y/SCALE,-(corner.z-rect.get_center().y)/SCALE))
+		# 封闭两侧到地面；台阶侧壁使用同一行的采样高度，与顶面吻合。
+		for row in range(rows):
+			var y0:float=rect.position.y+rect.size.y*row/rows
+			var y1:float=rect.position.y+rect.size.y*(row+1)/rows
+			for side in [-1,1]:
+				var x:float=rect.position.x if side<0 else rect.end.x
+				var h0:float=Run.Terrain.mesh_height(kind,rect,spec,0,Vector2(x,(y0+y1)/2 if kind=="steps" else y0))
+				var h1:float=Run.Terrain.mesh_height(kind,rect,spec,0,Vector2(x,(y0+y1)/2 if kind=="steps" else y1))
+				var corners:Array=[Vector3(x,0,y0),Vector3(x,h1,y1),Vector3(x,h0,y0),Vector3(x,0,y0),Vector3(x,0,y1),Vector3(x,h1,y1)]
+				if side>0:corners.reverse()
+				for corner:Vector3 in corners:
+					tool.set_uv(Vector2(corner.z,corner.y)/SCALE)
+					tool.add_vertex(Vector3((corner.x-rect.get_center().x)/SCALE,corner.y/SCALE,-(corner.z-rect.get_center().y)/SCALE))
 		tool.generate_normals()
 		tool.generate_tangents()
 		var deck := MeshInstance3D.new()
@@ -2359,7 +2373,10 @@ func build_terrain_model(view: Node3D, index: int) -> void:
 func sync_terrain_model(view: Node3D, index: int) -> void:
 	var kind: String=run.kinds[index]
 	var sample: Dictionary=run.terrain_sample(index,run.elapsed,run.obstacles[index].get_center())
-	if kind in Run.Terrain.MOVING: view.position.y=sample.height/SCALE
+	if kind=="lift":
+		view.position.y=0
+		view.get_node("TerrainDeck").position.y=sample.height/SCALE-.12
+	elif kind in Run.Terrain.MOVING: view.position.y=sample.height/SCALE
 	if kind=="drawbridge":
 		var opening: float=sample.opening
 		var deck: Node3D=view.get_node("TerrainDeck")

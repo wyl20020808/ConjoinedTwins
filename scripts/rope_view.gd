@@ -10,12 +10,21 @@ const ITERATIONS := 18
 const WIND := Vector3(0, 0, 2.2)
 var points := PackedVector3Array()
 var previous := PackedVector3Array()
-var immediate := ImmediateMesh.new()
+var surface := ArrayMesh.new()
+var vertex_data := PackedByteArray()
+var attribute_data := PackedByteArray()
+var vertex_count := 0
+var vertex_stride := 0
+var normal_stride := 0
+var normal_offset := 0
+var tangent_offset := 0
+var uv_stride := 0
+var uv_offset := 0
 var rope_material := StandardMaterial3D.new()
 var length := 7.33
 
 func _ready() -> void:
-	mesh = immediate
+	mesh = surface
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	rope_material.albedo_texture = braid_texture()
 	rope_material.albedo_color = Color("d8b07a")
@@ -63,35 +72,98 @@ static func along(path: Array[Vector3], distance: float) -> Vector3:
 
 # 沿质点链生成一根细圆管；纹理 u 沿周向，v 沿长度，按实际长度重复，斜纹不会被拉伸。
 func draw() -> void:
-	if points.size() < 2: return
-	immediate.clear_surfaces()
-	immediate.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rings: Array = []
+	if points.size() < 2:
+		visible=false
+		return
+	for point in points:
+		if not point.is_finite():
+			visible=false
+			return
+	visible=true
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var tangents := PackedFloat32Array()
+	var uvs := PackedVector2Array()
+	# reset 的两端点与模拟的 25 个质点共用固定容量；多余环收在末端。
+	# 保留原质点和原线段，不重采样或改变碰撞绳形。
+	var ring_count:=maxi(maxi(SEGMENTS+1,points.size()),vertex_count/(SIDES+1))
+	var count := ring_count*(SIDES+1)
+	vertices.resize(count);normals.resize(count);tangents.resize(count*4);uvs.resize(count)
+	var bounds := AABB(points[0],Vector3.ZERO)
 	var travelled := 0.0
 	var normal_hint := Vector3.UP
-	for n in range(points.size()):
+	for ring_index in range(ring_count):
+		var n:=mini(ring_index,points.size()-1)
 		var forward := (points[mini(n + 1, points.size()-1)] - points[maxi(n - 1, 0)]).normalized()
 		if forward.length() < 0.5: forward = Vector3.RIGHT
-		if absf(forward.dot(normal_hint)) > 0.95: normal_hint = Vector3.FORWARD
+		if absf(forward.dot(normal_hint)) > 0.95:
+			normal_hint=Vector3.UP if absf(forward.y)<0.95 else Vector3.FORWARD
 		var side := forward.cross(normal_hint).normalized()
 		var up := side.cross(forward).normalized()
-		if n > 0: travelled += points[n - 1].distance_to(points[n])
-		var ring: Array = []
+		if ring_index > 0 and ring_index < points.size(): travelled += points[n - 1].distance_to(points[n])
+		bounds=bounds.expand(points[n])
 		for k in range(SIDES + 1):
 			var angle := TAU * k / SIDES
 			var normal := side * cos(angle) + up * sin(angle)
 			var braid := 1.0 + 0.09 * cos(3.0 * angle + travelled * TAU / 0.18)
-			ring.append([points[n] + normal * RADIUS * braid, normal, Vector2(float(k) / SIDES, travelled / 0.18), -side*sin(angle)+up*cos(angle)])
-		rings.append(ring)
-	for n in range(points.size()-1):
+			var index:=ring_index*(SIDES+1)+k
+			var tangent:=-side*sin(angle)+up*cos(angle)
+			vertices[index]=points[n]+normal*RADIUS*braid
+			normals[index]=normal
+			uvs[index]=Vector2(float(k)/SIDES,travelled/0.18)
+			tangents[index*4]=tangent.x;tangents[index*4+1]=tangent.y
+			tangents[index*4+2]=tangent.z;tangents[index*4+3]=1.0
+	if count!=vertex_count:
+		build_surface(vertices,normals,tangents,uvs)
+	else:
+		# 拓扑不变时只更新缓冲区，不销毁正在使用的渲染表面缓存。
+		for index in range(count):
+			var vertex:=vertices[index]
+			vertex_data.encode_float(index*vertex_stride,vertex.x)
+			vertex_data.encode_float(index*vertex_stride+4,vertex.y)
+			vertex_data.encode_float(index*vertex_stride+8,vertex.z)
+			encode_direction(normal_offset+index*normal_stride,normals[index].octahedron_encode())
+			var tangent:=Vector3(tangents[index*4],tangents[index*4+1],tangents[index*4+2]).octahedron_encode()
+			# 与 Godot 的正手性切线打包规则一致（UNORM16 八面体编码）。
+			tangent.y=maxf(tangent.y,1.0/32767.0)*0.5+0.5
+			if int(tangent.x*65535)==0 and int(tangent.y*65535)==65535:tangent.x=1.0
+			encode_direction(tangent_offset+index*normal_stride,tangent)
+			attribute_data.encode_float(uv_offset+index*uv_stride,uvs[index].x)
+			attribute_data.encode_float(uv_offset+index*uv_stride+4,uvs[index].y)
+		RenderingServer.mesh_surface_update_vertex_region(surface.get_rid(),0,0,vertex_data)
+		RenderingServer.mesh_surface_update_attribute_region(surface.get_rid(),0,0,attribute_data)
+	# 缓冲区更新不会自动重算包围盒，救援下坠和镜头切换都必须覆盖。
+	custom_aabb=bounds.grow(RADIUS*1.1)
+
+func encode_direction(offset:int,value:Vector2)->void:
+	vertex_data.encode_u16(offset,clampi(int(value.x*65535),0,65535))
+	vertex_data.encode_u16(offset+2,clampi(int(value.y*65535),0,65535))
+
+func build_surface(vertices:PackedVector3Array,normals:PackedVector3Array,tangents:PackedFloat32Array,uvs:PackedVector2Array)->void:
+	var indices:=PackedInt32Array()
+	for n in range(vertices.size()/(SIDES+1)-1):
 		for k in range(SIDES):
-			for corner in [[n, k], [n + 1, k], [n + 1, k + 1], [n, k], [n + 1, k + 1], [n, k + 1]]:
-				var vertex: Array = rings[corner[0]][corner[1]]
-				immediate.surface_set_normal(vertex[1])
-				immediate.surface_set_uv(vertex[2])
-				immediate.surface_set_tangent(Plane(vertex[3],1.0))
-				immediate.surface_add_vertex(vertex[0])
-	immediate.surface_end()
+			var a:=n*(SIDES+1)+k
+			var b:=a+SIDES+1
+			indices.append_array(PackedInt32Array([a,b,b+1,a,b+1,a+1]))
+	var arrays:=[]
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX]=vertices;arrays[Mesh.ARRAY_NORMAL]=normals
+	arrays[Mesh.ARRAY_TANGENT]=tangents;arrays[Mesh.ARRAY_TEX_UV]=uvs;arrays[Mesh.ARRAY_INDEX]=indices
+	# 点数变化才建立新网格；旧网格交由引擎管理引用释放，不清空活动网格。
+	surface=ArrayMesh.new()
+	surface.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arrays,[],{},Mesh.ARRAY_FLAG_USE_DYNAMIC_UPDATE)
+	mesh=surface
+	vertex_count=vertices.size()
+	var format:=surface.surface_get_format(0)
+	vertex_stride=RenderingServer.mesh_surface_get_format_vertex_stride(format,vertex_count)
+	normal_stride=RenderingServer.mesh_surface_get_format_normal_tangent_stride(format,vertex_count)
+	normal_offset=RenderingServer.mesh_surface_get_format_offset(format,vertex_count,Mesh.ARRAY_NORMAL)
+	tangent_offset=RenderingServer.mesh_surface_get_format_offset(format,vertex_count,Mesh.ARRAY_TANGENT)
+	uv_stride=RenderingServer.mesh_surface_get_format_attribute_stride(format,vertex_count)
+	uv_offset=RenderingServer.mesh_surface_get_format_offset(format,vertex_count,Mesh.ARRAY_TEX_UV)
+	vertex_data.resize(vertex_count*(vertex_stride+normal_stride))
+	attribute_data.resize(vertex_count*uv_stride)
 
 static func fiber_normal() -> ImageTexture:
 	var image := Image.create(128, 128, true, Image.FORMAT_RGB8)

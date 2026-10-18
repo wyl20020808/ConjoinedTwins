@@ -2,19 +2,39 @@ extends RefCounted
 
 # 复用场景材质；怪物、血条与反馈都由模拟时间驱动，无逐怪物 _process / Tween。
 static func make_monster(game, parent: Node3D, archetype: String) -> Node3D:
+	var models:Dictionary=game.get_meta("enemy_models",{})
+	if models.has(archetype):
+		var instance:Node3D=models[archetype].instantiate();parent.add_child(instance);return instance
 	var actor := Node3D.new();actor.name="Monster";parent.add_child(actor)
-	var color: Color={"briar":Color("617648"),"raider":Color("9a5342"),"sentinel":Color("647b88")}[archetype]
+	var color: Color={"briar":Color("617648"),"raider":Color("9a5342"),"sentinel":Color("647b88"),"archer":Color("4e6449"),"dasher":Color("88533c"),"wolf":Color("777b75")}[archetype]
 	var hide: Material=game.material("monster_"+archetype,color)
 	var dark: Material=game.material("monster_dark",Color("293537"))
 	var trim: Material=game.material("monster_trim",Color("c6ad77"))
 	var glow: Material=game.material("monster_eyes",Color("ffcc68"),1.4)
+	if archetype=="wolf":
+		volume(actor,Vector3(0,.95,-.15),Vector3(.95,1.1,1.85),hide)
+		volume(actor,Vector3(0,1.35,.75),Vector3(.8,.9,.9),hide)
+		volume(actor,Vector3(0,1.12,1.28),Vector3(.5,.4,.65),dark)
+		for side in [-1,1]:
+			var ear:Node3D=game.box(actor,Vector3(side*.28,1.86,.7),Vector3(.23,.5,.28),dark);ear.rotation.z=-side*.2
+			game.box(actor,Vector3(side*.27,1.4,1.12),Vector3(.13,.09,.07),glow)
+			for front in [false,true]:
+				var leg:=Node3D.new();actor.add_child(leg)
+				leg.name=("Left" if side<0 else "Right")+("Arm" if front else "Leg")
+				leg.position=Vector3(side*.36,.85,.5 if front else -.85)
+				volume(leg,Vector3(0,-.36,.03),Vector3(.25,.8,.3),hide)
+		var tail:Node3D=game.box(actor,Vector3(0,.9,-1.3),Vector3(.3,.3,1.1),hide);tail.rotation.x=-.35
+		cache_model(game,actor,archetype)
+		return actor
 	volume(actor,Vector3(0,1.5,0),Vector3(1.25,1.6,.9),hide)
 	game.box(actor,Vector3(0,1.35,.4),Vector3(.8,.55,.09),dark)
 	volume(actor,Vector3(0,2.45,.12),Vector3(1.1,.95,.95),hide)
 	game.box(actor,Vector3(0,2.4,.54),Vector3(.8,.23,.08),dark)
 	for side in [-1,1]:
 		game.box(actor,Vector3(side*.23,2.42,.6),Vector3(.18,.12,.06),glow)
-		game.box(actor,Vector3(side*.35,.4,.05),Vector3(.36,.8,.48),dark)
+		var leg:=Node3D.new();leg.name="LeftLeg" if side==-1 else "RightLeg"
+		actor.add_child(leg);leg.position=Vector3(side*.35,.85,0)
+		game.box(leg,Vector3(0,-.45,.05),Vector3(.36,.8,.48),dark)
 		var arm:=Node3D.new();arm.name="LeftArm" if side==-1 else "RightArm"
 		actor.add_child(arm);arm.position=Vector3(side*.7,2.0,0)
 		game.box(arm,Vector3(0,-.4,0),Vector3(.35,1.0,.4),hide)
@@ -32,7 +52,39 @@ static func make_monster(game, parent: Node3D, archetype: String) -> Node3D:
 		scarf.rotation.z=-.3
 	elif archetype=="sentinel":
 		game.box(actor,Vector3(0,2.95,.08),Vector3(.3,.4,.65),glow)
+	elif archetype=="archer":
+		var bow:=Node3D.new();bow.name="Bow";actor.get_node("LeftArm").add_child(bow);bow.position=Vector3(0,-.8,.2)
+		for n in range(7):
+			var a:float=-1.2+n*.4
+			var segment:Node3D=game.box(bow,Vector3(0,sin(a)*.8,cos(a)*.3),Vector3(.09,.37,.09),trim);segment.rotation.x=a*.4
+		game.box(bow,Vector3(0,0,.1),Vector3(.025,1.5,.025),dark)
+		game.box(actor,Vector3(.35,1.8,-.6),Vector3(.4,1.1,.4),dark)
+	elif archetype=="dasher":
+		game.box(actor,Vector3(0,2.8,.1),Vector3(1.2,.5,1),trim)
+		for side in [-1,1]:
+			game.box(actor,Vector3(side*.85,2.15,.1),Vector3(.65,.65,.9),dark)
+	cache_model(game,actor,archetype)
 	return actor
+
+# 静态躯干按材质合并，四肢保留独立关节；同类实例共享网格资源。
+static func cache_model(game,actor:Node3D,archetype:String)->void:
+	var groups:={}
+	for child in actor.get_children():
+		if not child is MeshInstance3D:continue
+		var mat:Material=child.material_override
+		if not groups.has(mat):
+			var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES);groups[mat]=tool
+		groups[mat].append_from(child.mesh,0,child.transform)
+		child.free()
+	for mat:Material in groups:
+		var mesh:=MeshInstance3D.new();mesh.mesh=groups[mat].commit();mesh.material_override=mat;actor.add_child(mesh)
+	assign_owner(actor,actor)
+	var packed:=PackedScene.new();packed.pack(actor)
+	var models:Dictionary=game.get_meta("enemy_models",{});models[archetype]=packed;game.set_meta("enemy_models",models)
+
+static func assign_owner(node:Node,owner_node:Node)->void:
+	for child in node.get_children():
+		child.owner=owner_node;assign_owner(child,owner_node)
 
 static func volume(parent:Node3D,position:Vector3,size:Vector3,mat:Material)->void:
 	var mesh:=MeshInstance3D.new();var shape:=SphereMesh.new()
@@ -61,6 +113,7 @@ static func prepare(game, view: Node3D, event: Dictionary) -> void:
 	view.set_meta("enemy_scale",body.scale)
 	view.set_meta("enemy_rotation",body.rotation)
 	view.set_meta("last_hit_at",-1.0)
+	view.set_meta("hit_flash",false)
 	var health:=Node3D.new();health.name="EnemyHealth";view.add_child(health)
 	panel(game,health,"Back",Vector2(3.15,.34),Color("18262d"))
 	var fill:=panel(game,health,"Fill",Vector2(3.0,.22),Color("81d694"));fill.position.z=.02
@@ -79,23 +132,45 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		view.hide();return
 	# 不把加载队列中尚未进入显示窗口的敌人重新显示出来。
 	if event.y-run.distance< -900 or event.y-run.distance>=4200: return
+	# 模拟窗口外的敌人尚未行动，静止远景只初始化一次；进入近景立即恢复动画。
+	var far:bool=event.kind=="monster" and absf(event.y-run.distance)>1400
+	if far and view.get_meta("enemy_far_ready",false):return
+	view.set_meta("enemy_far_ready",far)
 	var point:Vector2=run.Combat.enemy_position(event)
 	var location:=Vector3(point.x/20,0,-point.y/20)
 	var actor:Node3D=view.get_meta("enemy_body")
 	actor.rotation=view.get_meta("enemy_rotation");actor.scale=view.get_meta("enemy_scale")
 	if event.kind=="monster":
 		actor.position=Vector3(event.origin.x/20,0,0)
-		var target:Vector2=(run.a.position+run.b.position)*.5-event.origin
+		var target:Vector2=event.get("facing",Vector2(0,-1))
 		actor.rotation.y=atan2(target.x,-target.y)
-		actor.position.y=sin(run.elapsed*3+event.id)*.045
-		var charge:=sin(clampf((run.elapsed-event.trigger)/run.Monsters.WINDUP,0,1)*PI/2) if event.phase=="warning" else 0.0
-		actor.get_node("LeftArm").rotation.x=-charge*1.7
-		actor.get_node("RightArm").rotation.x=-charge*1.7
-		view.get_node("Body").visible=event.phase=="active" and not died
+		var stride:float=event.get("stride",0.0)
+		var moving:bool=event.get("velocity",Vector2.ZERO).length_squared()>1 and not died
+		var swing:float=sin(stride)*.85 if moving else 0.0
+		actor.position.y=run.surface_at(event.origin,run.elapsed).height/20.0+(absf(sin(stride))*.12 if moving else 0.0)
+		actor.rotation.x=-.16 if moving else 0.0
+		actor.get_node("LeftLeg").rotation.x=swing
+		actor.get_node("RightLeg").rotation.x=-swing
+		var charge:=sin(clampf((run.elapsed-event.trigger)/run.Monsters.profile(event).windup,0,1)*PI/2) if event.phase=="warning" else 0.0
+		actor.get_node("LeftArm").rotation.x=-charge*1.7-swing*.7
+		actor.get_node("RightArm").rotation.x=-charge*1.7+swing*.7
+		if event.archetype=="archer" and event.phase in ["warning","active"]:
+			actor.get_node("LeftArm").rotation.x=-1.5
+			actor.get_node("RightArm").rotation.x=-1.5+charge*.65
+		elif event.archetype in ["dasher","wolf"]:
+			actor.position.y-=charge*.22
+			actor.rotation.x=-charge*.3-(.25 if event.phase=="active" else 0.0)
+			if event.archetype=="wolf":
+				actor.get_node("LeftArm").rotation.x=-swing
+				actor.get_node("RightArm").rotation.x=swing
+		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)
-	var flash:Material=game.material("enemy_hit_flash",Color("ffe2ad"),.9) if hit_age<.09 else null
-	for mesh in view.get_meta("enemy_meshes"): mesh.material_overlay=flash
+	var flashing:bool=hit_age<.09
+	if flashing!=view.get_meta("hit_flash",false):
+		var flash:Material=game.material("enemy_hit_flash",Color("ffe2ad"),.9) if flashing else null
+		for mesh in view.get_meta("enemy_meshes"): mesh.material_overlay=flash
+		view.set_meta("hit_flash",flashing)
 	if hit_age<.2: actor.rotation.x-=sin(hit_age/.2*PI)*.22
 	if died:
 		actor.show();actor.rotation.x-=smoothstep(0,.45,death_age)*1.2
@@ -103,13 +178,17 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		view.get_node("Warning").hide();view.get_node("Hint").hide()
 	var health:Node3D=view.get_node("EnemyHealth")
 	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800
-	health.global_position=location+Vector3(0,3.5,0)
-	health.global_basis=game.camera.global_basis
-	var ratio:=clampf(float(event.hp)/event.max_hp,0,1)
-	var fill:MeshInstance3D=health.get_node("Fill");fill.scale.x=maxf(.001,ratio);fill.position.x=-1.5*(1-ratio)
-	var color:=Color("81d694") if ratio>.5 else (Color("ffc36a") if ratio>.25 else Color("f17666"))
-	fill.material_override=game.material("enemy_ui_"+color.to_html(),color)
-	fill.material_override.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	if health.visible:
+		health.global_position=location+Vector3(0,3.5+event.get("ground_height",0.0)/20,0)
+		health.global_basis=game.camera.global_basis
+		var health_key:Vector2i=Vector2i(event.hp,event.max_hp)
+		if view.get_meta("health_key",Vector2i(-1,-1))!=health_key:
+			var ratio:=clampf(float(event.hp)/event.max_hp,0,1)
+			var fill:MeshInstance3D=health.get_node("Fill");fill.scale.x=maxf(.001,ratio);fill.position.x=-1.5*(1-ratio)
+			var color:=Color("81d694") if ratio>.5 else (Color("ffc36a") if ratio>.25 else Color("f17666"))
+			fill.material_override=game.material("enemy_ui_"+color.to_html(),color)
+			fill.material_override.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+			view.set_meta("health_key",health_key)
 	var locked:bool=run.combat.weapons.any(func(w):return not w.is_empty() and w.target==event.id)
 	var title:Label3D=health.get_node("Title")
 	var enemy_name:String=run.Monsters.NAMES[event.archetype] if event.kind=="monster" else ("野猪" if event.kind=="boar" else "投掷者")

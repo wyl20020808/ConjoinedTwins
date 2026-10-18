@@ -131,11 +131,11 @@ func validate() -> void:
 	# 使用生产固定步验证持枪速度与丢枪恢复，不仅检查倍率常量。
 	run=isolated();run.combat.weapons[0]=run.Combat.gun();run.combat.weapons[1]=run.Combat.gun()
 	ticks(run,120,Vector2.UP*-1)
-	check(absf(run.a.position.y-136)<0.5,"held gun moves 6.8 metres per second")
+	check(absf(run.a.position.y-272)<0.5,"held gun runs 13.6 metres per second")
 	run.Combat.drop_weapon(run,0);run.Combat.drop_weapon(run,1);run.combat.pickups.clear()
 	var start: float=run.a.position.y
 	ticks(run,120,Vector2(0,1))
-	check(absf(run.a.position.y-start-160)<0.5,"dropping gun restores eight metres per second")
+	check(absf(run.a.position.y-start-320)<0.5,"dropping gun restores sixteen metres per second")
 	run.dispose()
 
 	run=isolated();run.solo_control=true

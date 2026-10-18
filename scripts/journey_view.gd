@@ -27,7 +27,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-forest-village-detail-20261015"
+const WEB_BUILD:="journey-minimal-hud-damage-20261017"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -36,8 +36,6 @@ var floor_stamp := ""
 var built_chapter := -1
 var built_training := false
 var journey_hint: Label
-var region_banner: Label
-var progress_widget: ProgressBar
 var credits_panel: PanelContainer
 var canopy_light: DirectionalLight3D
 var world_environment: Environment
@@ -52,21 +50,29 @@ const CombatView = preload("res://scripts/journey_combat_view.gd")
 var combat_view: Node3D
 var combat_status: Label
 var combat_health: ProgressBar
+var partner_health: ProgressBar
+var partner_status: Label
+var weapon_ammo: Label
+var weapon_detail: Label
+var weapon_icon: TextureRect
+var health_panel: PanelContainer
+var weapon_panel: PanelContainer
 var training_button: Button
 var restart_button: Button
 var fire_blocked := true
 var reload_requested := false
 var drop_requested := false
-var controls_hint: Label
-var hud_backdrop: ColorRect
 var frame_costs := {}
 var view_pending:=false
+var journey_camera_returning:=false
 
 func create_run():
 	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
 	return Journey.new()
 
 func _ready() -> void:
+	# 本地也限制长帧追赶，避免补算持续挤占输入和绘制。
+	Engine.max_physics_steps_per_frame=3
 	if OS.has_feature("web"):web_verify=bool(JavaScriptBridge.eval("new URLSearchParams(location.search).has('verify')",true))
 	ThemeDB.fallback_font=preload("res://assets/fonts/web_ui_font.tres")
 	finish_view.free()
@@ -135,7 +141,7 @@ func _ready() -> void:
 func warm_web_landscape()->void:
 	# 首次绘制的 WebGL 上传/着色器编译放在加载页，避免走入森林时同步阻塞。
 	var paths:Array=[]
-	for kind in ["grove_oak_7","grove_oak_17","grove_birch","grove_oak_7_lod","grove_oak_17_lod","grove_birch_lod","grass","fern","shrub","woodpile"]:
+	for kind in ["natural_oak_7","natural_oak_17","natural_birch","natural_oak_7_lod","natural_oak_17_lod","natural_birch_lod","grass","fern","shrub","woodpile"]:
 		paths.append("res://assets/landscape/%s.glb"%kind)
 	chunk_assets.request(paths)
 	while not chunk_assets.ready(paths):
@@ -290,8 +296,8 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 		"landscape_terrain":landscape.sides(chunk,item[1],item[2],item[3])
 		"landscape_batch":
 			var path:="res://assets/landscape/%s.glb"%item[1]
-			if item[1] in ["grove_oak_7","grove_oak_17","grove_birch"]:
-				var split:=60.0 if landscape.mobile or OS.has_feature("web") else 95.0
+			if item[1] in ["natural_oak_7","natural_oak_17","natural_birch"]:
+				var split:=45.0 if landscape.mobile or OS.has_feature("web") else 70.0
 				landscape.batch(chunk,path,item[2],split)
 				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
 			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile or OS.has_feature("web") else 170)
@@ -305,7 +311,9 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
 		"model":
 			var node := model("res://assets/decor/%s.glb"%item[1],chunk,item[2],item[3],item[4],item[5])
-			if item.size()>6 and node: node.set_meta("wind",item[6])
+			if item.size()>6 and node:
+				node.set_meta("wind",item[6])
+				var moving:Array=chunk.get_meta("wind_nodes",[]);moving.append(node);chunk.set_meta("wind_nodes",moving)
 		"rock": rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),ground_material("ruins"),item[2],item[3])
 		"asset": asset(chunk,item[1],item[2],item[3],item[4])
 		"building": model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
@@ -360,6 +368,9 @@ func prepare_journey_frame() -> bool:
 	for gate in run.charge_gates:
 		if absf(gate.receiver.y-run.distance)<5800:retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
 	retained.append_array(chunk_assets.pending);retained.append_array(chunk_assets.active)
+	if run.kinds.has("drone"):
+		var flying_assets:Array=["res://assets/props/Eagle_Flying.glb"]
+		retained.append_array(flying_assets);chunk_assets.request(flying_assets)
 	chunk_assets.retain(retained)
 	chunk_assets.poll(deadline)
 	var events_ready := prepare_event_views(deadline)
@@ -486,6 +497,10 @@ func build_event(event: Dictionary) -> Node3D:
 		ball.scale=Vector3.ONE*(.65 if kind=="monster" else 1.2)
 		ball.material_override=ground_material("ruins")
 		body.add_child(ball)
+		if kind=="monster" and event.archetype=="archer":
+			ball.hide()
+			box(body,Vector3.ZERO,Vector3(.08,.08,1.2),material("arrow_wood",Color("b7a176")))
+			box(body,Vector3(0,0,.65),Vector3(.24,.1,.3),material("arrow_tip",Color("bec8c8")))
 	elif kind=="cart": asset(body,"cart",Vector3.ZERO,3.2,PI/2)
 	else:
 		var wood:=material("swing_wood",Color("9c805c"))
@@ -546,7 +561,7 @@ func sync_events() -> void:
 			var arm:MeshInstance3D=view.get_node("SwingArm")
 			arm.position=(pivot+tip)*0.5
 			arm.quaternion=Quaternion(Vector3.UP,(tip-pivot).normalized())
-			arm.mesh.height=pivot.distance_to(tip)
+			arm.scale.y=pivot.distance_to(tip)/arm.mesh.height
 			sample_animation(view,"WheelTurn",run.elapsed)
 		elif event.kind=="boar":
 			sample_animation(body,"Charge",run.elapsed if event.phase=="active" else 0)
@@ -555,7 +570,16 @@ func sync_events() -> void:
 		var warning:Node3D=view.get_node("Warning")
 		warning.visible=event.phase in ["warning","falling"]
 		warning.position.x=event.locked_x/SCALE if event.kind in ["stone","monster"] else event.rect.get_center().x/SCALE
-		if event.kind=="monster": warning.position.z=-(event.landing.y-event.y)/SCALE
+		if event.kind=="monster":
+			warning.position.z=-(event.landing.y-event.y)/SCALE
+			if event.archetype in ["archer","dasher","wolf"]:
+				var data:Dictionary=run.Monsters.profile(event)
+				var length:float=data.speed*data.active/SCALE
+				var center:Vector2=event.launch+event.attack_direction*length*SCALE/2
+				warning.position=Vector3(center.x/SCALE,.04+event.get("ground_height",0.0)/SCALE,-(center.y-event.y)/SCALE)
+				warning.rotation.y=atan2(event.attack_direction.x,-event.attack_direction.y)
+				warning.scale=Vector3(.32 if event.archetype=="archer" else 1.0,1,length/2.5)
+				body.rotation.y=warning.rotation.y
 		view.get_node("Hint").visible=event.phase=="warning"
 		if view.has_node("Villager"):
 			var actor:Node3D=view.get_node("Villager")
@@ -620,61 +644,66 @@ func build_journey_ui() -> void:
 	var canvas:=CanvasLayer.new()
 	canvas.name="JourneyCanvas"
 	add_child(canvas)
-	hud_backdrop=ColorRect.new()
-	hud_backdrop.color=Color(0.025,0.04,0.035,0.82)
-	hud_backdrop.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	canvas.add_child(hud_backdrop)
-	var margin:=MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left",24)
-	margin.add_theme_constant_override("margin_top",20)
-	margin.add_theme_constant_override("margin_right",24)
-	margin.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	canvas.add_child(margin)
+	health_panel=hud_panel(canvas)
 	var column:=VBoxContainer.new()
 	column.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	margin.add_child(column)
-	region_banner=label("",26)
-	column.add_child(region_banner)
-	hud=label("",17)
+	column.add_theme_constant_override("separation",5)
+	health_panel.add_child(column)
+	hud=label("",18)
 	column.add_child(hud)
-	journey_hint=label("",19,Color("ffe2a0"))
-	column.add_child(journey_hint)
-	progress_widget=ProgressBar.new()
-	progress_widget.custom_minimum_size=Vector2(0,5)
-	progress_widget.show_percentage=false
-	column.add_child(progress_widget)
-	combat_status=label("",20,Color("a1ead5"))
-	column.add_child(combat_status)
-	combat_health=ProgressBar.new()
-	combat_health.custom_minimum_size=Vector2(260,12)
-	combat_health.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
-	combat_health.show_percentage=false
+	combat_health=health_bar(Color("9cdeb9"),12)
 	column.add_child(combat_health)
-	for text_label in [region_banner,hud,journey_hint,combat_status]:
-		text_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
-		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
-	var controls:=label("W/S / 上下键前后 · A/D / 左右键移动 · 空格跳跃 · 松开停步\n鼠标左键射击 · R 换弹 · G 丢枪 · Esc 暂停 · F1 素材署名",16)
-	controls.position=Vector2(24,652)
-	controls_hint=controls
-	canvas.add_child(controls)
-	controls.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	partner_status=label("",15,Color("e4c7a7"))
+	column.add_child(partner_status)
+	partner_health=health_bar(Color("e4b883"),6)
+	column.add_child(partner_health)
+	weapon_panel=hud_panel(canvas)
+	var weapon_column:=VBoxContainer.new()
+	weapon_column.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	weapon_column.add_theme_constant_override("separation",2)
+	weapon_panel.add_child(weapon_column)
+	combat_status=label("",18)
+	weapon_column.add_child(combat_status)
+	weapon_icon=TextureRect.new()
+	weapon_icon.texture=preload("res://assets/ui/smg.svg")
+	weapon_icon.custom_minimum_size=Vector2(108,40)
+	weapon_icon.expand_mode=TextureRect.EXPAND_IGNORE_SIZE
+	weapon_icon.stretch_mode=TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	weapon_icon.size_flags_horizontal=Control.SIZE_SHRINK_END
+	weapon_icon.tooltip_text="冲锋枪"
+	weapon_icon.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	weapon_column.add_child(weapon_icon)
+	weapon_ammo=label("",30)
+	weapon_column.add_child(weapon_ammo)
+	weapon_detail=label("",15,Color("e4c7a7"))
+	weapon_column.add_child(weapon_detail)
+	for text_label in [combat_status,weapon_ammo,weapon_detail]:
+		text_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	journey_hint=label("",19,Color("ffe2a0"))
+	journey_hint.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
+	journey_hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	journey_hint.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(journey_hint)
+	for text_label in [hud,partner_status,combat_status,weapon_ammo,weapon_detail,journey_hint]:
+		text_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
+		text_label.add_theme_constant_override("outline_size",4)
 	touch_device=DisplayServer.is_touchscreen_available() or OS.has_feature("mobile")
 	touch=TouchControls.new()
 	touch.combat_buttons=true
 	canvas.add_child(touch)
 	pause_button=Button.new()
-	pause_button.text="暂停"
-	pause_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	pause_button.offset_left=-120
-	pause_button.offset_right=-24
-	pause_button.offset_top=22
-	pause_button.offset_bottom=70
+	for state_name in ["normal","hover","pressed","disabled"]:
+		pause_button.add_theme_stylebox_override(state_name,StyleBoxEmpty.new())
+	pause_button.tooltip_text="暂停 · Esc"
+	pause_button.draw.connect(func():
+		for x in [14.0,24.0]:
+			pause_button.draw_rect(Rect2(x-1,11,6,18),Color("24332b"))
+			pause_button.draw_rect(Rect2(x,12,4,16),Color("eff4ec")))
 	pause_button.pressed.connect(func():
 		command("pause")
 		clear_controls())
 	canvas.add_child(pause_button)
-	controls.visible=not touch_device
+	build_rescue_hud(canvas)
 	panel=PanelContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	panel.position=Vector2(240,170)
@@ -741,8 +770,32 @@ func build_journey_ui() -> void:
 		choice.add_child(button)
 		difficulty_buttons.append(button)
 
+func hud_panel(canvas: CanvasLayer) -> PanelContainer:
+	var result:=PanelContainer.new()
+	var style:=StyleBoxEmpty.new()
+	result.add_theme_stylebox_override("panel",style)
+	result.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(result)
+	return result
+
+func health_bar(color: Color, height: float) -> ProgressBar:
+	var result:=ProgressBar.new()
+	result.custom_minimum_size=Vector2(0,height)
+	result.show_percentage=false
+	result.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	var back:=StyleBoxFlat.new()
+	back.bg_color=Color(0.92,0.96,0.91,0.18)
+	var fill:=StyleBoxFlat.new()
+	fill.bg_color=color
+	result.add_theme_stylebox_override("background",back)
+	result.add_theme_stylebox_override("fill",fill)
+	return result
+
 func reset_journey_views() -> void:
 	buddy.reset()
+	failed_animation_started=[false,false]
+	rescue_seen=[0,0]
+	rescue_pulse=[0.0,0.0]
 	last_fire_sent=false
 	prepared_online_frame=-1
 	# 固定关卡重试只需刷新阶段和反馈，不重建相同的环境模型。
@@ -752,6 +805,7 @@ func reset_journey_views() -> void:
 	if is_instance_valid(combat_view): combat_view.reset()
 
 func apply_journey_primary() -> void:
+	if fail_showing():return
 	match run.state:
 		"start": run.state="running";run.reset_input()
 		"paused": run.pause()
@@ -808,12 +862,11 @@ func _physics_process(delta: float) -> void:
 	var measured_stepped:=Time.get_ticks_usec() if web_verify else 0
 	if run.state!=before:
 		clear_controls()
-		if run.state=="running": reset_journey_views()
+		# 救援完成仍是同一局，保留拾取物、攻击反馈和伙伴状态。
+		# 开局、重试与换章由各自命令重置，不能把恢复奔跑当作整局重建。
+		if run.state=="running" and before not in ["rescue","paused"]: reset_journey_views()
 	frame_delta=delta
-	if OS.has_feature("web"):view_pending=true
-	else:
-		sync_view()
-		pump_ambience(delta)
+	view_pending=true
 	if web_verify:
 		for sample in [["prepare",measured_prepared-measured_start],["buddy",measured_thought-measured_prepared],["simulation",measured_stepped-measured_thought],["view",Time.get_ticks_usec()-measured_stepped]]:
 			var cost:Dictionary=frame_costs.get(sample[0],{"samples":0,"total_usec":0,"max_usec":0})
@@ -821,7 +874,7 @@ func _physics_process(delta: float) -> void:
 			frame_costs[sample[0]]=cost
 
 func _process(_delta:float)->void:
-	# 浏览器卡顿时一帧可能追赶多个固定步，网格与 UI 只需提交最终画面。
+	# 每个画面帧只提交一次最终状态，本地与网页使用同一规则。
 	if scene_prepared and view_pending:
 		view_pending=false
 		var started:=Time.get_ticks_usec()
@@ -870,20 +923,18 @@ func sync_view() -> void:
 		elif run.state=="failed" and run.death_positions.size()==2:
 			var dead:Vector3=run.death_positions[i]
 			robots[i].position=Vector3(dead.x/SCALE,dead.y/SCALE,-dead.z/SCALE)
+			# 普通死亡的物理 y 降低的是绳索腰扣；Death 骨骼已经自行倒地，
+			# 不能再把整个模型一起下移。坠落仍完整使用真实物理高度。
+			if not falling():robots[i].position.y=run.floor_heights[i]/SCALE
 		shadows[i].position=Vector3(point.x/SCALE,0.02,-point.y/SCALE)
 		shadows[i].scale=Vector3.ONE*(1.0-run.heights[i]/Run.JUMP_APEX*0.35)
-		if i<animation_players.size():
-			var action:String=run.actions[i]
-			if run.state=="start" or run.state in ["settlement","complete"]: action="Idle"
-			play_action(animation_players[i],action)
-			animation_players[i].speed_scale=0 if run.state=="paused" else (1.1 if action=="Run" else 1.0)
+		sync_journey_character(i)
 	var path:Array[Vector3]=[]
 	var points:PackedVector2Array=run.rope.physical_path()
 	var zs:PackedFloat32Array=run.rope.physical_heights()
 	for n in range(points.size()): path.append(Vector3(points[n].x/SCALE,zs[n]/SCALE,-points[n].y/SCALE))
 	if path.size()>1: rope_view.simulate(path,0,Color.WHITE,0)
-	camera.transform=camera_home
-	camera.position.z=camera_home.origin.z-run.distance/SCALE
+	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
 	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)
@@ -892,14 +943,107 @@ func sync_view() -> void:
 	world_environment.fog_density=lerpf(0.0032,0.0065,forest_weight)
 	world_environment.fog_sky_affect=forest_weight*.85
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
+	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
 	for chunk in world_chunks.values():
-		for node in chunk.get_children():
-			if node.has_meta("wind"):node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
+		for node in chunk.get_meta("wind_nodes",[]):
+			node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 	publish_web_verification()
+
+# 旅程使用固定世界坐标；沿用道路版动作与腰部旋转，身体仍由真实物理位置驱动。
+func sync_journey_character(i:int)->void:
+	var visual_state:String=run.paused_from if run.state=="paused" else run.state
+	var rescuing:bool=visual_state=="rescue" and not run.rescue.is_empty()
+	var hanging:bool=rescuing and i==run.rescue.role
+	for child in robots[i].get_children():
+		if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
+	robots[i].rotation=Vector3.ZERO
+	if visual_state=="running":
+		robots[i].rotation.x=-0.13-run.move_directions[i].y*0.07 if run.actions[i]=="Run" else 0.0
+		robots[i].rotation.z=-run.move_directions[i].x*0.06
+	if rescuing:
+		var body:Vector3=run.rescue_body_position(i)
+		robots[i].position=Vector3(body.x/SCALE,body.y/SCALE,-body.z/SCALE)
+		var presses:int=run.rescue.presses[i]
+		if presses>rescue_seen[i]:rescue_pulse[i]=1.0
+		rescue_seen[i]=presses
+		if run.state!="paused":rescue_pulse[i]=maxf(0,rescue_pulse[i]-frame_delta*6.0)
+		var climb:float=clampf(run.rescue.get("climb",0.0)/Run.RESCUE_CLIMB_TIME,0,1)
+		var holder:Vector2=run.b.position if run.rescue.role==0 else run.a.position
+		var facing:Vector2=(run.rescue.hang-holder)*(-1.0 if hanging else 1.0)
+		if facing.length()>1.0 and climb<0.5:robots[i].rotation.y=atan2(-facing.x,facing.y)
+		robots[i].rotation.x=lerpf(-0.08-rescue_pulse[i]*0.12 if hanging else 0.08+rescue_pulse[i]*0.25,0.0,climb)
+	else:
+		rescue_seen[i]=0
+		rescue_pulse[i]=0.0
+	if falling():
+		# 坠落只作一次受力倾斜，随后保持下坠姿势，不在落地后持续自转。
+		var tilt:float=smoothstep(0.0,0.65,run.death_time)
+		robots[i].rotation.x=tilt*0.65
+		robots[i].rotation.z=tilt*(0.25 if i==0 else -0.25)
+	# 旋转绕腰部进行，让绳索物理挂点仍落在角色腰上。
+	robots[i].position+=Vector3(0,1.4,0)-robots[i].basis*Vector3(0,1.4,0)
+	robots[i].get_node("RopeKnot").visible=run.rope.physical.is_empty() or run.rope.physical.bound[i]
+	shadows[i].visible=not falling() and not hanging
+	if i>=animation_players.size():return
+	var player:AnimationPlayer=animation_players[i]
+	if run.state=="paused":
+		player.speed_scale=0
+		return
+	player.speed_scale=1.0
+	if run.state=="failed":
+		if not failed_animation_started[i]:
+			play_action(player,"HitRecieve_1")
+			failed_animation_started[i]=true
+		return
+	failed_animation_started[i]=false
+	if rescuing:
+		var climb:float=run.rescue.get("climb",0.0)/Run.RESCUE_CLIMB_TIME
+		play_action(player,"RopePull" if not hanging else ("Run" if climb>0.5 else "Climb"))
+		player.speed_scale=1.1 if player.current_animation.ends_with("Run") else 0.8+rescue_pulse[i]*1.6+(0.6 if climb>0 else 0.0)
+		return
+	var action:String="Jump" if run.heights[i]>0 else run.actions[i]
+	if run.state in ["start","settlement","complete"]:action="Idle"
+	play_action(player,action)
+	var pace:float=run.WALK_SPEED/160.0*(run.Combat.MOVE_SCALE if not run.combat.weapons[i].is_empty() else 1.0)
+	player.speed_scale=1.1*pace if action=="Run" else 1.0
+	if run.heights[i]>0:
+		player.seek(clampf((Run.JUMP_SPEED-run.vertical_speed[i])/Run.GRAVITY/(2*Run.JUMP_SPEED/Run.GRAVITY),0,1)*player.current_animation_length,true)
+
+func fail_showing()->bool:
+	# 使用模拟死亡时间，联机双方对重试时机的判断一致。
+	return run.state=="failed" and run.death_time<(FAIL_FALL_SHOW if falling() else FAIL_HIT_SHOW)
+
+func camera_shot()->Transform3D:
+	if not run.rescue.is_empty() and run.state in ["rescue","paused"]:
+		var hanging:Vector3=robots[run.rescue.role].position
+		var holder:Vector3=robots[1-run.rescue.role].position
+		var away:=Vector3(hanging.x-holder.x,0,hanging.z-holder.z).normalized()
+		if away.is_zero_approx():away=Vector3.BACK
+		# 从两人中点向崖外斜看，避免沿绳子直视时近端角色遮挡或被裁掉。
+		var side:=Vector3(-away.z,0,away.x)
+		var focus:Vector3=(hanging+holder)*.5+Vector3.UP*1.35
+		var reach:=maxf(11.0,hanging.distance_to(holder)*1.4)
+		var eye:Vector3=focus+(away+side).normalized()*reach+Vector3.UP*5.0
+		return Transform3D.IDENTITY.translated(eye).looking_at(focus,Vector3.UP)
+	if run.state=="failed":return super()
+	var home:=camera_home
+	home.origin.z-=run.distance/SCALE
+	return home
+
+func update_journey_camera()->void:
+	if run.state=="paused":return
+	var dramatic:bool=run.state in ["rescue","failed"]
+	if dramatic:journey_camera_returning=true
+	if dramatic or journey_camera_returning:
+		update_camera()
+		var target:=camera_shot()
+		if not dramatic and camera.transform.origin.distance_to(target.origin)<.01:
+			camera.transform=target;journey_camera_returning=false
+	else:camera.transform=camera_shot()
 
 func sync_journey_rewards() -> void:
 	while reward_views.size()<run.rewards.size():
@@ -920,8 +1064,64 @@ func sync_journey_rewards() -> void:
 		view.scale=Vector3.ONE*(1.8 if reward.kind!="coin" else 1.0)
 		view.material_override=material("reward_"+reward.kind,{"coin":Color("efc36a"),"shield":Color("63bfd0"),"prize":Color("b58fea")}[reward.kind],0.2)
 
+# 独立救援提示，沿用原来的大进度条和小倒计时条；不捕获跳跃输入。
+func build_rescue_hud(canvas:CanvasLayer)->void:
+	rescue_box=Control.new()
+	rescue_box.name="RescueHUD"
+	rescue_box.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	rescue_box.hide()
+	canvas.add_child(rescue_box)
+	var backdrop:=ColorRect.new()
+	backdrop.name="Backdrop"
+	backdrop.position=Vector2(-16,-80)
+	backdrop.color=Color(0,0,0,0)
+	backdrop.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(backdrop)
+	rescue_label=label("",21,Color("ffe2a0"))
+	rescue_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
+	rescue_label.add_theme_constant_override("outline_size",4)
+	rescue_label.position=Vector2(0,-68)
+	rescue_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
+	rescue_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	rescue_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(rescue_label)
+	for entry in [["ProgressBack",0,24],["TimerBack",32,7]]:
+		var bar:=ColorRect.new()
+		bar.name=entry[0];bar.position.y=entry[1];bar.size.y=entry[2]
+		bar.color=Color("263733");bar.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		rescue_box.add_child(bar)
+	rescue_fill=ColorRect.new();rescue_fill.size.y=24
+	rescue_fill.color=Color("ffc06b");rescue_fill.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(rescue_fill)
+	rescue_timer_fill=ColorRect.new();rescue_timer_fill.position.y=32;rescue_timer_fill.size.y=7
+	rescue_timer_fill.color=Color("ff6b52");rescue_timer_fill.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	rescue_box.add_child(rescue_timer_fill)
+
+func sync_rescue_hud()->void:
+	if not is_instance_valid(rescue_box):return
+	rescue_box.visible=run.state=="rescue" and not run.rescue.is_empty()
+	if not rescue_box.visible:return
+	var viewport:=get_viewport().get_visible_rect().size
+	var width:=minf(620,viewport.x-48)
+	rescue_box.position=Vector2((viewport.x-width)/2,viewport.y-160)
+	rescue_box.get_node("Backdrop").size=Vector2(width+32,132)
+	rescue_label.size=Vector2(width,64)
+	for name in ["ProgressBack","TimerBack"]:rescue_box.get_node(name).size.x=width
+	rescue_fill.size.x=width*clampf(run.rescue.progress,0,1)
+	rescue_timer_fill.size.x=width*clampf(1.0-run.rescue.time/Run.RESCUE_TIME,0,1)
+	var instruction:String="连点空格拉人 / 攀爬，搭档同步协助"
+	if play_mode=="local":
+		var holder:int=1-run.rescue.role
+		var keys:=["空格","回车"]
+		instruction="%02d 连点%s拉人 · %02d 连点%s向上爬"%[holder+1,keys[holder],run.rescue.role+1,keys[run.rescue.role]]
+	elif play_mode=="online":instruction="连点空格拉人 / 攀爬，与队友一起用力"
+	if touch_device:instruction="连点右侧跳跃按钮，拉人 / 向上攀爬"
+	if run.rescue.has("climb"):instruction="拉住了！正在爬回路面"
+	rescue_label.text="救援进度 %d%%  ·  剩余 %.1f 秒\n%s"%[roundi(run.rescue.progress*100),maxf(0,Run.RESCUE_TIME-run.rescue.time),instruction]
+
 func update_journey_ui() -> void:
 	if not is_instance_valid(hud): return
+	sync_rescue_hud()
 	for button in mode_buttons:
 		button.visible=run.state=="start" and not run.combat_trial
 		button.disabled=net.active()
@@ -931,20 +1131,44 @@ func update_journey_ui() -> void:
 	net_address.editable=not net.active()
 	primary.disabled=play_mode=="online" and not net.in_match
 	var viewport := get_viewport().get_visible_rect().size
-	hud_backdrop.size=Vector2(viewport.x,combat_health.global_position.y+combat_health.size.y+12)
+	var inset:=12.0 if viewport.x<700 or viewport.y<500 else 24.0
+	var hud_width:=minf(244,(viewport.x-2*inset-64)/2)
+	health_panel.position=Vector2(inset,inset)
+	health_panel.size=Vector2(hud_width,0)
+	weapon_panel.size=Vector2(hud_width,0)
+	weapon_panel.position=Vector2(viewport.x-inset-hud_width,inset)
+	pause_button.position=Vector2(viewport.x/2-20,inset)
+	pause_button.size=Vector2(40,40)
 	panel.size.x=minf(800,viewport.x-32)
 	panel.position=Vector2((viewport.x-panel.size.x)/2,maxf(12,(viewport.y-panel.size.y)/2))
-	controls_hint.position=Vector2(24,viewport.y-68)
-	controls_hint.visible=not touch_device
-	region_banner.text=("战斗训练 · "+run.zone_name()) if run.combat_trial else "%d / 3   %s  ·  %s"%[run.level_index+1,run.CHAPTERS[run.level_index].name,run.zone_name()]
-	hud.text="%.0f / %.0f 米  ·  绳索 %.2f 米  ·  金币 %d  ·  奖品 %d  ·  护盾 %s"%[run.progress()/SCALE,run.finish_distance()/SCALE,run.rope.length/SCALE,run.coins,run.prizes,"有" if run.shield else "无"]
-	journey_hint.text=run.active_hint()
 	var role: int=net.role if play_mode=="online" and net.in_match else 0
 	combat_health.value=run.combat.health[role]
+	partner_health.value=run.combat.health[1-role]
+	hud.text="%02d   %d / 100%s"%[role+1,run.combat.health[role],"  护盾" if run.shield else ""]
+	partner_status.text="%02d   %d / 100"%[2-role,run.combat.health[1-role]]
+	for entry in [[combat_health,role],[partner_health,1-role]]:
+		var fill: StyleBoxFlat=entry[0].get_theme_stylebox("fill")
+		fill.bg_color=Color("ef8078") if run.combat.health[entry[1]]<=30 else (Color("9cdeb9") if entry[1]==role else Color("e4b883"))
 	var weapon: Dictionary=run.combat.weapons[role]
-	combat_status.text="生命 %d / 100 · 搭档 %d / 100 · 空手 · 自动拾取枪械"%[run.combat.health[role],run.combat.health[1-role]] if weapon.is_empty() else "生命 %d / 100 · 搭档 %d / 100 · 冲锋枪 %d / %d · %s"%[run.combat.health[role],run.combat.health[1-role],weapon.ammo,weapon.reserve,"换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP) if weapon.reload>0 else "移动 85%"]
-	progress_widget.value=run.progress()/run.finish_distance()*100
-	panel.visible=run.state in ["start","paused","failed","settlement","complete"]
+	combat_status.text="空手" if weapon.is_empty() else "冲锋枪"
+	combat_status.visible=weapon.is_empty()
+	weapon_icon.visible=not weapon.is_empty()
+	weapon_ammo.text="" if weapon.is_empty() else "%02d / %d"%[weapon.ammo,weapon.reserve]
+	weapon_ammo.visible=not weapon.is_empty()
+	weapon_detail.text=""
+	if not weapon.is_empty():
+		if weapon.reload>0: weapon_detail.text="换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP)
+		elif weapon.ammo==0 and weapon.reserve==0: weapon_detail.text="弹药耗尽"
+	weapon_detail.visible=not weapon_detail.text.is_empty()
+	var playing: bool=run.state in ["running","rescue"]
+	health_panel.visible=playing
+	weapon_panel.visible=playing
+	journey_hint.position=Vector2(inset,viewport.y-100 if not touch_device else viewport.y*.58)
+	journey_hint.size=Vector2(viewport.x-2*inset,56)
+	journey_hint.text=""
+	journey_hint.visible=run.state=="rescue" or (run.state=="running" and run.charge_gate.get("active",false) and not run.charge_gate.open and absf(run.a.position.y-run.charge_gate.receiver.y)<180)
+	if journey_hint.visible: journey_hint.text=run.active_hint()
+	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing()
 	primary.visible=true
 	training_button.visible=run.state=="start" and play_mode=="solo"
 	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
@@ -957,10 +1181,14 @@ func update_journey_ui() -> void:
 	match run.state:
 		"start":
 			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
-			subtitle.text="可前进后退，松开停步；镜头只前进。搭档自动跟随、共同跳跃与协助机关。\n靠近枪械自动拾取，开火自动锁定前方敌人。\n鼠标左键射击，R 换弹，G 丢枪；持枪移动速度为 85%。\n野猪与投掷攻击扣血；地形与重型机关仍需躲避。\n建议先进入短战斗训练，再开始三关旅程。"
+			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
 			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
 			primary.text="开始训练" if run.combat_trial else "出发"
-		"paused": title.text="旅程暂停";subtitle.text="人物、危险与计时均已暂停。\n恢复后请松开旧按键再操作。";primary.text="继续旅程"
+		"paused":
+			title.text="暂停"
+			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
+			if touch_device: subtitle.text="左侧摇杆移动 · 右侧跳跃、射击、换弹、丢枪\n金币 %d · 奖品 %d"%[run.coins,run.prizes]
+			primary.text="继续旅程"
 		"failed": title.text="两人共同重试";subtitle.text=run.reason+"\n回到本区域的安全存档点，危险与奖励恢复原状态。";primary.text="从存档点继续"
 		"settlement":
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
@@ -1035,6 +1263,9 @@ func sample_animation(node:Node,token:String,time:float)->void:
 func sync_static_hazards()->void:
 	for i in range(run.kinds.size()):
 		var kind:String=run.kinds[i]
+		if kind=="drone" or run.hazard_specs[i].get("front",false):
+			sync_moving_threat(i)
+			continue
 		if kind not in ["rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:continue
 		var rect:Rect2=run.obstacles[i]
 		if absf(rect.position.y-run.distance)>4200:
@@ -1063,24 +1294,65 @@ func sync_static_hazards()->void:
 			elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
 			elif kind=="cargo":
 				rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
-				view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,1.5,rect.size.y/SCALE/2)
-				view.get_child(0).position.y=1.5
+				var half_height:float=run.obstacle_heights[i]/SCALE/2 if run.hazard_specs[i].get("small",false) else 1.5
+				view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,half_height,rect.size.y/SCALE/2)
+				view.get_child(0).position.y=half_height
 			elif kind=="collapse":
 				box(view,Vector3(0,.012,0),Vector3(rect.size.x/SCALE,.02,rect.size.y/SCALE),material("fragile_ground",Color("5e5943")))
 				for n in range(7):
 					var crack:=box(view,Vector3(-rect.size.x/SCALE/2+n*1.6,.027,0),Vector3(.08,.025,rect.size.y/SCALE),material("fragile_cracks",Color("25261d")));crack.rotation.y=.18 if n%2==0 else -.18
 			else:
 				box(view,Vector3(0,.03,0),Vector3(rect.size.x/SCALE,.06,rect.size.y/SCALE),material("trap_base",Color("524935")))
-				for n in range(10):
+				var spike_count:int=maxi(1,floori(rect.size.x/SCALE/.65))
+				for n in range(spike_count):
 					var spike:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=0;mesh.bottom_radius=.18;mesh.height=.8;mesh.radial_segments=5
-					spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3(-rect.size.x/SCALE/2+.5+n*.95,.4,0);view.add_child(spike)
+					spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3((float(n)+.5)/spike_count*rect.size.x/SCALE-rect.size.x/SCALE/2,.4,0);view.add_child(spike)
+				var warning:=box(view,Vector3(0,.065,0),Vector3(rect.size.x/SCALE+.08,.025,rect.size.y/SCALE+.08),material("small_trap_warning",Color("e7ae43"),.25))
+				warning.name="SpikeWarning"
 			static_views[i]=view
 		static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 		if kind=="collapse":static_views[i].visible=run.hazard_sample(i,run.elapsed).stage!="collapsed"
 		if kind=="active_spikes":
 			var sample:Dictionary=run.hazard_sample(i,run.elapsed)
 			for n in range(1,static_views[i].get_child_count()):
-				var spike:Node3D=static_views[i].get_child(n);spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
+				var spike:Node3D=static_views[i].get_child(n)
+				if spike.name=="SpikeWarning":
+					spike.visible=sample.warning
+					continue
+				spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
+
+func sync_moving_threat(index:int)->void:
+	var kind:String=run.kinds[index]
+	var sample:Dictionary=run.hazard_sample(index,run.elapsed)
+	var rect:Rect2=sample.rect
+	if rect.get_center().y-run.distance< -900 or rect.get_center().y-run.distance>4200 or (kind=="drone" and sample.stage=="spent"):
+		if static_views.has(index):static_views[index].queue_free();static_views.erase(index)
+		return
+	if not static_views.has(index):
+		var created:=make_hazard_view(index)
+		if kind.begins_with("fly_"):
+			var volume:MeshInstance3D=created.get_node("DangerVolume")
+			volume.material_override=zone_material("hidden_flying_stone",Color(0,0,0,0))
+			CombatView.EnemyView.volume(volume,Vector3.ZERO,Vector3(rect.size.x/SCALE,(sample.top-sample.bottom)/SCALE,rect.size.y/SCALE),landscape.palette.Stone)
+		static_views[index]=created
+	var view:Node3D=static_views[index]
+	view.position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
+	if kind=="drone":
+		sync_industrial_model(view,index,sample)
+		return
+	var route:MeshInstance3D=view.get_node("FlightRoute")
+	var length:float=clampf(absf(run.hazard_specs[index].velocity.y)*sample.ttc/SCALE,.05,80)
+	route.scale.z=length/route.mesh.size.z;route.position.z=length/2;route.visible=sample.warning
+	var sign:Label3D=view.get_node("WarningLabel")
+	sign.text=Run.hazard_name(kind);sign.visible=sample.warning
+	if Run.Threats.is_ball(kind):
+		view.get_node("BallBody").rotation.x=run.hazard_specs[index].travel/(rect.size.x/2)
+		view.get_node("ContactRing").visible=run.rope.touches(run.obstacle_ids[index])
+	else:
+		var volume:Node3D=view.get_node("DangerVolume")
+		volume.position.y=(sample.bottom+sample.top)/SCALE/2
+		volume.visible=sample.active
+		view.get_node("WarningFootprint").visible=sample.warning
 
 func choose_mode(value:String)->void:
 	if run.state!="start" or net.active():return
@@ -1104,7 +1376,8 @@ func apply_command(name:String,arg:="")->void:
 		"pause":
 			if (arg=="paused" and run.state in ["running","rescue"]) or (arg!="paused" and run.state=="paused"):run.pause()
 			clear_controls()
-		"retry":run.retry(run.state=="failed");reset_journey_views()
+		"retry":
+			if not fail_showing():run.retry(run.state=="failed");reset_journey_views()
 		"difficulty":
 			if run.state=="start" and not net.active():run.set_difficulty(arg);reset_journey_views()
 
@@ -1143,10 +1416,7 @@ func online_process(delta:float)->void:
 		applied+=1
 		if Time.get_ticks_usec()-start>=Run.PRELOAD_SLICE_USEC:break
 	frame_delta=delta
-	if OS.has_feature("web"):view_pending=true
-	else:
-		sync_view()
-		pump_ambience(delta)
+	view_pending=true
 
 func start_online_match(seed:int)->void:
 	play_mode="online"

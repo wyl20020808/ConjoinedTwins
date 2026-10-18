@@ -12,6 +12,17 @@ func request(paths: Array) -> void:
 		pending.append(path)
 		total += 1
 func poll(deadline_usec: int = 0) -> bool:
+	# Godot 4.7.1 Dummy RID 容器不支持资源线程与主线程并发分配/释放。
+	# 无界面验证按原队列在主线程加载；真实窗口和 Web 仍使用后台 IO。
+	# 上游问题：https://github.com/godotengine/godot/issues/124139
+	if DisplayServer.get_name()=="headless":
+		while error.is_empty() and not pending.is_empty():
+			if deadline_usec>0 and Time.get_ticks_usec()>=deadline_usec:break
+			var path:String=pending.pop_front()
+			var resource:=ResourceLoader.load(path)
+			if resource==null:error=path;return false
+			resources[path]=resource
+		return error.is_empty() and pending.is_empty()
 	for path in active.duplicate():
 		if deadline_usec > 0 and Time.get_ticks_usec() >= deadline_usec: break
 		var status := ResourceLoader.load_threaded_get_status(path)

@@ -51,7 +51,7 @@ static func paths(items: Array) -> Array:
 		if item[0]=="landscape_batch":
 			var asset_path:="res://assets/landscape/%s.glb"%item[1]
 			if not result.has(asset_path):result.append(asset_path)
-			if item[1] in ["grove_oak_7","grove_oak_17","grove_birch"]:result.append("res://assets/landscape/%s_lod.glb"%item[1])
+			if item[1] in ["natural_oak_7","natural_oak_17","natural_birch"]:result.append("res://assets/landscape/%s_lod.glb"%item[1])
 			continue
 		var path := ""
 		if item[0]=="model": path="res://assets/decor/%s.glb"%item[1]
