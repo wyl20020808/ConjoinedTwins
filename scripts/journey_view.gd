@@ -22,6 +22,8 @@ const MODEL_RETAIN := 3600.0
 const MODEL_BEHIND := 600.0
 const Landscape = preload("res://scripts/journey_landscape.gd")
 var landscape
+const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
+var atmosphere
 const Buddy=preload("res://scripts/journey_buddy.gd")
 var buddy=Buddy.new()
 var play_mode:="solo"
@@ -127,6 +129,7 @@ func _ready() -> void:
 	camera.position=Vector3(0,11.5,22)
 	camera.look_at(Vector3(0,1.2,-22))
 	camera_home=camera.transform
+	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
 	if incremental_loading:
 		set_physics_process(false)
 		set_process_unhandled_key_input(false)
@@ -959,14 +962,15 @@ func sync_view() -> void:
 	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
-	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)
+	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)*(Atmosphere.SUN_SCALE if atmosphere.enabled else 1.0)
 	canopy_light.light_color=Color("ffe2bd").lerp(Color("e7edce"),forest_weight)
-	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)
+	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)*(Atmosphere.AMBIENT_SCALE if atmosphere.enabled else 1.0)
 	world_environment.fog_density=lerpf(0.0032,0.0065,forest_weight)
 	world_environment.fog_sky_affect=forest_weight*.85
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
+	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
