@@ -21,6 +21,8 @@ const MODEL_PREFETCH := 3200.0
 const MODEL_RETAIN := 3600.0
 const MODEL_BEHIND := 600.0
 const Landscape = preload("res://scripts/journey_landscape.gd")
+const TRIPO_BOULDER := "res://assets/journey/tripo_boulder.glb"
+const TRIPO_TIMBER := "res://assets/journey/tripo_timber_ram.glb"
 var landscape
 const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
 var atmosphere
@@ -386,9 +388,11 @@ func prepare_journey_frame() -> bool:
 	for gate in run.charge_gates:
 		if model_resident(gate.receiver.y):retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
 	retained.append_array(chunk_assets.pending);retained.append_array(chunk_assets.active)
-	if visual_hazard_candidates().any(func(i):return run.kinds[i]=="drone"):
-		var flying_assets:Array=["res://assets/props/Eagle_Flying.glb"]
-		retained.append_array(flying_assets);chunk_assets.request(flying_assets)
+	var hazard_assets:Array=[]
+	for index in visual_hazard_candidates():
+		for path in hazard_asset_paths(index):
+			if not hazard_assets.has(path):hazard_assets.append(path)
+	retained.append_array(hazard_assets);chunk_assets.request(hazard_assets)
 	chunk_assets.retain(retained)
 	chunk_assets.poll(deadline)
 	var events_ready := prepare_event_views(deadline)
@@ -1303,6 +1307,35 @@ func hazard_view_y(index: int) -> float:
 func hazard_has_view(index: int) -> bool:
 	return run.hazard_specs[index].get("front",false) or run.kinds[index] in ["drone","rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
 
+func hazard_asset_paths(index:int)->Array:
+	match run.kinds[index]:
+		"drone":return ["res://assets/props/Eagle_Flying.glb"]
+		"stone_ball":return [TRIPO_BOULDER]
+		"rail":return [TRIPO_TIMBER]
+	return []
+
+# 模型只适配已有危险体；轮廓中心、旋转轴和碰撞规则不随美术替换变化。
+func tripo_model(parent:Node3D,path:String,size:Vector3,center:Vector3)->Node3D:
+	var instance:Node3D=load(path).instantiate()
+	parent.add_child(instance)
+	if not model_bounds_cache.has(path):model_bounds_cache[path]=model_bounds(instance,instance)
+	var bounds:AABB=model_bounds_cache[path]
+	var factor:=size/bounds.size
+	instance.scale=factor
+	instance.position=center-bounds.get_center()*factor
+	instance.name="TripoModel"
+	instance.set_meta("asset_path",path)
+	return instance
+
+func build_ball_model(chunk:Node3D,index:int)->void:
+	super.build_ball_model(chunk,index)
+	if run.kinds[index]!="stone_ball":return
+	var body:MeshInstance3D=chunk.get_node("BallBody")
+	for child in body.get_children():child.free()
+	body.material_override=zone_material("hidden_tripo_ball",Color(0,0,0,0))
+	var diameter:float=run.obstacles[index].size.x/SCALE
+	tripo_model(body,TRIPO_BOULDER,Vector3.ONE*diameter,Vector3.ZERO)
+
 func prepare_hazard_views(deadline: int) -> bool:
 	var ready:=true
 	for index in visual_hazard_candidates():
@@ -1310,7 +1343,7 @@ func prepare_hazard_views(deadline: int) -> bool:
 		if Time.get_ticks_usec()>=deadline:
 			if model_visible(hazard_view_y(index)):ready=false
 			continue
-		if run.kinds[index]=="drone" and not chunk_assets.ready(["res://assets/props/Eagle_Flying.glb"]):
+		if not chunk_assets.ready(hazard_asset_paths(index)):
 			if model_visible(hazard_view_y(index)):ready=false
 			continue
 		sync_static_hazard(index)
@@ -1351,11 +1384,7 @@ func sync_static_hazard(i: int) -> void:
 		var view:=Node3D.new()
 		road.add_child(view)
 		if kind=="rail":
-			var log:=cylinder(view,Vector3(0,0.3,0),0.3,rect.size.x/SCALE,landscape.palette.Bark)
-			log.rotation.z=PI/2
-			for side in [-1,1]:
-				var end:=cylinder(view,Vector3(side*(rect.size.x/SCALE/2-.01),.3,0),.305,.035,landscape.palette.Wood)
-				end.rotation.z=PI/2
+			tripo_model(view,TRIPO_TIMBER,Vector3(rect.size.x/SCALE,.6,rect.size.y/SCALE),Vector3(0,.3,0))
 		elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
 		elif kind=="cargo":
 			rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)

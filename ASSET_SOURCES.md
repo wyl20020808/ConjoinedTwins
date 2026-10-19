@@ -147,3 +147,20 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 | `assets/landscape/villager_merchant.glb` | 背货商贩 | 5,654 | 327,176 | cf0a66767a6b1331 | 村庄院落布景 |
 
 Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模型无骨骼与动画：怪物以空关节兼容原同步逻辑，步态改为整体摇摆与蓄力后仰；六种怪物原型均已改用扫描模型（程序几何仅在资源缺失时兜底），推车/投石事件的带动画村民 `villager_actions.glb` 保持不变。
+
+## 2026-10-19 Tripo 村庄环境与机关
+
+用户授权在自己的 Tripo Studio 国际版账号中通过文字生成八件资产，使用 H3.1、三角面、2K 纹理、去光处理及 PBR，关闭超清几何和分部件生成。原始文件及提示词保存在工程外；本次接入的 GLB 与下载原件 SHA-256 相同。完整来源 URL、面数、哈希、大小和世界缩放见 `build-tools/journey/tripo-village-assets.json`。
+
+| 资产 | 文件 | 三角面 | 实际使用位置 |
+| --- | --- | ---: | --- |
+| 民居 | `assets/landscape/tripo_cottage.glb` | 7730 | 林缘、村庄与农田住宅 |
+| 工坊 | `assets/landscape/tripo_workshop.glb` | 8730 | 与民居交替的住宅外观 |
+| 村口拱门 | `assets/landscape/tripo_arch.glb` | 5764 | 道路外的村庄院门 |
+| 岩石路肩 | `assets/landscape/tripo_road_edge.glb` | 3351 | 森林道路外沿 |
+| 树根树桩 | `assets/landscape/tripo_stump.glb` | 3395 | 林下布景 |
+| 庭院杂物 | `assets/landscape/tripo_supplies.glb` | 3729 | 首排住宅旁 |
+| 包铁滚石 | `assets/journey/tripo_boulder.glb` | 4363 | 连续旅程的 `stone_ball` |
+| 木制撞锤 | `assets/journey/tripo_timber_ram.glb` | 4424 | 连续旅程的横向矮栏 `rail`，尺寸按原危险体适配 |
+
+每件一个材质，保留颜色、法线、金属度/粗糙度贴图；导入采用内嵌 Basis Universal 压缩及自动网格 LOD，不再次提取重复图片。环境通过原有 MultiMesh 和区块驻留机制复用，旧资源与历史白盒入口保留。授权沿用上节“许可待确认”的边界，本次未发布或重新分发正式游戏包。

@@ -7,6 +7,7 @@ const SHADER = preload("res://scripts/journey_ground.gdshader")
 # Tripo 文生 3D 村民（静态，约 5.7k 三角面、1024 贴图），原生高 1、朝 +X；按 3 米身高摆放。
 const VILLAGERS := ["villager_farmer","villager_elder","villager_blacksmith","villager_merchant"]
 const VILLAGER_HEIGHT := 3.0
+const TRIPO_HOUSES := ["tripo_cottage","tripo_workshop"]
 var game
 var terrain: ShaderMaterial
 var cut_material:StandardMaterial3D
@@ -165,7 +166,7 @@ func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float
 		view.position=center
 		view.visibility_range_begin=begin
 		view.visibility_range_end=end
-		view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if begin==0 and ("oak" in path or "birch" in path) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if begin==0 and ("oak" in path or "birch" in path or (not mobile and "/tripo_" in path)) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(view)
 
 static func plan(number:int,chapter:int)->Array:
@@ -205,13 +206,12 @@ static func plan(number:int,chapter:int)->Array:
 			if p.z<.05 or rng.randf()>p.z:continue
 			# 两排住宅形成有纵深的院落；生活物件位于道路外，不影响物理。
 			if n%2==0:
-				add_instance(batches,"house_%d"%((number+n+300)%3),Vector3(side*23,height_at(side*23,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
+				add_instance(batches,house_kind(number+n),Vector3(side*23,height_at(side*23,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
 				add_instance(batches,"fence",Vector3(side*17.6,height_at(side*17.6,meters+5,chapter),-meters-5),.7,PI/2)
 				add_instance(batches,"washing_line",Vector3(side*22,height_at(side*22,meters-5,chapter),-meters+5),1,0)
-				add_instance(batches,"barrel",Vector3(side*18.8,height_at(side*18.8,meters-1.8,chapter),-meters+1.8),1.1,0)
-				add_instance(batches,"woodpile",Vector3(side*19.5,height_at(side*19.5,meters+3,chapter),-meters-3),1,side*.3)
+				add_instance(batches,"tripo_supplies",Vector3(side*20,height_at(side*20,meters+3,chapter),-meters-3),1,side*.3)
 				add_villager(batches,number*3+(n>>1),side,Vector3(side*19.8,height_at(side*19.8,meters+8,chapter),-meters-8))
-			else:add_instance(batches,"house_%d"%((number+n+301)%3),Vector3(side*48,height_at(side*48,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
+			else:add_instance(batches,house_kind(number+n+1),Vector3(side*48,height_at(side*48,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
 			if n==2:add_instance(batches,"well",Vector3(side*20,height_at(side*20,meters+5,chapter),-meters-5),1,0)
 			for k in range(4):
 				var plantx:=side*(19+k*.7)
@@ -219,6 +219,9 @@ static func plan(number:int,chapter:int)->Array:
 	decorate(batches,number,chapter)
 	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
 	return items
+
+static func house_kind(index:int)->String:
+	return TRIPO_HOUSES[1 if posmod(index,3)==0 else 0]
 
 # 村民面向道路并略转向镜头，便于看清正脸；不参与物理与碰撞。
 static func add_villager(batches:Dictionary,index:int,side:float,point:Vector3)->void:
@@ -242,7 +245,7 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			var p:=profile(meters,chapter)
 			if not village_only and p.y>.3:
 				var x:=side*rng.randf_range(19.7,23.5)
-				var kind:="detail_moss_rocks" if n%3==0 else ("detail_deadwood" if n%3==1 else "detail_fern_bed")
+				var kind:="tripo_road_edge" if n%3==0 else ("tripo_stump" if n%3==1 else "detail_fern_bed")
 				add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),rng.randf_range(.85,1.15),rng.randf()*TAU)
 				if n%2==0:add_instance(batches,"detail_fern_bed",Vector3(side*18.7,height_at(side*18.7,meters+3,chapter),-meters-3),.8,rng.randf()*TAU)
 		for n in range(3):
@@ -252,8 +255,17 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			var x:=side*20.5
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1.0,-side*PI/2)
 			add_instance(batches,"detail_lantern",Vector3(side*18.4,0,-meters+4),1.0,-side*PI/2)
-	# 门廊只跟随实际生成的首排住宅，不在过渡带生成孤立门廊。
+	# 新住宅自带门廊；院门和货物只跟随实际住宅，不在过渡带孤立生成。
 	for kind in batches.keys():
+		if kind in TRIPO_HOUSES:
+			for house:Transform3D in batches[kind]:
+				if absf(house.origin.x)>30:continue
+				var side:=signf(house.origin.x)
+				if village_only:add_instance(batches,"tripo_supplies",Vector3(side*20,0,house.origin.z+5),1,-side*PI/2)
+				if posmod(number,2)==0:
+					var meters:float=-house.origin.z+9
+					add_instance(batches,"tripo_arch",Vector3(side*19.5,height_at(side*19.5,meters,chapter) if not village_only else 0.0,-meters),1,-side*PI/2)
+			continue
 		if not kind.begins_with("house_"):continue
 		for house:Transform3D in batches[kind]:
 			if absf(house.origin.x)>30:continue
@@ -262,8 +274,8 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			add_instance(batches,"detail_porch",house.origin+Vector3(-side*3.6*size,0,0),.85*size,-side*PI/2)
 	# 接触暗部使用低成本透明网格，不恢复 Web 端整片树林的动态阴影。
 	for kind in batches.keys():
-		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks"] and kind not in VILLAGERS:continue
+		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks","tripo_road_edge","tripo_stump"] and kind not in VILLAGERS and kind not in TRIPO_HOUSES:continue
 		for transform:Transform3D in batches[kind]:
 			if absf(transform.origin.x)>52:continue
 			var point:=transform.origin+Vector3(0,.035,0)
-			add_instance(batches,"detail_contact",point,3.8 if kind.begins_with("house") else (0.9 if kind in VILLAGERS else 1.7),0)
+			add_instance(batches,"detail_contact",point,3.8 if kind.begins_with("house") or kind in TRIPO_HOUSES else (0.9 if kind in VILLAGERS else 1.7),0)
