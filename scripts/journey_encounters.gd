@@ -9,7 +9,7 @@ const VILLAGE:=["cargo","stone","rail","cart","pillar","active_spikes","road_gap
 const MID_GATES:=[
 	[4800.0,false,"ridge_lock","石门供能 · 分侧拉紧连线",false],
 	[12000.0,true,"forest_bridge","林间木桥 · 双板放桥",true],
-	[18400.0,false,"forest_lock","古树林门 · 连接解锁",false],
+	[18400.0,false,"forest_relay","古树接力门 · 一人守板一人过门",false],
 	[24000.0,false,"village_supply","村口闸门 · 连线供能",false],
 	[31200.0,true,"village_yard","院落防线 · 双板开门",false]
 ]
@@ -18,11 +18,17 @@ static func build(run)->void:
 	var finish:float=run.finish_distance()
 	if run.level_index==0:
 		for entry in MID_GATES:
+			if entry[2].ends_with("relay"):
+				run.add_relay(entry[0],layout.draw("relay_side",[-1.0,1.0]),entry[2]);run.charge_gates[-1].title=entry[3]
+				continue
 			run.add_gate(entry[0],entry[1],entry[2]);run.charge_gates[-1].title=entry[3]
 			if entry[4]:bridge(run,run.charge_gates[-1])
 	# 后续章节保留地域，但同样增加途中合作站，不把机关都堆到终点。
 	else:
 		for ratio in [.22,.48,.73]:
+			if ratio==.73:
+				run.add_relay(finish*ratio,layout.draw("relay_side",[-1.0,1.0]),"route_relay")
+				continue
 			run.add_gate(finish*ratio,ratio==.48,"route_%d"%int(ratio*100))
 	run.add_gate(finish-1900,false,"waterwheel")
 	run.add_gate(finish-1000,true,"drawbridge")
@@ -39,7 +45,15 @@ static func build(run)->void:
 		routes[group]={"lanes":lanes,"start":start,"end":start+440,"shape":["center_path","edge_path","twin_paths","triple_paths"][shape]}
 		route_number+=1
 	var group_sides:={}
+	# 双人机关按每 10 组的节奏"到期"（第 4 组跳绳杆、第 6 组木桶、第 9 组颜色门），
+	# 落在之后第一个可用的第三拍；遇到合作门留空区或窄路组时顺延，不因节奏撞车而整章缺失。
+	var due:Array=[]
 	for n in range(1,int(finish/STEP)):
+		if n%3==0:
+			match int(n/3)%10:
+				4:due.append("jump_bar")
+				6:due.append("barrel")
+				9:due.append("color_gate")
 		# 同侧三拍成组加密，组间留 20 米换侧；平均节拍仍为 12 米。
 		# 400 / 80 / 240 单位的节奏允许两人和完整短绳先退出旧侧机关。
 		var y:=n*STEP+(160.0 if n%3==0 else 0.0)
@@ -59,13 +73,26 @@ static func build(run)->void:
 			run.encounter_markers.append({"y":y,"kind":route.shape,"blocked":blocked,"formation":true,"lanes":route.lanes,"narrow_start":route.start,"narrow_end":route.end})
 			if n%3==0:narrow_terrain(run,route)
 			continue
+		# 双人机关占用组内第三拍（原双滚球拍），迎面一波所在的中拍保持原样，各类迎面物频率不变。
+		# 跳绳杆与颜色门独占该拍，不叠加阵型、滚球与小型陷阱；木桶只替换该拍的双滚球。
+		var special:String=due[0] if n%3==2 and n>3 and not due.is_empty() else ""
+		if special in ["jump_bar","color_gate"]:
+			due.pop_front()
+			if special=="jump_bar":jump_bar(run,y,layout)
+			else:color_gate(run,y,layout)
+			run.encounter_markers.append({"y":y,"kind":special,"blocked":blocked,"formation":false})
+			continue
 		# 窄路替换的拍子不消费机关配额，完整章节仍覆盖所有共享机关。
 		var kind:String=layout.draw("reused",REUSED) if n%3==0 else layout.draw("theme:"+theme,kinds)
 		run.encounter_markers.append({"y":y,"kind":kind,"blocked":blocked,"formation":n>2})
 		if n>2: formation(run,n,y,blocked,layout.draw("formation",[0,1,2,3]))
 		if n%3!=0 and n>3:small_beats.append([n,y,blocked])
 		if n%3==1 and n>3: moving_wave(run,n,y,blocked,layout.draw("wave",["drone","fly_body","stone_ball","fly_low","iron_ball","rocket"]))
-		if n%3==2 and n>3: rolling_pair(run,n,y,blocked,layout.draw("pair",["stone_ball","iron_ball"]))
+		if n%3==2 and n>3:
+			if special=="barrel":
+				due.pop_front()
+				moving_wave(run,n,y,blocked,"barrel")
+			else:rolling_pair(run,n,y,blocked,layout.draw("pair",["stone_ball","iron_ball"]))
 		if kind in ["tree","boar","stone","cart","swing"]:
 			run.add_event(kind,y,blocked)
 			continue
@@ -178,7 +205,9 @@ static func moving_wave(run,n:int,y:float,side:float,variant:String="")->void:
 	var index:int=run.add_hazard(kind,Rect2(Vector2(side*210-size.x/2,y+speed+140),size))
 	var spec:Dictionary=run.hazard_specs[index]
 	spec.start_distance=y-160
-	if run.Threats.is_ball(kind):spec.velocity=Vector2(0,-speed)
+	if run.Threats.is_ball(kind) or kind=="barrel":
+		spec.velocity=Vector2(0,-speed)
+		spec.aim_players=true
 	if kind=="drone":
 		spec.velocity=Vector2(-side*12,-560)
 		spec.warning=.7
@@ -197,6 +226,36 @@ static func rolling_pair(run,n:int,y:float,side:float,variant:String="")->void:
 		run.hazard_specs[index].start_distance=y-180
 		run.hazard_specs[index].warning=1.0
 		run.hazard_specs[index].rolling_pair=true
+		# 双滚球各自在进入预警时瞄准玩家，后一颗会追向躲开第一颗后的新位置。
+		run.hazard_specs[index].aim_players=true
+
+# 专属颜色门：横贯全路的石墙上开两个 70 单位宽的门洞，中间隔 50 单位石墩。
+# 青门（role 0）只放 01，橙门（role 1）只放 02；左右随机，站错边的两人需交叉换位。
+const COLOR_DOOR_WIDTH:=70.0
+const COLOR_DIVIDER:=50.0
+static func color_gate(run,y:float,layout)->void:
+	var teal_left:bool=layout.draw("color_side",[true,false])
+	var depth:=24.0
+	var inner:=COLOR_DIVIDER/2
+	var outer:=inner+COLOR_DOOR_WIDTH
+	for wall in [Rect2(-run.EDGE,y,run.EDGE-outer,depth),Rect2(-inner,y,COLOR_DIVIDER,depth),Rect2(outer,y,run.EDGE-outer,depth)]:
+		var index:int=run.add_hazard("cargo",wall)
+		run.hazard_specs[index].color_wall=true
+	for side in [-1.0,1.0]:
+		var role:int=0 if (side<0)==teal_left else 1
+		var x0:float=-outer if side<0 else inner
+		var index:int=run.add_hazard("color_gate",Rect2(x0,y,COLOR_DOOR_WIDTH,depth))
+		run.hazard_specs[index].role=role
+
+# 跳绳木杆：两侧石质转轴，木杆绕横轴旋转；每周期贴地 0.2 秒，之前 0.9 秒为下落预警。
+# 伤害顶高 24 单位：起跳后约 0.11–0.49 秒脚下高于木杆，贴地窗口两侧各有约 0.09 秒容错。
+static func jump_bar(run,y:float,layout)->void:
+	var index:int=run.add_hazard("jump_bar",Rect2(-run.EDGE,y,run.EDGE*2,24))
+	var spec:Dictionary=run.hazard_specs[index]
+	spec.period=2.4
+	spec.warning=0.9
+	spec.active=0.2
+	spec.phase=float(layout.draw("jump_phase",[0.0,0.6,1.2,1.8]))
 
 static func bridge(run,gate:Dictionary)->void:
 	gate.bridge=true

@@ -9,6 +9,8 @@ func isolated():
 	var run=Journey.new()
 	run.journey_events.clear();run.obstacles.clear();run.kinds.clear();run.obstacle_heights.clear();run.obstacle_ids.clear();run.hazard_specs.clear()
 	run.charge_gates.clear();run.select_charge_gate();run.rewards.clear();run.combat=run.Combat.fresh()
+	# 事件序号也归零：怪物 id 的奇偶决定追击对象，不能随前面生成的关卡事件数变化。
+	run.event_serial=0
 	run.state="running";run.clear_input=false
 	return run
 func ticks(run,count:int)->void:

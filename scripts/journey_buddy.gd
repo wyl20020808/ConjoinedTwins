@@ -50,12 +50,29 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 	if human_move.y!=0:target.y+=human_move.limit_length().y*human_speed*HORIZON*pace
 	var gate:Dictionary=run.charge_gate
 	if human_move.y>=0 and gate.get("active",false) and not gate.open and gate.receiver.y-minf(human.y,me.y)<620:
-		var plates:bool=gate.get("kind","")=="sync_plates"
-		var human_left:bool=human.x<=0
-		var zone:Rect2=gate.right if human_left else gate.left
-		target=Vector2(zone.get_center().x,gate.receiver.y+(46.0 if plates else 0.0))
-		feedback="站到另一侧踏板" if plates else "配合连接供能"
+		if gate.get("kind","")=="relay":
+			# 离门前踏板更近的一方守板；搭档守板时真人过门，否则搭档过门去门后踏板。
+			var near:Vector2=gate.near.get_center();var far:Vector2=gate.far.get_center()
+			if human.distance_to(near)<=me.distance_to(near):
+				target=far if gate.get("ajar",false) or me.y>gate.door.end.y else Vector2(far.x,gate.door.position.y-30)
+				feedback="穿过闸门，踩住门后踏板"
+			else:
+				target=near
+				feedback="我守住门前踏板，你先过"
+		else:
+			var plates:bool=gate.get("kind","")=="sync_plates"
+			var human_left:bool=human.x<=0
+			var zone:Rect2=gate.right if human_left else gate.left
+			target=Vector2(zone.get_center().x,gate.receiver.y+(46.0 if plates else 0.0))
+			feedback="站到另一侧踏板" if plates else "配合连接供能"
 	else:feedback="跟随" if human_move!=Vector2.ZERO else "等待你前进"
+	# 专属颜色门：前方 12 米内有门时，搭档（02）对准自己的橙门通过。
+	for index in run.indexed_kinds(["color_gate"]):
+		if int(run.hazard_specs[index].get("role",-1))!=1:continue
+		var door:Rect2=run.obstacles[index]
+		if door.position.y-me.y<240 and door.end.y>me.y-20:
+			target=Vector2(door.get_center().x,maxf(target.y,door.end.y+40) if absf(me.x-door.get_center().x)<20 else door.position.y-30)
+			feedback="走橙色门"
 	if not narrow_route.is_empty() and (minf(me.y,human.y)>narrow_route.narrow_end+65 or maxf(me.y,human.y)<narrow_route.narrow_start-320):narrow_route={}
 	if narrow_route.is_empty():
 		narrow_route=run.Encounters.narrow_at(run,minf(me.y,human.y),maxf(me.y,human.y))

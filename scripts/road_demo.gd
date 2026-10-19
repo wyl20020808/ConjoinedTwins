@@ -676,6 +676,9 @@ func build_hazard_model(chunk: Node3D, index: int) -> void:
 	volume.name = "DangerVolume"
 	if kind == "rail":
 		box(chunk, Vector3(0, height - 0.08, 0), Vector3(rect.size.x / SCALE, 0.16, rect.size.y / SCALE), material("rail_stripe", Color("ffe4a1")))
+	if kind == "barrel":
+		# 横滚木桶外观由旅程视图替换；这里只保留与飞行物一致的地面来向预警线。
+		box(chunk, Vector3(0, 0.025, 5), Vector3(rect.size.x / SCALE, 0.02, 10), zone_material("flight_route", Color(1.0, 0.3, 0.12, 0.4))).name = "FlightRoute"
 	if kind.begins_with("fly_") or kind == "rocket":
 		# 前灯和推进器位于危险包围盒内部，不扩大视觉危险范围。
 		box(volume, Vector3(0, 0, rect.size.y / SCALE / 2 + 0.001), Vector3(rect.size.x / SCALE * 0.7, height * 0.15, 0.02), material("flight_light", Color("ffc15c"), 0.8))
@@ -924,8 +927,9 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 	corridor.rotation.y = atan2(-delta.x, delta.y)
 	var sign: Label3D = view.get_node("WarningLabel")
 	sign.position = Vector3(0, 7.0, 0)
-	var stage: String = {"warning": "预警", "flight": "俯冲", "spent": "已通过", "parked": "停驻", "crossing": "横穿", "down": "下压", "hold": "停留", "up": "回升", "safe": "开放时窗", "ready": "待触发", "lower": "落锤", "swing": "摆动", "raise": "抬锤", "intact": "完整地板", "crack": "裂纹预警", "grace": "退出宽限", "collapsed": "已塌陷", "pressure": "升压", "jet": "喷射", "fade": "消退"}.get(sample.stage, sample.stage)
-	sign.text = stage + " · " + Run.hazard_name(run.kinds[index])
+	var stage: String = {"warning": "预警", "flight": "俯冲", "spent": "已通过", "parked": "停驻", "crossing": "横穿", "down": "下压", "hold": "停留", "up": "回升", "safe": "开放时窗", "ready": "待触发", "lower": "落锤", "swing": "摆动", "raise": "抬锤", "intact": "完整地板", "crack": "裂纹预警", "grace": "退出宽限", "collapsed": "已塌陷", "pressure": "升压", "jet": "喷射", "fade": "消退", "shuttling": "往复横移", "cycling": "升降循环", "active": "启动", "extend": "伸出", "retract": "收回", "tripped": "已绊倒", "rotate": "旋转"}.get(sample.stage, "")
+	# 未登记的内部阶段名不显示，避免英文代号出现在提示里。
+	sign.text = (stage + " · " if stage != "" else "") + Run.hazard_name(run.kinds[index])
 	if run.kinds[index] == "collapse" and sample.remaining >= 0: sign.text += " · %.1f 秒" % sample.remaining
 	if run.kinds[index] == "drone": sign.text += " · 高度 0.9–2.4m · 锁定后不追踪"
 

@@ -196,3 +196,17 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 - Adventurer_A 只作动画来源；Adventurer_B 不再加载，文件保留。
 
 许可同前，Tripo 部分待按账号套餐确认。
+
+## 2026-10-19 双人机关模型
+
+由用户的 Tripo 账号文生 3D 生成（H3.1、2K、去光、三角面上限 6000），用户导出 GLB，再用 `build-tools/shrink_glb.py` 把贴图缩到 1024。
+
+| 文件 | 内容 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | --- | --- |
+| `assets/mechanisms/pivot_pillar.glb` | 带铁齿轮盖的石质转轴柱 | 242,716 | adf39c3102015d0c | 跳绳杆两侧转轴 |
+| `assets/mechanisms/pressure_plate.glb` | 刻符文的圆形石踏板 | 255,244 | c811c6808c518b02 | 接力门踏板 |
+| `assets/mechanisms/arch_amber.glb` | 橙色水晶石拱 | 262,360 | eea0e82fa021bd0a | 颜色门橙门（02） |
+| `assets/mechanisms/arch_teal.glb` | 由橙门派生：`build-tools/recolor_glb.py` 把贴图中高饱和暖色旋转到青色 | 286,352 | 53a08eb745b46f8e | 颜色门青门（01） |
+| `assets/mechanisms/crusher.glb` | 木吊架石块压锤 | 293,716 | 10d56167e47ddf0f | 已入库，本轮未接入 |
+
+另生成的"铁箍木桶"未导出成功，滚桶外观改用既有的 `assets/landscape/barrel.glb`。许可同前，待按 Tripo 账号套餐确认。
