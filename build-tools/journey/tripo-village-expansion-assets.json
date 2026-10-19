@@ -47,7 +47,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "roadside_inn_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_roadside_inn.glb"
+      "path": "assets/landscape/tripo_roadside_inn.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "18214df13d2f26f2f7a74b1a403e22c254eedc2d96e0695246fa5ca20c1bb3f3",
+      "runtime_bytes": 1069720
     },
     {
       "number": 2,
@@ -88,7 +91,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "corner_townhouse_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_corner_townhouse.glb"
+      "path": "assets/landscape/tripo_corner_townhouse.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ec2d1d7c37622b98b54937cd049817a35f5cd3d49b90a715d29f1b8b818610be",
+      "runtime_bytes": 1240360
     },
     {
       "number": 3,
@@ -129,7 +135,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "thatched_farmhouse_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_thatched_farmhouse.glb"
+      "path": "assets/landscape/tripo_thatched_farmhouse.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ae5db3aabce2dbe6750fac0d879beb850b5be2bc6d995e3282d6b6d9aec62846",
+      "runtime_bytes": 1110860
     },
     {
       "number": 4,
@@ -170,7 +179,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "stone_cottage_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_stone_cottage.glb"
+      "path": "assets/landscape/tripo_stone_cottage.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "4604abbc8bf63d260f7cd17897d049d28ad93e9069e3c5ff8d37b61cd41d354a",
+      "runtime_bytes": 1143808
     },
     {
       "number": 5,
@@ -211,7 +223,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "forester_cabin_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_forester_cabin.glb"
+      "path": "assets/landscape/tripo_forester_cabin.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "833416e1e2f3b4b145e23621af18f8319235b9dce36e4556e19a1edcb9743d1c",
+      "runtime_bytes": 1062840
     },
     {
       "number": 6,
@@ -252,7 +267,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "riverside_house_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_riverside_house.glb"
+      "path": "assets/landscape/tripo_riverside_house.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "0247b1114cdcf8c2c04c6d89c3ca8ddb6ceff6beddbd9b5f9aab22351f3fb433",
+      "runtime_bytes": 906224
     },
     {
       "number": 7,
@@ -294,7 +312,10 @@
       "preview": "village_windmill_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
       "review_notes": "当前为静态完整模型；风车转动需要后续拆分叶片及设置转轴。",
-      "path": "assets/landscape/tripo_village_windmill.glb"
+      "path": "assets/landscape/tripo_village_windmill.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "eae8c8c62292d51ff821a22a2229250fa391ff09c1e5a70fc8d4ab1b2448f624",
+      "runtime_bytes": 1220596
     },
     {
       "number": 8,
@@ -335,7 +356,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "storage_barn_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_storage_barn.glb"
+      "path": "assets/landscape/tripo_storage_barn.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "5930317bb271efeaf9bc8e8fdfb7252decae5119488e2292b320a065fd008128",
+      "runtime_bytes": 1212488
     },
     {
       "number": 9,
@@ -376,7 +400,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "covered_well_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_covered_well.glb"
+      "path": "assets/landscape/tripo_covered_well.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "2fe6a181ab1d6028690713d8b9c58e43a9ec23c6c147b85cc588df7594dc1b64",
+      "runtime_bytes": 583320
     },
     {
       "number": 10,
@@ -417,7 +444,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "produce_stall_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_produce_stall.glb"
+      "path": "assets/landscape/tripo_produce_stall.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "9184098cb413433bd9db06bce4193c97a12d74edec6fd5c0ac451f95d0390299",
+      "runtime_bytes": 658340
     },
     {
       "number": 11,
@@ -458,7 +488,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "bread_oven_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_bread_oven.glb"
+      "path": "assets/landscape/tripo_bread_oven.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "dd6fe8bbc9e87dc3262c1703b7a36d0aa44d4efe4c64f5f9e6e8b237dac11416",
+      "runtime_bytes": 578784
     },
     {
       "number": 12,
@@ -499,7 +532,10 @@
       "geometry_and_textures_unchanged": true,
       "preview": "stone_fountain_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
-      "path": "assets/landscape/tripo_stone_fountain.glb"
+      "path": "assets/landscape/tripo_stone_fountain.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "8c7d1bacd569d7f788ebf5e1a77049351b3b781b774028b536d68a82afc6195a",
+      "runtime_bytes": 710364
     },
     {
       "number": 13,
@@ -541,7 +577,10 @@
       "preview": "cobble_road_panel_preview.webp",
       "integration_status": "从原 GLB 烘焙连续地面材质，覆盖完整安全路面；源模型保留",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
-      "path": "assets/landscape/tripo_cobble_road_panel.glb"
+      "path": "assets/landscape/tripo_cobble_road_panel.glb",
+      "runtime_texture_size": 2048,
+      "excluded_from_export": true,
+      "runtime_note": "仅供 bake_tripo_ground.gd 顶视烘焙，运行时不实例化，导出预设已排除；保留 2K 原件以便重新烘焙"
     },
     {
       "number": 14,
@@ -583,7 +622,10 @@
       "preview": "flagstone_road_panel_preview.webp",
       "integration_status": "从原 GLB 烘焙连续地面材质，覆盖完整安全路面；源模型保留",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
-      "path": "assets/landscape/tripo_flagstone_road_panel.glb"
+      "path": "assets/landscape/tripo_flagstone_road_panel.glb",
+      "runtime_texture_size": 2048,
+      "excluded_from_export": true,
+      "runtime_note": "仅供 bake_tripo_ground.gd 顶视烘焙，运行时不实例化，导出预设已排除；保留 2K 原件以便重新烘焙"
     },
     {
       "number": 15,
@@ -626,7 +668,10 @@
       "integration_status": "从原 GLB 烘焙连续地面材质，覆盖完整安全路面；源模型保留",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
       "review_notes": "主要表现泥土起伏；车辙清晰度仍需游戏内俯视角验收，可配合地面贴图表达。",
-      "path": "assets/landscape/tripo_muddy_wheel_ruts.glb"
+      "path": "assets/landscape/tripo_muddy_wheel_ruts.glb",
+      "runtime_texture_size": 2048,
+      "excluded_from_export": true,
+      "runtime_note": "仅供 bake_tripo_ground.gd 顶视烘焙，运行时不实例化，导出预设已排除；保留 2K 原件以便重新烘焙"
     },
     {
       "number": 16,
@@ -668,7 +713,10 @@
       "preview": "grass_soil_border_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
-      "path": "assets/landscape/tripo_grass_soil_border.glb"
+      "path": "assets/landscape/tripo_grass_soil_border.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "5c2deb4e7dcc93ba2d941a92b798c0c702e509630f94885be0a5e46b7d862243",
+      "runtime_bytes": 902180
     },
     {
       "number": 17,
@@ -710,7 +758,10 @@
       "preview": "leaf_litter_patch_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
-      "path": "assets/landscape/tripo_leaf_litter_patch.glb"
+      "path": "assets/landscape/tripo_leaf_litter_patch.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "d9653d5130e5d7f5c581f4e7def9799f66940faaf839855f988e3df65147fa43",
+      "runtime_bytes": 574516
     },
     {
       "number": 18,
@@ -752,7 +803,10 @@
       "preview": "stone_road_curb_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
-      "path": "assets/landscape/tripo_stone_road_curb.glb"
+      "path": "assets/landscape/tripo_stone_road_curb.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "275a460bd7929087999378999e7d28cb19c658d00315b7be509150e01322ef28",
+      "runtime_bytes": 798148
     },
     {
       "number": 19,
@@ -795,7 +849,10 @@
       "integration_status": "已接入生产场景区块与地面安全切片",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
       "review_notes": "生成结果更接近破损坑壁，适合组合成坑沿侧壁；不是可直接覆盖道路的完整 L 形地块。",
-      "path": "assets/landscape/tripo_crumbled_pit_rim.glb"
+      "path": "assets/landscape/tripo_crumbled_pit_rim.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ed5101315c32eb48222a8ebd45707824bb094bd74a8942cb2be7ea3ac85b29f3",
+      "runtime_bytes": 794628
     },
     {
       "number": 20,
@@ -837,7 +894,10 @@
       "preview": "layered_cliff_face_preview.webp",
       "integration_status": "已接入生产场景区块与地面安全切片",
       "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
-      "path": "assets/landscape/tripo_layered_cliff_face.glb"
+      "path": "assets/landscape/tripo_layered_cliff_face.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "6fc9bdf704ca0c2040a63e8047348853884a01213675300eaac58555d01eed62",
+      "runtime_bytes": 949728
     }
   ],
   "validation": "20 件逐项核验面数、单材质、完整 PBR、2K 纹理、法线和 UV；整理版仅改根节点变换，网格与纹理二进制未变。",
@@ -877,5 +937,10 @@
         "sha256": "b2e27bccccd1ea033c698025adc78603628e6f7ad8306f9afb6e8aa129e74a4e"
       }
     ]
+  },
+  "asset_diet": {
+    "date": "2026-10-19",
+    "tool": "build-tools/shrink_glb.py <glb> <glb> 1024",
+    "note": "运行时 GLB 的颜色、法线、金属粗糙度贴图由 2048 缩至 1024（JPEG 保持 JPEG q88，PNG 保持 PNG），网格、材质与根变换不变；sha256/bytes 字段仍为 2K 来源版本。"
   }
 }

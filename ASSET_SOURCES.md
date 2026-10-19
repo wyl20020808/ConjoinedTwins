@@ -175,3 +175,7 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 原始文件、原始与米制预处理后的 SHA-256、字节、生成页面、三角面及尺寸记录在 `build-tools/journey/tripo-village-expansion-assets.json`。入库版本仅修改根节点变换以统一米制与轴向，原网格二进制和贴图不变，20 件共 56,915,248 字节，单件均小于 5 MB。原始导出、预处理脚本及缩略图保存在工程外 `/Users/apple/ConjoinedTwins-art-assets/tripo-village-batch2-20261019/`。
 
 实际使用：八种建筑按村庄、农田、林地、河畔分配；四种设施进入村庄院落；三种地面模型取内部区域顶视烘焙为 1024×2048 的颜色、世界法线与粗糙度纹理，用于完整连续的石板、卵石和泥路；另五种用于路肩、落叶和道路下方岩壁。原始模型保留，六张烘焙纹理、哈希和重跑命令见同一清单；纹理采用显存压缩、mipmap 和各向异性过滤。地表材质适度降低法线强度并提高粗糙度，保留路缘土壤过渡。风车为整件静态网格，叶片没有动画。
+
+### 2026-10-19 Tripo 村庄资源减重
+
+上述 28 件 Tripo 村庄、地表与机关 GLB 中，25 件运行时模型的内嵌贴图由 2048 缩至 1024（`build-tools/shrink_glb.py`，格式与网格不变）。卵石路、石板路、泥地车辙三件只用于烘焙地面纹理，保留 2K 原件并从导出包排除。来源版本与运行时版本的哈希均记录在 `build-tools/journey/tripo-village-assets.json` 与 `tripo-village-expansion-assets.json`。许可同前，仍待按 Tripo 账号套餐确认。

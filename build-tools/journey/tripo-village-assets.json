@@ -19,7 +19,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": 8.0,
-      "root_scale": 8.683140674370955
+      "root_scale": 8.683140674370955,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "636e4fd8d4d87ca182034d353a75abbf3bfeb89f0f10f45dc3ef79653d988229",
+      "runtime_bytes": 1003588
     },
     {
       "name": "村庄工坊",
@@ -31,7 +34,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": 8.0,
-      "root_scale": 10.531255021693717
+      "root_scale": 10.531255021693717,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "6489069d75cd4093f75b63d6faae39ef9cc1c4330709d7febad867f2e7630a8f",
+      "runtime_bytes": 1046344
     },
     {
       "name": "村口拱门",
@@ -43,7 +49,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": 6.0,
-      "root_scale": 8.423650385604113
+      "root_scale": 8.423650385604113,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "f6f91e8c05e96f5b8b16fbb70236e676c44decb7ea413560e2d5780ce0d18597",
+      "runtime_bytes": 1064712
     },
     {
       "name": "岩石路肩",
@@ -55,7 +64,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": 1.3,
-      "root_scale": 3.514719755143854
+      "root_scale": 3.514719755143854,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "92f6e7adbc802b966045e3a481cc8250e63fa2359c85401caee1e0fb8c32ab7d",
+      "runtime_bytes": 998800
     },
     {
       "name": "树根树桩",
@@ -67,7 +79,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": 1.8,
-      "root_scale": 3.03376195864623
+      "root_scale": 3.03376195864623,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ec62d6b068d618974cea8553227df355e22d929cdb975c555e68b85be1349e90",
+      "runtime_bytes": 782108
     },
     {
       "name": "庭院杂物",
@@ -79,7 +94,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": 1.5,
-      "root_scale": 3.6446685451579417
+      "root_scale": 3.6446685451579417,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "f5af9edc7d571b6f99cd3ef57c9af09ff9dc09c7bdcbfd9a386e28c00c9dd31e",
+      "runtime_bytes": 702124
     },
     {
       "name": "包铁滚石",
@@ -91,7 +109,10 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": null,
-      "root_scale": 1.0
+      "root_scale": 1.0,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "c0eaab7c3aee2dd62320f737ecc05212bb6b43fc08e0dc52dab67d5ca3d771a9",
+      "runtime_bytes": 1474224
     },
     {
       "name": "木制撞锤",
@@ -103,7 +124,15 @@
       "materials": 1,
       "texture_size": 2048,
       "height_m": null,
-      "root_scale": 1.0
+      "root_scale": 1.0,
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "fae0c974286c83357b58a4f11aaca774a0f9dcae735ee403f503559e6c2ca424",
+      "runtime_bytes": 1058508
     }
-  ]
+  ],
+  "asset_diet": {
+    "date": "2026-10-19",
+    "tool": "build-tools/shrink_glb.py <glb> <glb> 1024",
+    "note": "运行时 GLB 的颜色、法线、金属粗糙度贴图由 2048 缩至 1024（JPEG 保持 JPEG q88，PNG 保持 PNG），网格、材质与根变换不变；sha256/bytes 字段仍为 2K 来源版本。"
+  }
 }
