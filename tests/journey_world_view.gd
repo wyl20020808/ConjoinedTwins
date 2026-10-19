@@ -29,10 +29,16 @@ func verify()->void:
 	game.run.elapsed+=.8;game.sync_static_hazards()
 	check(support.global_position.is_equal_approx(old_support),"lift support stays on ground")
 	check(is_equal_approx(lift_view.get_node("TerrainDeck").position.y,game.run.terrain_sample(lift,game.run.elapsed,game.run.obstacles[lift].get_center()).height/20-.12),"lift deck follows collision height")
-	for variant in ["archer","dasher","wolf"]:
+	for variant in ["briar","raider","sentinel","archer","dasher","wolf"]:
 		var first:Node3D=game.CombatView.EnemyView.make_monster(game,game.road,variant)
 		var second:Node3D=game.CombatView.EnemyView.make_monster(game,game.road,variant)
-		check(first.get_node("LeftLeg").get_child(0).mesh==second.get_node("LeftLeg").get_child(0).mesh,variant+" instances share geometry")
+		# 扫描模型的网格在 Figure 下、四肢为空关节；程序几何的网格挂在 LeftLeg 下。两者都须共享网格资源。
+		var scanned:bool=game.CombatView.EnemyView.SCANNED.has(variant)
+		check(scanned==first.has_node("Figure"),variant+" uses expected model kind")
+		var first_parts:Array=[];var second_parts:Array=[]
+		game.CombatView.EnemyView.meshes(first.get_node("Figure") if scanned else first.get_node("LeftLeg"),first_parts)
+		game.CombatView.EnemyView.meshes(second.get_node("Figure") if scanned else second.get_node("LeftLeg"),second_parts)
+		check(not first_parts.is_empty() and first_parts[0].mesh==second_parts[0].mesh,variant+" instances share geometry")
 		check(first.has_node("LeftArm") and first.has_node("RightArm"),variant+" animated attack limbs exist")
 	for path in ["natural_oak_7","natural_oak_17","natural_birch"]:
 		for suffix in ["","_lod"]:

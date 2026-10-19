@@ -29,6 +29,7 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 				preload("res://scripts/journey_landscape.gd").add_instance(dressing,"house_%d"%posmod(number+n,3),Vector3(side*24,0,-start-n*27-10),rng.randf_range(.9,1.1),-side*PI/2)
 				items.append(["asset","fence",Vector3(side*17.6,0,-start-n*27-18),1.6,PI/2])
 				items.append(["asset","cart",Vector3(side*19,0,-start-n*27-3),2.3,side*PI/2])
+				preload("res://scripts/journey_landscape.gd").add_villager(dressing,number*3+n,side,Vector3(side*19.8,0,-start-n*27-14))
 		if theme=="facility":
 			for n in range(3): items.append(["building",Vector3(side*27,0,-start-n*28),side*PI/2])
 	if theme=="farm":

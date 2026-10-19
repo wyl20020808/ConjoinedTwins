@@ -126,3 +126,22 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 - assets/landscape/natural_oak_7、natural_oak_17、natural_birch 及各自 _lod.glb：本项目使用 Blender 程序生成的树根、分叉树干、枝条、几何叶片。生成器为 build-tools/journey/make_natural_trees.py，尺寸、三角形数量、SHA-256 见同目录 natural-tree-assets.json。未下载或引入外部模型。
 - 树干继续复用本文件已有来源记录的 Pine_Bark_NormalTree 贴图与法线；叶脉使用本项目 journey_natural_leaf.gdshader 程序材质，无新增外部贴图。
 - 弓手、冲锋者、灰鬃狼由本项目基础网格组合生成；造型、关节动作、预警线与箭矢无新增外部素材。
+
+## 2026-10-19 Tripo 文生 3D 怪物与村民
+
+用户在自己的 Tripo Studio 账号（studio.tripo3d.ai）中以文生 3D 生成，Agent 在应用内置浏览器中填写提示词并提交，用户本人导出 GLB。生成参数：H3.1 高精度模型、关闭超清几何、开启纹理与去光处理、2K 贴图、三角面、面数上限 6000。导出后用 `build-tools/shrink_glb.py` 把内嵌贴图缩到 1024（JPEG q88），几何不变。
+
+**许可待确认**：Tripo 生成内容的授权取决于账号套餐（免费套餐通常为公开且需署名，付费套餐归用户所有）。正式发布前须由用户在账号中确认，并按需补充署名。
+
+| 文件 | 内容 | 三角面 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | ---: | --- | --- |
+| `assets/monsters/bark_sprite.glb` | 树皮苔藓林地小怪 | 5,689 | 361,532 | 7569ce716f3d23b3 | 树皮小怪（briar） |
+| `assets/monsters/raider.glb` | 红头巾棍棒掠袭者 | 5,636 | 264,200 | 803bec2301efda67 | 村庄掠袭者（raider） |
+| `assets/monsters/raider_slinger.glb` | 兜帽投石手 | 5,888 | 297,924 | 010ee68a28c0f001 | 林地弓手（archer） |
+| `assets/monsters/stone_guard.glb` | 苔藓石魔守卫 | 5,930 | 310,716 | b41f35b1fc83c50c | 矿道石卫（sentinel） |
+| `assets/landscape/villager_farmer.glb` | 草帽农妇 | 5,936 | 313,060 | 1d31708654b28fa9 | 村庄院落布景 |
+| `assets/landscape/villager_elder.glb` | 拄拐老人 | 5,673 | 278,276 | 111d2c293fa3d370 | 村庄院落布景 |
+| `assets/landscape/villager_blacksmith.glb` | 铁匠 | 5,762 | 274,716 | a708760cfa91cf0f | 村庄院落布景 |
+| `assets/landscape/villager_merchant.glb` | 背货商贩 | 5,654 | 327,176 | cf0a66767a6b1331 | 村庄院落布景 |
+
+Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模型无骨骼与动画：怪物以空关节兼容原同步逻辑，步态改为整体摇摆与蓄力后仰；冲锋者、灰鬃狼仍为程序几何，推车/投石事件的带动画村民 `villager_actions.glb` 保持不变。

@@ -4,6 +4,9 @@ const HALF := 16.0
 const EXTENT := 140.0
 const WIDTH := 80.0
 const SHADER = preload("res://scripts/journey_ground.gdshader")
+# Tripo 文生 3D 村民（静态，约 5.7k 三角面、1024 贴图），原生高 1、朝 +X；按 3 米身高摆放。
+const VILLAGERS := ["villager_farmer","villager_elder","villager_blacksmith","villager_merchant"]
+const VILLAGER_HEIGHT := 3.0
 var game
 var terrain: ShaderMaterial
 var cut_material:StandardMaterial3D
@@ -207,6 +210,7 @@ static func plan(number:int,chapter:int)->Array:
 				add_instance(batches,"washing_line",Vector3(side*22,height_at(side*22,meters-5,chapter),-meters+5),1,0)
 				add_instance(batches,"barrel",Vector3(side*18.8,height_at(side*18.8,meters-1.8,chapter),-meters+1.8),1.1,0)
 				add_instance(batches,"woodpile",Vector3(side*19.5,height_at(side*19.5,meters+3,chapter),-meters-3),1,side*.3)
+				add_villager(batches,number*3+(n>>1),side,Vector3(side*19.8,height_at(side*19.8,meters+8,chapter),-meters-8))
 			else:add_instance(batches,"house_%d"%((number+n+301)%3),Vector3(side*48,height_at(side*48,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
 			if n==2:add_instance(batches,"well",Vector3(side*20,height_at(side*20,meters+5,chapter),-meters-5),1,0)
 			for k in range(4):
@@ -215,6 +219,11 @@ static func plan(number:int,chapter:int)->Array:
 	decorate(batches,number,chapter)
 	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
 	return items
+
+# 村民面向道路并略转向镜头，便于看清正脸；不参与物理与碰撞。
+static func add_villager(batches:Dictionary,index:int,side:float,point:Vector3)->void:
+	# 左右两侧错开两种，相邻院落依次轮换。
+	add_instance(batches,VILLAGERS[posmod(index+(2 if side>0 else 0),VILLAGERS.size())],point,VILLAGER_HEIGHT,PI+.6 if side>0 else -.6)
 
 static func add_instance(batches:Dictionary,kind:String,point:Vector3,size:float,yaw:float)->void:
 	if not batches.has(kind):batches[kind]=[]
@@ -253,8 +262,8 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			add_instance(batches,"detail_porch",house.origin+Vector3(-side*3.6*size,0,0),.85*size,-side*PI/2)
 	# 接触暗部使用低成本透明网格，不恢复 Web 端整片树林的动态阴影。
 	for kind in batches.keys():
-		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks"]:continue
+		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks"] and kind not in VILLAGERS:continue
 		for transform:Transform3D in batches[kind]:
 			if absf(transform.origin.x)>52:continue
 			var point:=transform.origin+Vector3(0,.035,0)
-			add_instance(batches,"detail_contact",point,3.8 if kind.begins_with("house") else 1.7,0)
+			add_instance(batches,"detail_contact",point,3.8 if kind.begins_with("house") else (0.9 if kind in VILLAGERS else 1.7),0)

@@ -1,7 +1,21 @@
 extends RefCounted
 
 # 复用场景材质；怪物、血条与反馈都由模拟时间驱动，无逐怪物 _process / Tween。
+# Tripo 文生 3D 静态模型（约 5.7k 三角面、1024 贴图）：[路径, 身高(米)]。原生朝向 +X、脚底在原点。
+# 未列出的原型（冲锋者、狼）仍使用程序几何。
+const SCANNED := {
+	"briar":["res://assets/monsters/bark_sprite.glb",2.5],
+	"raider":["res://assets/monsters/raider.glb",3.1],
+	"sentinel":["res://assets/monsters/stone_guard.glb",3.7],
+	"archer":["res://assets/monsters/raider_slinger.glb",3.0],
+}
+
+static func model_path(archetype: String) -> String:
+	return SCANNED[archetype][0] if SCANNED.has(archetype) else ""
+
 static func make_monster(game, parent: Node3D, archetype: String) -> Node3D:
+	if SCANNED.has(archetype) and ResourceLoader.exists(SCANNED[archetype][0]):
+		return make_scanned(parent,archetype)
 	var models:Dictionary=game.get_meta("enemy_models",{})
 	if models.has(archetype):
 		var instance:Node3D=models[archetype].instantiate();parent.add_child(instance);return instance
@@ -66,6 +80,20 @@ static func make_monster(game, parent: Node3D, archetype: String) -> Node3D:
 	cache_model(game,actor,archetype)
 	return actor
 
+# 扫描模型没有骨骼：四肢关节为空节点以兼容同步逻辑，步态改由 Figure 整体摇摆/前倾表现。
+# 同类实例共享导入后的网格与贴图资源。
+static func make_scanned(parent: Node3D, archetype: String) -> Node3D:
+	var actor := Node3D.new();actor.name="Monster";parent.add_child(actor)
+	var figure:Node3D=load(SCANNED[archetype][0]).instantiate();figure.name="Figure"
+	var height:float=SCANNED[archetype][1]
+	figure.scale=Vector3.ONE*height
+	figure.rotation.y=-PI/2
+	actor.add_child(figure)
+	for limb in ["LeftLeg","RightLeg","LeftArm","RightArm"]:
+		var joint:=Node3D.new();joint.name=limb;actor.add_child(joint)
+	actor.set_meta("figure_height",height)
+	return actor
+
 # 静态躯干按材质合并，四肢保留独立关节；同类实例共享网格资源。
 static func cache_model(game,actor:Node3D,archetype:String)->void:
 	var groups:={}
@@ -112,6 +140,7 @@ static func prepare(game, view: Node3D, event: Dictionary) -> void:
 	view.set_meta("enemy_body",body)
 	view.set_meta("enemy_scale",body.scale)
 	view.set_meta("enemy_rotation",body.rotation)
+	view.set_meta("bar_height",body.get_meta("figure_height",2.9)+.6)
 	view.set_meta("last_hit_at",-1.0)
 	view.set_meta("hit_flash",false)
 	var health:=Node3D.new();health.name="EnemyHealth";view.add_child(health)
@@ -163,6 +192,11 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 			if event.archetype=="wolf":
 				actor.get_node("LeftArm").rotation.x=-swing
 				actor.get_node("RightArm").rotation.x=swing
+		if actor.has_node("Figure"):
+			# Figure 原生朝 +X：绕本地 X 为左右摇摆，绕本地 Z 为前后俯仰（正值后仰蓄力）。
+			var figure:Node3D=actor.get_node("Figure")
+			figure.rotation.x=swing*.11
+			figure.rotation.z=charge*.28
 		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)
@@ -179,7 +213,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var health:Node3D=view.get_node("EnemyHealth")
 	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800
 	if health.visible:
-		health.global_position=location+Vector3(0,3.5+event.get("ground_height",0.0)/20,0)
+		health.global_position=location+Vector3(0,view.get_meta("bar_height",3.5)+event.get("ground_height",0.0)/20,0)
 		health.global_basis=game.camera.global_basis
 		var health_key:Vector2i=Vector2i(event.hp,event.max_hp)
 		if view.get_meta("health_key",Vector2i(-1,-1))!=health_key:

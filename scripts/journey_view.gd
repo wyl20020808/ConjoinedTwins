@@ -382,6 +382,7 @@ func prepare_journey_frame() -> bool:
 			"cart":retained.append("res://assets/journey/cart.glb")
 			"swing":retained.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["cart","stone"]:retained.append("res://assets/journey/villager_actions.glb")
+		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():retained.append(CombatView.EnemyView.model_path(event.archetype))
 	for gate in run.charge_gates:
 		if model_resident(gate.receiver.y):retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
 	retained.append_array(chunk_assets.pending);retained.append_array(chunk_assets.active)
@@ -438,6 +439,7 @@ func prepare_event_views(deadline: int) -> bool:
 			"cart": paths.append("res://assets/journey/cart.glb")
 			"swing": paths.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["stone","cart"]: paths.append("res://assets/journey/villager_actions.glb")
+		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():paths.append(CombatView.EnemyView.model_path(event.archetype))
 		chunk_assets.request(paths)
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
 			event_views[event.id]=build_event(event)
