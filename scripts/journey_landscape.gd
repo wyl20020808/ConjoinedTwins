@@ -7,11 +7,13 @@ const SHADER = preload("res://scripts/journey_ground.gdshader")
 # Tripo 文生 3D 村民（静态，约 5.7k 三角面、1024 贴图），原生高 1、朝 +X；按 3 米身高摆放。
 const VILLAGERS := ["villager_farmer","villager_elder","villager_blacksmith","villager_merchant"]
 const VILLAGER_HEIGHT := 3.0
-const TRIPO_HOUSES := ["tripo_cottage","tripo_workshop"]
+const TRIPO_HOUSES := ["tripo_cottage","tripo_workshop","tripo_roadside_inn","tripo_corner_townhouse","tripo_stone_cottage","tripo_riverside_house","tripo_thatched_farmhouse","tripo_storage_barn","tripo_forester_cabin"]
+const SURFACE_KINDS := ["tripo_cobble_road_panel","tripo_flagstone_road_panel","tripo_muddy_wheel_ruts","tripo_grass_soil_border","tripo_leaf_litter_patch","tripo_stone_road_curb","tripo_crumbled_pit_rim","tripo_layered_cliff_face"]
 var game
 var terrain: ShaderMaterial
 var cut_material:StandardMaterial3D
 var parts := {}
+var road_materials := {}
 var palette := {}
 var leaf_material:ShaderMaterial
 var mobile:=false
@@ -40,6 +42,9 @@ func _init(owner_game)->void:
 	terrain.set_shader_parameter("rock",load("res://assets/env/rock_face_03_diff.jpg"))
 	terrain.set_shader_parameter("soil_normal",load("res://assets/journey/forest_leaves_02_nor.jpg"))
 	terrain.set_shader_parameter("stone_normal",load("res://assets/env/monastery_stone_floor_nor.jpg"))
+	for entry in [["paving","flagstone_road_panel"],["cobbles","cobble_road_panel"],["mud","muddy_wheel_ruts"]]:
+		terrain.set_shader_parameter(entry[0]+"_color",load("res://assets/landscape/ground/%s_color.png"%entry[1]))
+		terrain.set_shader_parameter(entry[0]+"_detail",load("res://assets/landscape/ground/%s_normal_rough.png"%entry[1]))
 	palette.Bark=game.tex_material("landscape_bark","rock_face_03",0.7,Color("776856"))
 	palette.Bark.albedo_texture=load("res://assets/decor/Pine_Bark_NormalTree.png")
 	palette.Bark.normal_texture=load("res://assets/decor/Pine_Bark_NormalTree_Normal.png")
@@ -67,6 +72,16 @@ func _init(owner_game)->void:
 
 func set_chapter(chapter:int)->void:terrain.set_shader_parameter("chapter",chapter)
 
+func road_material(chapter:int,theme:String,continuous:bool)->ShaderMaterial:
+	if continuous:return terrain
+	var key:="%d:%s"%[chapter,theme]
+	if not road_materials.has(key):
+		var mat:ShaderMaterial=terrain.duplicate()
+		mat.set_shader_parameter("chapter",chapter)
+		mat.set_shader_parameter("road_region",2 if theme=="village" else (1 if theme in ["forest","farm","meadow"] else 0))
+		road_materials[key]=mat
+	return road_materials[key]
+
 func ground(parent:Node3D,pieces:Array,chapter:int,top_material:Material=null)->void:
 	set_chapter(chapter)
 	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -85,13 +100,52 @@ func ground(parent:Node3D,pieces:Array,chapter:int,top_material:Material=null)->
 			for v in [a,b,b+down,a,b+down,a+down]:
 				walls.set_color(Color(.72,.67,.58) if v.y>-.1 else Color(.16,.18,.18))
 				walls.set_normal(normal);walls.add_vertex(v)
-	var view:=MeshInstance3D.new();view.mesh=tool.commit();view.material_override=terrain if top_material==null else top_material
+	var view:=MeshInstance3D.new();view.name="RoadSurface";view.mesh=tool.commit();view.material_override=terrain if top_material==null else top_material
 	view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(view)
 	var cliff:=MeshInstance3D.new();cliff.name="BrokenRoadWalls"
 	cliff.mesh=walls.commit();cliff.material_override=cut_material
 	cliff.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(cliff)
+
+# 地表模块与玩法共用安全切片；整块放不下就省略，绝不跨越真实缺口。
+static func surface_plan(pieces:Array,number:int,chapter:int,theme:String,gaps:Array=[])->Dictionary:
+	var batches:={}
+	var start:=number*WIDTH
+	var p:=profile(start+40,chapter)
+	for row in range(20):
+		var meters:=start+row*4+2
+		for side:float in [-1.0,1.0]:
+			var border:="tripo_grass_soil_border" if p.x<.5 else "tripo_stone_road_curb"
+			var x:=side*16.6
+			add_instance(batches,border,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1,PI/2 if border=="tripo_stone_road_curb" else 0.0)
+			if row%2==0 and p.y>.25:
+				var litter_x:=side*12.5
+				var litter_foot:=Rect2(Vector2(litter_x-1.25,meters-1.25)*20,Vector2(2.5,2.5)*20)
+				if contained(pieces,litter_foot):add_instance(batches,"tripo_leaf_litter_patch",Vector3(litter_x,.025,-meters),1,0)
+			if row%2==0 and p.x>.5:
+				add_instance(batches,"tripo_layered_cliff_face",Vector3(side*17.5,-.08,-meters),1,side*PI/2)
+	# 坑沿最高点低于站立平面，仅在缺口两端下方露出破损侧壁。
+	for gap:Rect2 in gaps:
+		for side:float in [-1.0,1.0]:
+			var edge:float=gap.position.y/20 if side<0 else gap.end.y/20
+			var x:=gap.get_center().x/20
+			var foot:=Rect2(Vector2(x-.9,edge+side*.85-.05)*20,Vector2(1.8,.1)*20)
+			if contained(pieces,foot):add_instance(batches,"tripo_crumbled_pit_rim",Vector3(x,-.04,-edge),.45,0)
+	return batches
+
+static func contained(pieces:Array,foot:Rect2)->bool:
+	for piece:Rect2 in pieces:
+		if piece.encloses(foot):return true
+	return false
+
+func surface_details(parent:Node3D,pieces:Array,number:int,chapter:int,theme:String,gaps:Array)->void:
+	var batches:=surface_plan(pieces,number,chapter,theme,gaps)
+	for kind:String in batches:
+		batch(parent,"res://assets/landscape/%s.glb"%kind,batches[kind],85 if mobile or OS.has_feature("web") else 120)
+	# 贴地模块没有独立碰撞体，也不向路面投射大批细碎阴影。
+	for child in parent.get_children():
+		if child is MultiMeshInstance3D:child.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func quad(tool:SurfaceTool,a:Vector3,b:Vector3,c:Vector3,d:Vector3)->void:
 	for v in [a,c,b,a,d,c]:
@@ -124,7 +178,15 @@ func load_parts(path:String)->Array:
 	var scene:Node3D=load(path).instantiate()
 	var result:Array=[]
 	collect(scene,Transform3D.IDENTITY,result)
-	scene.free();parts[path]=result
+	scene.free()
+	if path.get_file().get_basename() in SURFACE_KINDS:
+		for part in result:
+			var mat:StandardMaterial3D=part.mesh.surface_get_material(0).duplicate()
+			mat.roughness=.98;mat.normal_scale=.35
+			if "muddy" in path:mat.albedo_color=Color(.58,.52,.43)
+			elif "road_panel" in path:mat.albedo_color=Color(.72,.69,.61)
+			part.mesh.surface_set_material(0,mat)
+	parts[path]=result
 	return result
 
 func collect(node:Node3D,transform:Transform3D,result:Array)->void:
@@ -171,6 +233,7 @@ func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float
 
 static func plan(number:int,chapter:int)->Array:
 	var items:Array=[]
+	items.append(["landscape_surface",number,chapter,""])
 	for section in range(10):items.append(["landscape_terrain",number,chapter,section])
 	var rng:=RandomNumberGenerator.new();rng.seed=number*109+chapter*7919+42
 	var batches:={}
@@ -206,13 +269,13 @@ static func plan(number:int,chapter:int)->Array:
 			if p.z<.05 or rng.randf()>p.z:continue
 			# 两排住宅形成有纵深的院落；生活物件位于道路外，不影响物理。
 			if n%2==0:
-				add_instance(batches,house_kind(number+n),Vector3(side*23,height_at(side*23,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
+				add_instance(batches,house_kind(number+n),Vector3(side*28,height_at(side*28,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
 				add_instance(batches,"fence",Vector3(side*17.6,height_at(side*17.6,meters+5,chapter),-meters-5),.7,PI/2)
 				add_instance(batches,"washing_line",Vector3(side*22,height_at(side*22,meters-5,chapter),-meters+5),1,0)
 				add_instance(batches,"tripo_supplies",Vector3(side*20,height_at(side*20,meters+3,chapter),-meters-3),1,side*.3)
 				add_villager(batches,number*3+(n>>1),side,Vector3(side*19.8,height_at(side*19.8,meters+8,chapter),-meters-8))
 			else:add_instance(batches,house_kind(number+n+1),Vector3(side*48,height_at(side*48,meters,chapter),-meters),rng.randf_range(.8,1.0),-side*PI/2)
-			if n==2:add_instance(batches,"well",Vector3(side*20,height_at(side*20,meters+5,chapter),-meters-5),1,0)
+			if n==2:add_instance(batches,"tripo_covered_well",Vector3(side*20,height_at(side*20,meters+5,chapter),-meters-5),1,0)
 			for k in range(4):
 				var plantx:=side*(19+k*.7)
 				add_instance(batches,"shrub",Vector3(plantx,height_at(plantx,meters+6,chapter),-meters-6),.8,0)
@@ -220,8 +283,9 @@ static func plan(number:int,chapter:int)->Array:
 	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
 	return items
 
-static func house_kind(index:int)->String:
-	return TRIPO_HOUSES[1 if posmod(index,3)==0 else 0]
+static func house_kind(index:int,theme:String="village")->String:
+	if theme=="farm":return ["tripo_thatched_farmhouse","tripo_storage_barn","tripo_cottage"][posmod(index,3)]
+	return TRIPO_HOUSES[posmod(index,6)]
 
 # 村民面向道路并略转向镜头，便于看清正脸；不参与物理与碰撞。
 static func add_villager(batches:Dictionary,index:int,side:float,point:Vector3)->void:
@@ -251,10 +315,17 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 		for n in range(3):
 			var meters:=start+19.2+n*26.4
 			if not village_only and profile(meters,chapter).z<.45:continue
-			var kind:="detail_market" if n%2==0 else "detail_garden"
+			var kind:String=["tripo_produce_stall","tripo_bread_oven","tripo_stone_fountain"][posmod(number+n,3)]
 			var x:=side*20.5
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1.0,-side*PI/2)
 			add_instance(batches,"detail_lantern",Vector3(side*18.4,0,-meters+4),1.0,-side*PI/2)
+		# 林屋和磨坊放在第二排，避免与路边住宅、设施挤在同一个院落。
+		var middle:=start+40
+		var region:=profile(middle,chapter)
+		if not village_only and region.y>.55 and posmod(number,3)==0:
+			add_instance(batches,"tripo_forester_cabin",Vector3(side*31,height_at(side*31,middle,chapter),-middle),.9,-side*PI/2)
+		if (village_only or region.z>.7) and posmod(number,3)==1 and side>0:
+			add_instance(batches,"tripo_village_windmill",Vector3(65,height_at(65,middle,chapter) if not village_only else 0.0,-middle),1,-PI/2)
 	# 新住宅自带门廊；院门和货物只跟随实际住宅，不在过渡带孤立生成。
 	for kind in batches.keys():
 		if kind in TRIPO_HOUSES:

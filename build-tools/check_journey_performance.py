@@ -13,7 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
-    "tripo_village_assets",
+    "tripo_village_assets", "tripo_village_expansion",
     "journey_random_layout", "journey_streaming", "journey_warning_window",
     "journey_spatial_regression", "journey_front_sweep", "web_performance_regression",
     "physical_rope_terrain", "journey_pursuit", "journey_combat",
@@ -42,9 +42,12 @@ def main():
     sources += list((ROOT / "assets/journey").glob("tripo_*.glb"))
     sources += list((ROOT / "assets/landscape").glob("tripo_*.glb.import"))
     sources += list((ROOT / "assets/journey").glob("tripo_*.glb.import"))
-    sources += [ROOT / "build-tools/journey/tripo-village-assets.json"]
+    sources += list((ROOT / "assets/landscape/ground").glob("*.png"))
+    sources += list((ROOT / "assets/landscape/ground").glob("*.png.import"))
+    sources += [ROOT / "build-tools/journey/bake_tripo_ground.gd", ROOT / "build-tools/journey/tripo_ground_bake.gdshader"]
+    sources += [ROOT / "build-tools/journey/tripo-village-assets.json", ROOT / "build-tools/journey/tripo-village-expansion-assets.json"]
     sources += [ROOT / "build-tools/journey/natural-tree-assets.json"]
-    sources += [ROOT / "tests/fixtures/journey_route.gd", ROOT / "tests/journey_monster_campaign.gd"]
+    sources += [ROOT / "tests/fixtures/journey_route.gd", ROOT / "tests/fixtures/tripo_village_review.gd", ROOT / "tests/journey_monster_campaign.gd"]
     source_hashes = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}
     for test in TESTS:
         print(f"RUN {test}", flush=True)

@@ -164,3 +164,14 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 | 木制撞锤 | `assets/journey/tripo_timber_ram.glb` | 4424 | 连续旅程的横向矮栏 `rail`，尺寸按原危险体适配 |
 
 每件一个材质，保留颜色、法线、金属度/粗糙度贴图；导入采用内嵌 Basis Universal 压缩及自动网格 LOD，不再次提取重复图片。环境通过原有 MultiMesh 和区块驻留机制复用，旧资源与历史白盒入口保留。授权沿用上节“许可待确认”的边界，本次未发布或重新分发正式游戏包。
+
+
+## 2026-10-19 Tripo 第二批村庄与地表资产
+
+用户授权在已登录的 Tripo Studio 国际版用文字生成 20 件模型，并导入游戏。使用 H3.1、2K PBR、三角面、关闭超清几何；原始导出总计 100,678 三角面。它们是账户生成资源，不标注为 CC0；沿用该账户及服务适用的生成资产使用条款。
+
+文件为 `assets/landscape/tripo_{roadside_inn,corner_townhouse,thatched_farmhouse,stone_cottage,forester_cabin,riverside_house,village_windmill,storage_barn,covered_well,produce_stall,bread_oven,stone_fountain,cobble_road_panel,flagstone_road_panel,muddy_wheel_ruts,grass_soil_border,leaf_litter_patch,stone_road_curb,crumbled_pit_rim,layered_cliff_face}.glb`。每件一个材质，保留颜色、法线、金属粗糙度贴图；导入生成 LOD 并采用内嵌 Basis Universal 压缩。
+
+原始文件、原始与米制预处理后的 SHA-256、字节、生成页面、三角面及尺寸记录在 `build-tools/journey/tripo-village-expansion-assets.json`。入库版本仅修改根节点变换以统一米制与轴向，原网格二进制和贴图不变，20 件共 56,915,248 字节，单件均小于 5 MB。原始导出、预处理脚本及缩略图保存在工程外 `/Users/apple/ConjoinedTwins-art-assets/tripo-village-batch2-20261019/`。
+
+实际使用：八种建筑按村庄、农田、林地、河畔分配；四种设施进入村庄院落；三种地面模型取内部区域顶视烘焙为 1024×2048 的颜色、世界法线与粗糙度纹理，用于完整连续的石板、卵石和泥路；另五种用于路肩、落叶和道路下方岩壁。原始模型保留，六张烘焙纹理、哈希和重跑命令见同一清单；纹理采用显存压缩、mipmap 和各向异性过滤。地表材质适度降低法线强度并提高粗糙度，保留路缘土壤过渡。风车为整件静态网格，叶片没有动画。

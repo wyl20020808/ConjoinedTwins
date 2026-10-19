@@ -266,10 +266,8 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	var pieces:Array=[Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)]
 	for gap:Rect2 in gaps: pieces=subtract_floor(pieces,gap)
 	var theme: String=run.theme_at(y0)
-	if (run.level_index==0 and not run.combat_trial) or theme in ["village","farm"]:
-		landscape.ground(floor_node,pieces,run.level_index)
-	else:
-		landscape.ground(floor_node,pieces,run.level_index,ground_material(theme))
+	landscape.ground(floor_node,pieces,run.level_index,landscape.road_material(run.level_index,theme,run.level_index==0 and not run.combat_trial))
+	landscape.surface_details(floor_node,pieces,number,run.level_index,theme,gaps)
 	for i in range(run.kinds.size()):
 		if run.kinds[i]!="collapse": continue
 		var rect:Rect2=run.obstacles[i]

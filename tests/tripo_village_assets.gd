@@ -23,7 +23,8 @@ func verify()->void:
 					for part in parts:
 						var bounds:AABB=(transform*part.transform)*part.mesh.get_aabb()
 						check(bounds.position.x>16 or bounds.end.x< -16,"新布景完整位于可行走道路外："+item[1])
-	check(used.size()==6,"六件环境资产均进入实际三章区块规划")
+	for original in ["tripo_cottage","tripo_workshop","tripo_arch","tripo_supplies","tripo_road_edge","tripo_stump"]:
+		check(used.has(original),"首批环境资产继续进入实际三章规划："+original)
 	var entries:Array=JSON.parse_string(FileAccess.get_file_as_string("res://build-tools/journey/tripo-village-assets.json")).assets
 	for entry in entries:
 		var parts:Array=game.landscape.load_parts("res://"+entry.path)

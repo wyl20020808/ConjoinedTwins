@@ -25,9 +25,12 @@ func review()->void:
 			waits+=1
 			if waits>3000:push_error("场景预热超时");quit(1);return
 			await process_frame
+		game.run.state="running"
 		var before:int=game.run.sync_hash()
 		game.sync_view()
-		for frame in range(45):await process_frame
+		for frame in range(45):
+			# 观察脚本允许切换审查窗口；每帧恢复运行画面，生产失焦暂停逻辑保持不变。
+			game.run.state="running";game.sync_view();await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(output.path_join(spot[2]+".png"))
 		var record:={"name":spot[2],"renderer":RenderingServer.get_current_rendering_method(),"display":DisplayServer.get_name(),"nodes":get_node_count(),"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"triangles":Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),"texture_bytes":Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED),"state_unchanged":before==game.run.sync_hash()}
