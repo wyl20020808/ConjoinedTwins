@@ -26,6 +26,8 @@ const TRIPO_TIMBER := "res://assets/journey/tripo_timber_ram.glb"
 var landscape
 const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
 var atmosphere
+const Fx = preload("res://scripts/journey_fx.gd")
+var fx
 const Buddy=preload("res://scripts/journey_buddy.gd")
 var buddy=Buddy.new()
 var play_mode:="solo"
@@ -132,6 +134,7 @@ func _ready() -> void:
 	camera.look_at(Vector3(0,1.2,-22))
 	camera_home=camera.transform
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
+	fx=Fx.new();add_child(fx)
 	if incremental_loading:
 		set_physics_process(false)
 		set_process_unhandled_key_input(false)
@@ -958,11 +961,15 @@ func sync_view() -> void:
 		shadows[i].position=Vector3(point.x/SCALE,0.02,-point.y/SCALE)
 		shadows[i].scale=Vector3.ONE*(1.0-run.heights[i]/Run.JUMP_APEX*0.35)
 		sync_journey_character(i)
+		# 只在正常行进时出扬尘；救援、失败、暂停与坠落不出。
+		fx.sync_player(i,Vector3(point.x/SCALE,run.floor_heights[i]/SCALE+.05,-point.y/SCALE),run.heights[i],run.state=="running" and not falling(),get_process_delta_time())
 	var path:Array[Vector3]=[]
 	var points:PackedVector2Array=run.rope.physical_path()
 	var zs:PackedFloat32Array=run.rope.physical_heights()
 	for n in range(points.size()): path.append(Vector3(points[n].x/SCALE,zs[n]/SCALE,-points[n].y/SCALE))
-	if path.size()>1: rope_view.simulate(path,0,Color.WHITE,0)
+	if path.size()>1:
+		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time())
+		rope_view.simulate(path,0,Color.WHITE,0)
 	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
@@ -975,6 +982,8 @@ func sync_view() -> void:
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
+	var middle:Vector2=(run.a.position+run.b.position)*.5
+	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight)
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):

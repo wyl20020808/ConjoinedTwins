@@ -201,6 +201,14 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)
+	# 命中火花与倒地尘爆：按模拟命中/击败时间各触发一次，只读状态。
+	var fx=game.get("fx")
+	if fx!=null and event.kind=="monster":
+		var body_height:float=actor.get_meta("figure_height",2.9)
+		if event.get("hit_at",-10.0)>view.get_meta("fx_hit_at",-10.0) and hit_age<.1:
+			view.set_meta("fx_hit_at",event.hit_at);fx.burst("spark",location+Vector3(0,body_height*.6,0))
+		if died and not view.get_meta("fx_dead",false):
+			view.set_meta("fx_dead",true);fx.burst("dust",location+Vector3(0,.1,0))
 	var flashing:bool=hit_age<.09
 	if flashing!=view.get_meta("hit_flash",false):
 		var flash:Material=game.material("enemy_hit_flash",Color("ffe2ad"),.9) if flashing else null
