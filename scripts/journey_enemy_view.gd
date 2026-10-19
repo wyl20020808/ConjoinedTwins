@@ -1,13 +1,15 @@
 extends RefCounted
 
 # 复用场景材质；怪物、血条与反馈都由模拟时间驱动，无逐怪物 _process / Tween。
-# Tripo 文生 3D 静态模型（约 5.7k 三角面、1024 贴图）：[路径, 身高(米)]。原生朝向 +X、脚底在原点。
-# 未列出的原型（冲锋者、狼）仍使用程序几何。
+# Tripo 文生 3D 静态模型（约 5.7k 三角面、1024 贴图）：[路径, 缩放, 实际高度(米)]。
+# 原生最长边为 1、朝向 +X、脚底在原点；人形原生高 1，狼原生高约 0.73。
 const SCANNED := {
-	"briar":["res://assets/monsters/bark_sprite.glb",2.5],
-	"raider":["res://assets/monsters/raider.glb",3.1],
-	"sentinel":["res://assets/monsters/stone_guard.glb",3.7],
-	"archer":["res://assets/monsters/raider_slinger.glb",3.0],
+	"briar":["res://assets/monsters/bark_sprite.glb",2.5,2.5],
+	"raider":["res://assets/monsters/raider.glb",3.1,3.1],
+	"sentinel":["res://assets/monsters/stone_guard.glb",3.7,3.7],
+	"archer":["res://assets/monsters/raider_slinger.glb",3.0,3.0],
+	"dasher":["res://assets/monsters/brute_charger.glb",3.2,3.2],
+	"wolf":["res://assets/monsters/grey_wolf.glb",2.8,2.0],
 }
 
 static func model_path(archetype: String) -> String:
@@ -85,13 +87,12 @@ static func make_monster(game, parent: Node3D, archetype: String) -> Node3D:
 static func make_scanned(parent: Node3D, archetype: String) -> Node3D:
 	var actor := Node3D.new();actor.name="Monster";parent.add_child(actor)
 	var figure:Node3D=load(SCANNED[archetype][0]).instantiate();figure.name="Figure"
-	var height:float=SCANNED[archetype][1]
-	figure.scale=Vector3.ONE*height
+	figure.scale=Vector3.ONE*SCANNED[archetype][1]
 	figure.rotation.y=-PI/2
 	actor.add_child(figure)
 	for limb in ["LeftLeg","RightLeg","LeftArm","RightArm"]:
 		var joint:=Node3D.new();joint.name=limb;actor.add_child(joint)
-	actor.set_meta("figure_height",height)
+	actor.set_meta("figure_height",SCANNED[archetype][2])
 	return actor
 
 # 静态躯干按材质合并，四肢保留独立关节；同类实例共享网格资源。

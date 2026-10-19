@@ -139,9 +139,11 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 | `assets/monsters/raider.glb` | 红头巾棍棒掠袭者 | 5,636 | 264,200 | 803bec2301efda67 | 村庄掠袭者（raider） |
 | `assets/monsters/raider_slinger.glb` | 兜帽投石手 | 5,888 | 297,924 | 010ee68a28c0f001 | 林地弓手（archer） |
 | `assets/monsters/stone_guard.glb` | 苔藓石魔守卫 | 5,930 | 310,716 | b41f35b1fc83c50c | 矿道石卫（sentinel） |
+| `assets/monsters/brute_charger.glb` | 羊角盔重甲持盾冲锋者 | 5,719 | 295,220 | b1707349684d9611 | 破阵冲锋者（dasher） |
+| `assets/monsters/grey_wolf.glb` | 灰鬃狼 | 5,858 | 258,496 | cd58c522691f2639 | 灰鬃狼（wolf），原生高约 0.73，按 2.8 倍缩放 |
 | `assets/landscape/villager_farmer.glb` | 草帽农妇 | 5,936 | 313,060 | 1d31708654b28fa9 | 村庄院落布景 |
 | `assets/landscape/villager_elder.glb` | 拄拐老人 | 5,673 | 278,276 | 111d2c293fa3d370 | 村庄院落布景 |
 | `assets/landscape/villager_blacksmith.glb` | 铁匠 | 5,762 | 274,716 | a708760cfa91cf0f | 村庄院落布景 |
 | `assets/landscape/villager_merchant.glb` | 背货商贩 | 5,654 | 327,176 | cf0a66767a6b1331 | 村庄院落布景 |
 
-Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模型无骨骼与动画：怪物以空关节兼容原同步逻辑，步态改为整体摇摆与蓄力后仰；冲锋者、灰鬃狼仍为程序几何，推车/投石事件的带动画村民 `villager_actions.glb` 保持不变。
+Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模型无骨骼与动画：怪物以空关节兼容原同步逻辑，步态改为整体摇摆与蓄力后仰；六种怪物原型均已改用扫描模型（程序几何仅在资源缺失时兜底），推车/投石事件的带动画村民 `villager_actions.glb` 保持不变。
