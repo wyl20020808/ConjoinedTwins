@@ -179,3 +179,20 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 ### 2026-10-19 Tripo 村庄资源减重
 
 上述 28 件 Tripo 村庄、地表与机关 GLB 中，25 件运行时模型的内嵌贴图由 2048 缩至 1024（`build-tools/shrink_glb.py`，格式与网格不变）。卵石路、石板路、泥地车辙三件只用于烘焙地面纹理，保留 2K 原件并从导出包排除。来源版本与运行时版本的哈希均记录在 `build-tools/journey/tripo-village-assets.json` 与 `tripo-village-expansion-assets.json`。许可同前，仍待按 Tripo 账号套餐确认。
+
+## 2026-10-19 Tripo 主角与动作重定向
+
+两名主角由用户的 Tripo 账号文生 3D 生成（H3.1、T 姿势、2K 贴图、三角面上限 10000），再用 Tripo「人形 / Mixamo」自动绑定。Tripo 不带动画导出的 GLB，蒙皮几乎全部绑在 Hips 上，无法弯曲；因此改在动画页套用「跑步」预设后带骨骼导出，取得正确蒙皮。Tripo 的跑步动画在导入时关闭，不使用。贴图用 `build-tools/shrink_glb.py` 缩到 1024。
+
+| 文件 | 内容 | 三角面 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | ---: | --- | --- |
+| `assets/humans/hero_01.glb` | 青色连帽外套、背包与青色提灯的男冒险者 | 9,509 | 601,224 | 17cb4eec7ba03987 | 01 主角 |
+| `assets/humans/hero_02.glb` | 橙色短斗篷、马尾与橙色提灯的女冒险者 | 9,936 | 615,548 | ee0e12dfbfe8f45d | 02 主角 |
+
+动作仍来自 Quaternius Adventurer（CC0），以及本项目用 Blender 制作的救援攀爬、拉绳动画。
+
+- `build-tools/journey/make_humanoid_bonemaps.gd` 生成 Quaternius 与 Mixamo 两份 Godot 人形骨骼映射。Quaternius 的骨盆动画在 Body 骨上，人形 Hips 因此映射到 Body。
+- 五个 GLB 导入时做重定向，并开启轮廓修正，统一为 T 姿势静止姿态。
+- Adventurer_A 只作动画来源；Adventurer_B 不再加载，文件保留。
+
+许可同前，Tripo 部分待按账号套餐确认。

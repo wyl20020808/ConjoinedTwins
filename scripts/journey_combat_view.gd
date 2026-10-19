@@ -107,7 +107,7 @@ func sync() -> void:
 		var hand: Vector3=game.hand_point(role)
 		var skeleton: Skeleton3D=game.hand_skeletons.get(role)
 		if is_instance_valid(skeleton):
-			var wrist := skeleton.find_bone("Wrist.R")
+			var wrist:int=game.find_bone(skeleton,"RightHand","Wrist.R")
 			if wrist>=0: hand=skeleton.global_transform*skeleton.get_bone_global_pose(wrist).origin
 		guns[role].global_position=hand
 		var target := hand+Vector3(0,0,-5)
@@ -165,9 +165,10 @@ func apply_reload(gun:Node3D,remaining:int)->void:
 # 仅覆盖双臂：双腿继续使用走跑/跳跃动画，不增设动画状态机。
 # 两段骨骼解析到达枪握把与弹匣；每次先清除覆盖，避免累计旋转。
 func reach_hand(skeleton:Skeleton3D,side:String,target_world:Vector3)->void:
-	var upper:=skeleton.find_bone("UpperArm."+side)
-	var lower:=skeleton.find_bone("LowerArm."+side)
-	var wrist:=skeleton.find_bone("Wrist."+side)
+	var prefix:="Left" if side=="L" else "Right"
+	var upper:int=game.find_bone(skeleton,prefix+"UpperArm","UpperArm."+side)
+	var lower:int=game.find_bone(skeleton,prefix+"LowerArm","LowerArm."+side)
+	var wrist:int=game.find_bone(skeleton,prefix+"Hand","Wrist."+side)
 	if upper<0 or lower<0 or wrist<0:return
 	skeleton.force_update_all_bone_transforms()
 	var a:=skeleton.get_bone_global_pose(upper)

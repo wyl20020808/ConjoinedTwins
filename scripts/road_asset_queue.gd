@@ -67,7 +67,8 @@ static func startup_paths() -> Array:
 			if ResourceLoader.exists(path): paths.append(path)
 	if not OS.has_feature("web"):
 		for name in ["Pine", "Bush", "TallGrass", "Column"]: paths.append("res://assets/decor/%s.glb" % name)
-	for name in ["Adventurer_A", "Adventurer_B", "rescue_climb", "rescue_ropepull"]: paths.append("res://assets/humans/%s.glb" % name)
+	# Adventurer_A 只作动画来源；主角模型为 Tripo 生成的 hero_01/02。
+	for name in ["hero_01", "hero_02", "Adventurer_A", "rescue_climb", "rescue_ropepull"]: paths.append("res://assets/humans/%s.glb" % name)
 	for name in ["sign", "gate"]: paths.append("res://assets/journey/%s.glb" % name)
 	return paths
 static func hazard_paths(kinds: Array) -> Array:

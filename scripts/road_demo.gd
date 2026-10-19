@@ -267,6 +267,25 @@ func model_bounds(root: Node3D, node: Node) -> AABB:
 	return bounds
 
 # Blender 生成的救援动作（tools/blender/make_rescue_anims.py）：与冒险者共用骨架路径。
+# Tripo 生成的两名主角（Mixamo 骨架），动作沿用 Adventurer 与救援动画：
+# 导入时两边都映射到 Godot 人形骨骼并修正为 T 姿势，动画轨道统一为 %GeneralSkeleton:<人形骨骼名>。
+const HERO_MODELS := ["res://assets/humans/hero_01.glb", "res://assets/humans/hero_02.glb"]
+const ANIMATION_SOURCE := "res://assets/humans/Adventurer_A.glb"
+var hero_library: AnimationLibrary
+
+func hero_animation_library() -> AnimationLibrary:
+	if hero_library == null:
+		var source: Node = load(ANIMATION_SOURCE).instantiate()
+		var players: Array = source.find_children("*", "AnimationPlayer", true, false)
+		hero_library = players[0].get_animation_library("").duplicate() if not players.is_empty() else AnimationLibrary.new()
+		source.free()
+	return hero_library
+
+# 人形骨骼名优先，旧 Quaternius 名作后备。
+static func find_bone(skeleton: Skeleton3D, humanoid: String, legacy: String) -> int:
+	var bone := skeleton.find_bone(humanoid)
+	return bone if bone >= 0 else skeleton.find_bone(legacy)
+
 const RESCUE_CLIPS := {"RopePull": "res://assets/humans/rescue_ropepull.glb", "Climb": "res://assets/humans/rescue_climb.glb"}
 var rescue_clips := {}
 
@@ -299,8 +318,8 @@ func hand_point(i: int) -> Vector3:
 	if skeleton == null or not is_instance_valid(skeleton): return fallback
 	var sum := Vector3.ZERO
 	var count := 0
-	for bone_name in ["Wrist.L", "Wrist.R"]:
-		var bone := skeleton.find_bone(bone_name)
+	for names in [["LeftHand", "Wrist.L"], ["RightHand", "Wrist.R"]]:
+		var bone := find_bone(skeleton, names[0], names[1])
 		if bone >= 0:
 			sum += skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
 			count += 1
@@ -1165,7 +1184,14 @@ func build_robots() -> void:
 		var robot := Node3D.new()
 		add_child(robot)
 		robots.append(robot)
-		var character := model("res://assets/humans/%s.glb" % ["Adventurer_A", "Adventurer_B"][index], robot, Vector3.ZERO, 3.8, PI)
+		# Tripo 导出的 Armature 与 Adventurer 原生朝向相反，这里不再额外转半圈，角色仍背对镜头。
+		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.8, 0.0)
+		if animation_player(character) == null:
+			var player := AnimationPlayer.new()
+			player.name = "AnimationPlayer"
+			character.add_child(player)
+			player.root_node = NodePath("..")
+			player.add_animation_library("", hero_animation_library())
 		register_animation(character)
 		ground_character(character)
 		# 识别灯保持两人辨识度；阴影固定在地面，角色独立腾空。
