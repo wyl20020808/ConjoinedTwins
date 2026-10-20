@@ -80,6 +80,7 @@ func road_material(chapter:int,theme:String,continuous:bool)->ShaderMaterial:
 		var mat:ShaderMaterial=terrain.duplicate()
 		mat.set_shader_parameter("chapter",chapter)
 		mat.set_shader_parameter("road_region",2 if theme=="village" else (1 if theme in ["forest","farm","meadow"] else 0))
+		mat.set_shader_parameter("night",1 if chapter==2 and theme in ["mine","ruins","facility"] else 0)
 		road_materials[key]=mat
 	return road_materials[key]
 

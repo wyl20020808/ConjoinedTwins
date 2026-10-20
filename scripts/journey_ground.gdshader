@@ -16,6 +16,7 @@ uniform sampler2D mud_detail : filter_linear_mipmap_anisotropic;
 uniform sampler2D road_macro : filter_linear_mipmap, repeat_enable;
 uniform int chapter=0;
 uniform int road_region=-1;
+uniform int night=0;
 varying vec3 world;
 void vertex(){world=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;}
 float noise2(vec2 p){return sin(p.x*.27+sin(p.y*.18))*sin(p.y*.11+p.x*.13)*.5+.5;}
@@ -75,10 +76,26 @@ void fragment(){
  ROUGHNESS=mix(ROUGHNESS,.72,lane*.35);
  // 水洼压暗、降粗糙度并压平法线，给路面一点雨后的反光层次。
  float puddle=wet*(1.0-outside);
+ // 第三章夜间：积水范围扩大，路面去饱和压暗，火把与月光在水面上反光。
+ if(night==1){
+  puddle=max(puddle,smoothstep(.05,.62,macro.b)*(1.0-outside));
+  ALBEDO=mix(ALBEDO,vec3(dot(ALBEDO,vec3(.299,.587,.114))),.35)*.8;
+ }
  ALBEDO=mix(ALBEDO,ALBEDO*vec3(.62,.64,.68),puddle*.85);
  ROUGHNESS=mix(ROUGHNESS,.30,puddle*.8);
+ // 两条矿车轨道（轨距 1.1 米）贯穿第三章路面：钢轨金属反光，枕木压暗。只是表现层。
+ float rail=0.0;
+ if(night==1){
+  float track=abs(abs(world.x)-7.2);
+  rail=(1.0-smoothstep(.025,.05,abs(track-.55)))*(1.0-outside);
+  float tie=(1.0-smoothstep(.75,.8,track))*step(fract(meters/.82),.3)*(1.0-rail)*(1.0-outside);
+  ALBEDO=mix(ALBEDO,vec3(.20,.15,.11),tie*.85);
+  ALBEDO=mix(ALBEDO,vec3(.34,.32,.31),rail);
+  ROUGHNESS=mix(ROUGHNESS,.42,rail);
+  METALLIC=rail*.55;
+ }
  AO=1.0-tracks*.08-puddle*.12;
- vec2 slopes=detail.rg*.7*(1.0-verge*.6);
+ vec2 slopes=detail.rg*.7*(1.0-verge*.6)*(1.0-rail);
  vec3 n=normalize(vec3(slopes.x,sqrt(max(.1,1.0-dot(slopes,slopes))),slopes.y));
  vec3 terrain_detail=mix(texture(stone_normal,world.xz*.22,1.0).rgb,texture(soil_normal,world.xz*.22,1.5).rgb,land);
  vec3 terrain_n=normalize(vec3((terrain_detail.r-.5)*.35,1.0,(terrain_detail.g-.5)*.35));

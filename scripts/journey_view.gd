@@ -372,6 +372,65 @@ func add_lamp(parent: Node3D,pos: Vector3,kind: String) -> void:
 	if torch:
 		var lights:Array=parent.get_meta("flicker_lights",[]);lights.append(light);parent.set_meta("flicker_lights",lights)
 
+const CRYSTAL_COLORS:=[Color("6fe9ff"),Color("b48cff"),Color("7dffc4")]
+func add_crystals(parent: Node3D,pos: Vector3,seed_value: int) -> void:
+	# 路缘外的一簇发光矿晶：六棱锥，HDR 自发光晕开，配一盏不投影的小灯。只作展示。
+	var rng:=RandomNumberGenerator.new();rng.seed=seed_value*977+int(pos.z)
+	var tint:Color=CRYSTAL_COLORS[seed_value%CRYSTAL_COLORS.size()]
+	var root:=Node3D.new();root.name="Crystals";root.position=pos;parent.add_child(root)
+	var glow:=material("crystal_%s"%tint.to_html(false),tint.darkened(.35),5.0)
+	glow.emission=tint;glow.roughness=.15;glow.metallic_specular=.9
+	for n in range(rng.randi_range(4,7)):
+		var shard:=MeshInstance3D.new();var cone:=CylinderMesh.new()
+		cone.top_radius=0.0;cone.bottom_radius=rng.randf_range(.12,.26);cone.height=rng.randf_range(.6,1.7)
+		cone.radial_segments=6;cone.rings=1
+		shard.mesh=cone;shard.material_override=glow
+		shard.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		shard.position=Vector3(rng.randf_range(-.5,.5),cone.height*.42,rng.randf_range(-.6,.6))
+		shard.rotation=Vector3(rng.randf_range(-.45,.45),rng.randf()*TAU,rng.randf_range(-.45,.45))
+		root.add_child(shard)
+	var light:=OmniLight3D.new()
+	light.position=Vector3(0,1.0,0);light.light_color=tint
+	light.light_energy=2.2;light.omni_range=7.0;light.omni_attenuation=1.5
+	light.shadow_enabled=false;light.light_volumetric_fog_energy=1.8
+	light.distance_fade_enabled=true;light.distance_fade_begin=70.0;light.distance_fade_length=20.0
+	root.add_child(light)
+
+func light_building(chunk: Node3D,building: Node3D,side: float) -> void:
+	# 夜间厂房：朝路一面加两排窗灯（冷白为主、少量暖黄、部分熄灭），屋顶一盏红色航空信标。
+	var bounds:=model_bounds(chunk,building)
+	if bounds.size==Vector3.ZERO:return
+	var face_x:=bounds.position.x-.05 if side>0 else bounds.end.x+.05
+	var rng:=RandomNumberGenerator.new();rng.seed=int(bounds.position.z*13.0)
+	var cool:=material("window_cool",Color("1c2a33"),2.0);cool.emission=Color("a9d6ff")
+	var warm:=material("window_warm",Color("332616"),2.2);warm.emission=Color("ffc07a")
+	var columns:=maxi(3,int(bounds.size.z/2.4))
+	for row in range(2):
+		for column in range(columns):
+			if rng.randf()<.4:continue
+			var z:=bounds.position.z+(column+.5)*bounds.size.z/columns
+			var y:=bounds.position.y+bounds.size.y*(.28+row*.3)
+			var pane:=box(chunk,Vector3(face_x,y,z),Vector3(.06,bounds.size.y*.08,bounds.size.z/columns*.4),warm if rng.randf()<.22 else cool)
+			pane.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var beacon_pos:=Vector3(bounds.get_center().x,bounds.end.y+.25,bounds.get_center().z)
+	var beacon:=MeshInstance3D.new();var orb:=SphereMesh.new();orb.radius=.22;orb.height=.44;orb.radial_segments=8;orb.rings=4
+	beacon.mesh=orb;beacon.position=beacon_pos;beacon.material_override=material("beacon_red",Color("ff2a1a"),8.0)
+	beacon.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	chunk.add_child(beacon)
+	var light:=OmniLight3D.new();light.position=beacon_pos;light.light_color=Color("ff3020")
+	light.omni_range=6.0;light.light_energy=1.6;light.shadow_enabled=false;light.light_volumetric_fog_energy=2.0
+	light.distance_fade_enabled=true;light.distance_fade_begin=90.0;light.distance_fade_length=20.0
+	chunk.add_child(light)
+	var beacons:Array=chunk.get_meta("beacons",[]);beacons.append([beacon,light,rng.randf()]);chunk.set_meta("beacons",beacons)
+	# 路侧一盏冷白泛光灯打在墙面上，给厂房一个可读的轮廓。
+	var flood:=SpotLight3D.new()
+	flood.position=Vector3(face_x-side*3.5,.6,bounds.get_center().z)
+	flood.light_color=Color("cfe2ff");flood.light_energy=3.0;flood.spot_range=16.0;flood.spot_angle=38.0
+	flood.shadow_enabled=false;flood.light_volumetric_fog_energy=1.2
+	flood.distance_fade_enabled=true;flood.distance_fade_begin=80.0;flood.distance_fade_length=20.0
+	chunk.add_child(flood)
+	flood.look_at(Vector3(face_x,bounds.position.y+bounds.size.y*.65,bounds.get_center().z),Vector3.UP)
+
 func add_sign(parent: Node3D,text: String,position: Vector3,size: int=32) -> Label3D:
 	var sign:=Label3D.new()
 	sign.text=text
@@ -422,6 +481,8 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 			rock(chunk,mesh,cliff,item[1],item[2],item[4])
 		"land":
 			var surface:Material=landscape.terrain if item[3] in ["village","farm"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			# 矿道与设施两侧原是纯色平面，夜里像一片灰板；改为碎石岩面。
+			if item[3] in ["mine","ruins","facility"]:surface=tex_material("night_gravel","rock_boulder_dry",.22,Color("6e675f"))
 			box(chunk,item[1],item[2],surface)
 		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
 		"model":
@@ -429,9 +490,14 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 			if item.size()>6 and node:
 				node.set_meta("wind",item[6])
 				var moving:Array=chunk.get_meta("wind_nodes",[]);moving.append(node);chunk.set_meta("wind_nodes",moving)
-		"rock": rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),ground_material("ruins"),item[2],item[3])
+		"rock":
+			# 原用铺地石材质，大石块上出现方砖纹；改为三平面岩面。每三块配一簇发光矿晶。
+			rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),tex_material("mine_rock","rock_face_03",.16,Color("958a80")),item[2],item[3])
+			if run.level_index==2 and item[1]%3==0:add_crystals(chunk,Vector3(signf(item[2].x)*17.9,0,item[2].z),item[1])
 		"asset": asset(chunk,item[1],item[2],item[3],item[4])
-		"building": model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+		"building":
+			var building:=model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+			if run.level_index==2:light_building(chunk,building,signf(item[1].x))
 		"lamp": add_lamp(chunk,item[1],item[2])
 		"farm": box(chunk,item[1],Vector3(12,0.1,1.2),material("farmland",Color("51412c")))
 		"sign": add_sign(chunk,item[1],item[2],38)
@@ -1231,6 +1297,9 @@ func sync_view() -> void:
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
 			node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
+		for entry in chunk.get_meta("beacons",[]):
+			var on:bool=fmod(run.elapsed*.8+float(entry[2]),1.0)<.18
+			entry[0].visible=on;entry[1].visible=on
 		for light:OmniLight3D in chunk.get_meta("flicker_lights",[]):
 			var seed:float=light.get_meta("flicker")
 			light.light_energy=4.2*lamp*(0.86+0.1*sin(run.elapsed*13.0+seed)+0.06*sin(run.elapsed*29.0+seed*2.3))
