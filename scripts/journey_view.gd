@@ -44,7 +44,9 @@ const JUMP_BAR_RADIUS := 1.6
 var landscape
 const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
 const HazardFx = preload("res://scripts/journey_hazard_fx.gd")
+const CoopFx = preload("res://scripts/journey_coop_fx.gd")
 var hazard_fx
+var coop_fx
 var atmosphere
 const Fx = preload("res://scripts/journey_fx.gd")
 var fx
@@ -173,6 +175,7 @@ func _ready() -> void:
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
 	fx=Fx.new();add_child(fx)
 	hazard_fx=HazardFx.new(self,fx);add_child(hazard_fx)
+	coop_fx=CoopFx.new(self,fx,hazard_fx);add_child(coop_fx)
 	if incremental_loading:
 		set_physics_process(false)
 		set_process_unhandled_key_input(false)
@@ -1322,6 +1325,7 @@ func sync_view() -> void:
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
 	if path.size()>1:sync_rescue_hands(path)
+	if coop_fx:coop_fx.sync(path)
 	update_journey_ui()
 	publish_web_verification()
 

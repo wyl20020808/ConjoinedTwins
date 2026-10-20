@@ -104,6 +104,7 @@ func sync() -> void:
 			var fx=game.get("fx")
 			if fx!=null and is_instance_valid(collected) and collected.visible and collected.global_position.distance_to(game.robots[0].global_position)<60.0:
 				fx.burst("spark",collected.global_position+Vector3(0,0.4,0))
+				if game.get("coop_fx")!=null:game.coop_fx.pickup(collected.global_position)
 			collected.queue_free()
 			pickup_views.erase(id)
 	for pickup in nearby.values():
