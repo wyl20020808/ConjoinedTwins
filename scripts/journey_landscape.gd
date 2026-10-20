@@ -405,6 +405,18 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			var size:=house.basis.get_scale().x
 			var side:=signf(house.origin.x)
 			add_instance(batches,"detail_porch",house.origin+Vector3(-side*3.6*size,0,0),.85*size,-side*PI/2)
+	# 地标：每三到四个区块一座，放在第二排或路侧，远看有明确剪影；纯展示，不参与物理。
+	var landmark_middle:=start+40
+	var landmark_region:=profile(landmark_middle,chapter)
+	if not village_only:
+		if chapter==0 and landmark_region.z>.55 and posmod(number,3)==1:
+			var tower_x:=38.0
+			add_instance(batches,"landmark_watchtower",Vector3(tower_x,height_at(tower_x,landmark_middle,chapter),-landmark_middle),22.0,-PI/2)
+		elif chapter==2 and posmod(number,3)==1:
+			add_instance(batches,"landmark_headframe",Vector3(-36,0,-landmark_middle),16.0,PI/2)
+		if posmod(number,4)==3:
+			var shrine_x:=17.8
+			add_instance(batches,"landmark_shrine",Vector3(shrine_x,height_at(shrine_x,landmark_middle,chapter) if chapter==0 else 0.0,-landmark_middle),3.0,-PI/2)
 	# 接触暗部使用低成本透明网格，不恢复 Web 端整片树林的动态阴影。
 	for kind in batches.keys():
 		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks","tripo_road_edge","tripo_stump"] and kind not in VILLAGERS and kind not in TRIPO_HOUSES:continue

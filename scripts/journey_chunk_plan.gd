@@ -40,6 +40,12 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 		preload("res://scripts/journey_landscape.gd").add_instance(dressing,"tripo_riverside_house",Vector3(-28,0,-start-40),1,PI/2)
 	if village:
 		preload("res://scripts/journey_landscape.gd").decorate(dressing,number,level,true)
+	# 第二、三章不走 landscape.decorate，地标在这里直接挂到区块布景。
+	var LM=preload("res://scripts/journey_landscape.gd")
+	if level==2 and posmod(number,3)==1:
+		LM.add_instance(dressing,"landmark_headframe",Vector3(-19.5,0,-start-40),18.0,PI/2)
+	if level>0 and posmod(number,4)==3:
+		LM.add_instance(dressing,"landmark_shrine",Vector3(17.8,0,-start-40),3.0,-PI/2)
 	for kind in dressing:items.append(["landscape_batch",kind,dressing[kind]])
 	var zone_length: float = chapter.length/6.0
 	for zone in range(6):

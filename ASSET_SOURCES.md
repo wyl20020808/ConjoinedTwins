@@ -228,3 +228,15 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 | `assets/mechanisms/barrel.glb` | 铁箍木桶（上一轮生成，此次找回） | 264,400 | 596563c295dac6bc | 横滚木桶 `barrel` |
 
 摆锤吊架与石阶块也已生成但未入库（前者外形不合格，后者需与碰撞台阶严格吻合）。许可同前，待按 Tripo 账号套餐确认。
+
+## 2026-10-19 Tripo 文生地标（第五刀）
+
+用户在自己的 Tripo Studio 国际版账号中生产。Agent 在用户已登录的 Chrome for Testing 窗口内批量提交文生 3D 任务（H3.1 最高质量，30 积分/次），随后对每件模型做一次纹理生成（2K，30 积分/次）。导出 GLB 后用 `build-tools/journey/process_tripo_landmark.py` 在 Blender 5.2 后台减面，并把内嵌 8192 baseColor 缩到 1024。
+
+| 运行时文件 | 三角面 | 大小 | 提示词摘要 | 实际使用位置 |
+| --- | --- | --- | --- | --- |
+| `assets/landscape/landmark_watchtower.glb` | 45,000 | 3.2 MB | tall medieval stone watchtower, wooden balcony, conical shingle roof, red banner | 第一章村庄段 x=38 米，缩放 22 |
+| `assets/landscape/landmark_headframe.glb` | 45,000 | 3.4 MB | wooden mine headframe, timber A-frame, iron pulley wheel, weathered planks | 第三章矿道 x=-19.5 米，缩放 18 |
+| `assets/landscape/landmark_shrine.glb` | 25,000 | 2.5 MB | small medieval roadside stone shrine, wooden roof, glowing lantern | 全章路侧 x=17.8 米，缩放 3 |
+
+另生成但未接入：廊桥（缺少水面支撑）、橡树（纹理生成无贴图且下载截断）。原始导出与提示词保存工程外，不入库。许可同前：Tripo 生成内容的授权取决于账号套餐（免费套餐通常为公开且需署名，付费套餐归用户所有），正式发布前须由用户在账号中确认并按需补充署名。
