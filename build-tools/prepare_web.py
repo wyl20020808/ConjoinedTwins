@@ -96,6 +96,12 @@ def export(engine):
             compressed = gzip.compress(path.read_bytes(), compresslevel=6, mtime=0)
             path.with_name(name + ".gz").write_bytes(compressed)
             print(f"Precompressed {name}: {path.stat().st_size} -> {len(compressed)} bytes", flush=True)
+            # brotli 比 gzip 再小约 20%，所有主流浏览器（含 iOS Safari）均支持；本机没有 brotli 命令时跳过。
+            brotli = shutil.which("brotli")
+            if brotli:
+                target = path.with_name(name + ".br")
+                subprocess.run([brotli, "-q", "11", "-w", "22", "-f", "-o", str(target), str(path)], check=True)
+                print(f"Precompressed {name}: {path.stat().st_size} -> {target.stat().st_size} bytes (brotli)", flush=True)
     print(f"export exit={code}, files={files}, evidence={evidence}", flush=True)
     return code == 0 and required.issubset(files)
 
