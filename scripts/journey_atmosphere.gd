@@ -26,12 +26,12 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	build_horizon(parent)
 	if not enabled:return
 	env.tonemap_mode=Environment.TONE_MAPPER_AGX
-	env.tonemap_exposure=1.05
+	env.tonemap_exposure=1.0
 	# 环境光改由天空提供，阴影面带晚霞色而不是统一灰蓝；保留少量固定色避免森林里发黑。
 	env.ambient_light_source=Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_sky_contribution=0.7
 	env.ssao_enabled=true
-	env.ssao_radius=1.4;env.ssao_intensity=2.2;env.ssao_power=1.6
+	env.ssao_radius=1.4;env.ssao_intensity=2.6;env.ssao_power=1.6
 	env.ssao_detail=0.6;env.ssao_light_affect=0.25
 	env.ssil_enabled=true
 	env.ssil_radius=4.0;env.ssil_intensity=0.7
@@ -40,14 +40,14 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	env.glow_hdr_threshold=1.1
 	env.glow_blend_mode=Environment.GLOW_BLEND_MODE_SOFTLIGHT
 	# 远处雾色取自同方向天空，地平线与晚霞自然衔接。
-	env.fog_aerial_perspective=0.75
+	env.fog_aerial_perspective=0.6
 	env.volumetric_fog_enabled=true
 	env.volumetric_fog_length=96.0
 	env.volumetric_fog_anisotropy=0.55
 	env.volumetric_fog_ambient_inject=0.15
 	env.volumetric_fog_sky_affect=0.0
 	env.adjustment_enabled=true
-	env.adjustment_contrast=1.12;env.adjustment_saturation=1.12
+	env.adjustment_contrast=1.18;env.adjustment_saturation=1.16
 	# 软化用固定模糊而非 PCSS 角直径，避免影子边缘出现采样颗粒。
 	sun.light_volumetric_fog_energy=1.4
 	sun.shadow_blur=1.8
@@ -127,5 +127,5 @@ func sync(camera:Camera3D,meters:float,chapter:int,forest_weight:float) -> void:
 	near_ridge.albedo_color=Color("6f6f82").lerp(Color("8a8299"),cliff).lerp(haze,forest_weight*0.8)
 	far_ridge.albedo_color=Color("9b95ad").lerp(Color("b3a9bb"),cliff).lerp(haze,forest_weight*0.9)
 	if not enabled:return
-	env.volumetric_fog_density=lerpf(0.0012,0.0035,forest_weight)
+	env.volumetric_fog_density=lerpf(0.0008,0.0022,forest_weight)
 	env.volumetric_fog_albedo=Color("f2dfc4").lerp(Color("e4e8e0"),forest_weight)

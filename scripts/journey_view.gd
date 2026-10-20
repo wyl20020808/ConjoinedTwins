@@ -148,8 +148,11 @@ func _ready() -> void:
 	canopy_light.rotation_degrees=Vector3(-48,120,0)
 	canopy_light.light_color=Color("fff1d4")
 	canopy_light.light_energy=1.8
-	camera.position=Vector3(0,11.5,22)
-	camera.look_at(Vector3(0,1.2,-22))
+	# 镜头比旧版更近更低：角色在画面中约占八分之一高，空路面减少；
+	# FOV 收窄到 57°，保持固定朝向、不旋转不晃动。
+	camera.position=Vector3(0,9.6,18)
+	camera.look_at(Vector3(0,1.4,-22))
+	camera.fov=57
 	camera_home=camera.transform
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
 	fx=Fx.new();add_child(fx)
@@ -1022,7 +1025,8 @@ func sync_view() -> void:
 	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)*(Atmosphere.SUN_SCALE if atmosphere.enabled else 1.0)
 	canopy_light.light_color=Color("ffe2bd").lerp(Color("e7edce"),forest_weight)
 	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)*(Atmosphere.AMBIENT_SCALE if atmosphere.enabled else 1.0)
-	world_environment.fog_density=lerpf(0.0032,0.0065,forest_weight)
+	# 旧值 0.0032/0.0065 让中景整片发灰；保留空气透视但把层次还给模型和阴影。
+	world_environment.fog_density=lerpf(0.0021,0.0042,forest_weight)
 	world_environment.fog_sky_affect=forest_weight*.85
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
@@ -1478,6 +1482,7 @@ func sync_static_hazard(i: int) -> void:
 		static_views[i]=quiet_world_text(view)
 	static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 	static_views[i].visible=model_visible(rect.get_center().y)
+	if kind=="color_gate":fade_passed_color_gate(static_views[i],rect.get_center().y)
 	if kind=="collapse":static_views[i].visible=static_views[i].visible and run.hazard_sample(i,run.elapsed).stage!="collapsed"
 	if kind=="jump_bar":sync_jump_bar(static_views[i],i)
 	if kind=="active_spikes":
@@ -1592,6 +1597,21 @@ func build_color_gate(view:Node3D,rect:Rect2,role:int)->void:
 	var lane:=box(view,Vector3(0,.025,1.6),Vector3(rect.size.x/SCALE*.8,.02,3.2),material("color_lane_%d"%role,Color(color.r,color.g,color.b,.5),.6))
 	lane.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	add_sign(view,"01" if role==0 else "02",Vector3(0,5.8,0),40).modulate=color
+
+# 角色通过水晶门后，拱门正落在镜头下缘，会挡住前路并和角色头顶的 01/02 重复。
+# 按落后距离让整座门（含标签）逐渐淡出，最后直接隐藏；碰撞与判定完全不变。
+func fade_passed_color_gate(view:Node3D,y:float)->void:
+	var behind: float = run.distance-y
+	var fade: float = clampf((behind-40.0)/180.0,0.0,1.0)
+	view.visible=view.visible and fade<0.99
+	if not view.visible:return
+	for node in view.find_children("*","GeometryInstance3D",true,false):
+		if node is Label3D:
+			var base:Color=node.get_meta("look_base_modulate",node.modulate)
+			node.set_meta("look_base_modulate",base)
+			node.modulate=Color(base.r,base.g,base.b,base.a*(1.0-fade))
+		else:
+			(node as GeometryInstance3D).transparency=fade
 
 # 升降平台：木板拼的台面换成带护栏的木质升降台模型，挂在随模拟升降的 TerrainDeck 下。
 func build_terrain_model(view:Node3D,index:int)->void:

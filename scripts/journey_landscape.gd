@@ -121,8 +121,18 @@ static func surface_plan(pieces:Array,number:int,chapter:int,theme:String,gaps:A
 			add_instance(batches,border,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1,PI/2 if border=="tripo_stone_road_curb" else 0.0)
 			if row%2==0 and p.y>.25:
 				var litter_x:=side*12.5
-				var litter_foot:=Rect2(Vector2(litter_x-1.25,meters-1.25)*20,Vector2(2.5,2.5)*20)
-				if contained(pieces,litter_foot):add_instance(batches,"tripo_leaf_litter_patch",Vector3(litter_x,.025,-meters),1,0)
+				# 同一模型原本每 8 米完全复制一次；用坐标散列打散间距、朝向和大小，
+				# 降低“环形落叶堆等距排队”的重复感，不改变道路、碰撞和缺口。
+				var litter_seed:=meters*7.31+side*13.7
+				var roll:=fposmod(sin(litter_seed)*43758.5453,1.0)
+				var yaw:=(roll-0.5)*0.7
+				var litter_scale:=0.78+roll*0.22
+				var offset_x:=side*(roll-0.5)*0.4
+				var offset_z:=(fposmod(sin(litter_seed*2.3)*56445.234,1.0)-0.5)*1.0
+				# 安全切片按实际网格外接盒判断：4 米见方的检查框覆盖旋转、缩放与偏移后的最大范围。
+				var litter_foot:=Rect2(Vector2(litter_x+offset_x-2.4,meters-offset_z-2.4)*20,Vector2(4.8,4.8)*20)
+				if roll>0.22 and contained(pieces,litter_foot):
+					add_instance(batches,"tripo_leaf_litter_patch",Vector3(litter_x+offset_x,.025,-meters+offset_z),litter_scale,yaw)
 			if row%2==0 and p.x>.5:
 				add_instance(batches,"tripo_layered_cliff_face",Vector3(side*17.5,-.08,-meters),1,side*PI/2)
 	# 坑沿最高点低于站立平面，仅在缺口两端下方露出破损侧壁。
