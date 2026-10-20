@@ -1,6 +1,6 @@
 # 画面质感第六刀：角色动态、命中与界面选中态
 
-日期：2026-10-19。分支：`art/lookdev-feel`（从第五刀 `art/lookdev-landmarks@9d673e8` 继续）。
+日期：2026-10-19。分支：`art/lookdev-feel`（从第五刀 `art/lookdev-landmarks@9d673e8` 继续；第一轮收尾时随 P1–P6 一起合入 `test`）。
 
 ## 问题
 

@@ -1,6 +1,6 @@
 # 画面质感第五刀：Tripo 地标与村庄剪影
 
-日期：2026-10-19。分支：`art/lookdev-landmarks`（从第四刀 `art/lookdev-ui@46a1d03` 继续，前四刀尚未合入 `test`）。
+日期：2026-10-19。分支：`art/lookdev-landmarks`（从第四刀 `art/lookdev-ui@46a1d03` 继续；第一轮收尾时随 P1–P6 一起合入 `test`）。
 
 ## 问题
 
