@@ -3,23 +3,25 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ybi4gml6g55j"
-path="res://.godot/imported/flagstone_road_panel_normal_rough.png-77ce164fb0f97b10437fa5b4245339e3.ctex"
+path.s3tc="res://.godot/imported/flagstone_road_panel_normal_rough.png-77ce164fb0f97b10437fa5b4245339e3.s3tc.ctex"
+path.etc2="res://.godot/imported/flagstone_road_panel_normal_rough.png-77ce164fb0f97b10437fa5b4245339e3.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/landscape/ground/flagstone_road_panel_normal_rough.png"
-dest_files=["res://.godot/imported/flagstone_road_panel_normal_rough.png-77ce164fb0f97b10437fa5b4245339e3.ctex"]
+dest_files=["res://.godot/imported/flagstone_road_panel_normal_rough.png-77ce164fb0f97b10437fa5b4245339e3.s3tc.ctex", "res://.godot/imported/flagstone_road_panel_normal_rough.png-77ce164fb0f97b10437fa5b4245339e3.etc2.ctex"]
 
 [params]
 
-compress/mode=4
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=2.0
+compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

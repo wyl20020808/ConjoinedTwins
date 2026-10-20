@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ccub84u4gbdsw"
-path="res://.godot/imported/Eagle_Flying_Tex_Eagle.png-191e8695cfbe3400aaca1d992d624a46.ctex"
+path.s3tc="res://.godot/imported/Eagle_Flying_Tex_Eagle.png-191e8695cfbe3400aaca1d992d624a46.s3tc.ctex"
+path.etc2="res://.godot/imported/Eagle_Flying_Tex_Eagle.png-191e8695cfbe3400aaca1d992d624a46.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "caf78a8119b1267b3488c8e61af0c727"
@@ -14,15 +16,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/props/Eagle_Flying_Tex_Eagle.png"
-dest_files=["res://.godot/imported/Eagle_Flying_Tex_Eagle.png-191e8695cfbe3400aaca1d992d624a46.ctex"]
+dest_files=["res://.godot/imported/Eagle_Flying_Tex_Eagle.png-191e8695cfbe3400aaca1d992d624a46.s3tc.ctex", "res://.godot/imported/Eagle_Flying_Tex_Eagle.png-191e8695cfbe3400aaca1d992d624a46.etc2.ctex"]
 
 [params]
 
-compress/mode=4
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=2.0
+compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

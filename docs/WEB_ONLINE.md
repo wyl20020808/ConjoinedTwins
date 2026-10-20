@@ -51,12 +51,12 @@ python3 build-tools/prepare_web.py --engine /Applications/Godot.app/Contents/Mac
 
 ### 网页包体积（2026-10-20）
 
-网页版会把整个 `index.pck` 下载并读进内存，PCK 体积直接决定首访等待和手机内存。e74af86 的 PCK 为 187 MB（brotli 147 MB），瘦身后约 59 MB（brotli 54 MB）。做法：
+网页版会把整个 `index.pck` 下载并读进内存，PCK 体积直接决定首访等待和手机内存。用户要求压缩不能降低画面质量，因此默认只做不改变画面的处理（e74af86 的 187 MB → 约 160 MB，brotli 147 MB → 135 MB）：
 
-- Tripo 模型（`gltf/embedded_image_handling=2` 的 28 件）导入时经 `build-tools/journey/tripo_texture_budget.gd` 把嵌入贴图缩到基础色 512、法线/粗糙度 256，仍为 Basis Universal 显存压缩；同时关闭这些模型的 shadow mesh。每件 .scn 从约 3 MB 降到约 0.6 MB。
-- 原来按无损存储的 Tripo 外置贴图（怪物、村民、机关、地标、主角）改为有损 WebP（质量 0.8），GPU 中仍是同样的未压缩纹理，只是下载变小。
-- 原来同时导出 S3TC 与 ETC2 两份的显存压缩贴图（地面、岩石、树皮等）改为 Basis Universal（RDO 2.0），只存一份，运行时按 GPU 转码。
-- Web 预设额外排除确认不会加载的资源：未绑骨的怪物/村民原件（运行时只用 `rigged/`）、未引用的鹰与鸟模型、`Adventurer_B`、只被旧白盒 `build_road()` 使用的 DeadTree。
+- Web 预设排除确认运行时不加载的资源：未绑骨的怪物/村民原件（运行时只用 `rigged/`，原件与 rigged 各导入一份同样的贴图）、未引用的鹰与鸟模型、`Adventurer_B`、只被旧白盒 `build_road()` 使用的 DeadTree。
+- 28 件嵌入贴图的 Tripo 模型关闭 `create_shadow_meshes`。shadow mesh 只是同一几何的仅位置副本，用于加速阴影绘制，关闭后阴影形状不变。
+
+会降低画质或改变压缩格式的进一步瘦身做成可选清单，单独放在 `chore/web-pck-diet-lossy-options` 分支，每项一个提交，由用户看过对比后逐项决定是否采用。
 
 新增或删减资源后用下面两步检查，再部署：
 

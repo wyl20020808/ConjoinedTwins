@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cx85htlo7ch3b"
-path="res://.godot/imported/cart_wood_planks_diff.jpg-962ff2ddf781fd0146d2e602722c38e1.ctex"
+path.s3tc="res://.godot/imported/cart_wood_planks_diff.jpg-962ff2ddf781fd0146d2e602722c38e1.s3tc.ctex"
+path.etc2="res://.godot/imported/cart_wood_planks_diff.jpg-962ff2ddf781fd0146d2e602722c38e1.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "e9043d62b5b1f4771bb0bcedf5a0e171"
@@ -14,15 +16,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/cart_wood_planks_diff.jpg"
-dest_files=["res://.godot/imported/cart_wood_planks_diff.jpg-962ff2ddf781fd0146d2e602722c38e1.ctex"]
+dest_files=["res://.godot/imported/cart_wood_planks_diff.jpg-962ff2ddf781fd0146d2e602722c38e1.s3tc.ctex", "res://.godot/imported/cart_wood_planks_diff.jpg-962ff2ddf781fd0146d2e602722c38e1.etc2.ctex"]
 
 [params]
 
-compress/mode=4
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=2.0
+compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
