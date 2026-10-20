@@ -20,13 +20,14 @@ var near_ridge: StandardMaterial3D
 var far_ridge: StandardMaterial3D
 var sky_material: ShaderMaterial
 # 每章一个时段：森林清晨逆光（林间光柱）、村庄与河岸黄昏（低角度长影）、矿道与设施夜晚（月光 + 火光）。
+# 黄昏主光放在镜头侧后方（顺光）：逆光会让机关朝镜头一面整体落在背光里，与红褐路面糊成一片。
 # energy 已包含 AgX 的亮度补偿；pitch/yaw 是主光朝向，yaw≈180 为正对镜头逆光。
 # lamp 是路灯/火把与角色随身灯的亮度系数，stars 为夜空星点。
 var palettes := [
 	{"sun":Color("ffd39c"),"energy":2.3,"pitch":-24.0,"yaw":152.0,"fill":Color("6f9ec6"),"fill_energy":0.30,"fog":Color("b4ae95"),"fog_scale":0.85,"vol_scale":1.45,"anisotropy":0.72,"contrast":1.18,"saturation":1.14,"ambient":0.50,"ambient_color":Color("7c9092"),
 		"sky_zenith":Color("2f5c78"),"sky_low":Color("6f93a6"),"sky_horizon":Color("efd6a6"),"cloud_lit":Color("fff2dc"),"cloud_shadow":Color("6a7378"),"cloud":0.40,"haze":0.45,"sky_saturation":1.0,"cloud_scale":1.1,
 		"lamp":0.0,"stars":0.0,"disk":0.99972,"sky_sun":0.85,"hero_light":0.0,"land_tint":Color(1,1,1)},
-	{"sun":Color("ffa262"),"energy":2.15,"pitch":-13.0,"yaw":112.0,"fill":Color("6c7fb8"),"fill_energy":0.38,"fog":Color("c99f84"),"fog_scale":0.85,"vol_scale":1.2,"anisotropy":0.65,"contrast":1.16,"saturation":1.16,"ambient":0.50,"ambient_color":Color("9a8080"),
+	{"sun":Color("ffa262"),"energy":2.15,"pitch":-17.0,"yaw":-38.0,"fill":Color("6c7fb8"),"fill_energy":0.38,"fog":Color("c99f84"),"fog_scale":0.85,"vol_scale":1.2,"anisotropy":0.65,"contrast":1.16,"saturation":1.16,"ambient":0.50,"ambient_color":Color("9a8080"),
 		"sky_zenith":Color("33507e"),"sky_low":Color("8a95b8"),"sky_horizon":Color("ffb27a"),"cloud_lit":Color("ffcf9e"),"cloud_shadow":Color("7a6274"),"cloud":0.42,"haze":0.40,"sky_saturation":1.08,"cloud_scale":0.9,
 		"lamp":0.8,"stars":0.0,"disk":0.99965,"sky_sun":1.0,"hero_light":0.0,"land_tint":Color("e8b8a0")},
 	{"sun":Color("a8c0ea"),"energy":0.62,"pitch":-36.0,"yaw":205.0,"fill":Color("39558c"),"fill_energy":0.30,"fog":Color("27324a"),"fog_scale":0.9,"vol_scale":1.4,"anisotropy":0.5,"contrast":1.12,"saturation":1.02,"ambient":0.42,"ambient_color":Color("40527a"),

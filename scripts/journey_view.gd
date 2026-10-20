@@ -1337,8 +1337,10 @@ func sync_rope_light(path:Array[Vector3],night:float)->void:
 	rope_light.light_color=Color("ff4a3a") if blocked else Color("9fe8ff").lerp(Color("ffc58a"),.5)
 	rope_light.light_energy=(0.35+0.5*tension+night*0.6)*(1.6 if blocked else 1.0)
 
-# 夜间随身灯：两人头顶各一盏暖/冷色小灯，保证夜景里角色、绳索与脚下机关可读。
+# 夜间随身灯：两人头顶各一盏暖/冷色小灯照亮自身与绳索，
+# 再各绑一盏朝前方路面的头灯（聚光），把前方约 20 米内的机关照出来。
 var hero_lights:Array[OmniLight3D]=[]
+var head_lamps:Array[SpotLight3D]=[]
 func sync_hero_lights(level:float)->void:
 	if hero_lights.is_empty():
 		if level<=0.0:return
@@ -1349,12 +1351,23 @@ func sync_hero_lights(level:float)->void:
 			light.shadow_enabled=false
 			light.light_volumetric_fog_energy=0.6
 			add_child(light);hero_lights.append(light)
+			var lamp:=SpotLight3D.new()
+			lamp.light_color=Color("e6f4ff") if i==0 else Color("fff0dc")
+			lamp.spot_range=22.0;lamp.spot_angle=32.0;lamp.spot_angle_attenuation=0.7;lamp.spot_attenuation=0.45
+			lamp.shadow_enabled=false;lamp.light_volumetric_fog_energy=1.4
+			add_child(lamp);head_lamps.append(lamp)
 	for i in range(2):
 		var light:=hero_lights[i]
 		light.visible=level>0.0 and is_instance_valid(robots[i])
+		head_lamps[i].visible=light.visible
 		if not light.visible:continue
 		light.light_energy=0.75*level
 		light.global_position=robots[i].global_position+Vector3(0,3.6,1.6)
+		var lamp:=head_lamps[i]
+		lamp.visible=true;lamp.light_energy=10.0*level
+		var head:=robots[i].global_position+Vector3(0,2.0,0.2)
+		lamp.global_position=head
+		lamp.look_at(robots[i].global_position+Vector3(0,0,-9.0),Vector3.UP)
 
 # 旅程使用固定世界坐标；沿用道路版动作与腰部旋转，身体仍由真实物理位置驱动。
 func sync_journey_character(i:int)->void:
