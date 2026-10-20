@@ -300,6 +300,11 @@ func add_rescue_clips(player: AnimationPlayer) -> void:
 			if not source.is_empty() and not source[0].get_animation_list().is_empty():
 				var anim: Animation = source[0].get_animation(source[0].get_animation_list()[0]).duplicate()
 				anim.loop_mode = Animation.LOOP_LINEAR
+				# 动作源把脚骨叫 PT.L/PT.R，主角烘焙后是人形 LeftToes/RightToes。
+				for track in range(anim.get_track_count()):
+					var path := String(anim.track_get_path(track))
+					if path.contains("PT.L") or path.contains("PT.R"):
+						anim.track_set_path(track, NodePath(path.replace("PT.L","LeftToes").replace("PT.R","RightToes")))
 				rescue_clips[clip] = anim
 			root.free()
 	var library: AnimationLibrary = player.get_animation_library("")
@@ -1049,33 +1054,6 @@ func skeleton_of(node: Node) -> Skeleton3D:
 		if found != null: return found
 	return null
 
-# Run 动画一整圈里骨骼的最低和最高点（世界坐标）。
-func bone_span(player: AnimationPlayer, skeleton: Skeleton3D) -> Vector2:
-	var span := Vector2(INF, -INF)
-	for name in player.get_animation_list():
-		if not name.ends_with("Run"): continue
-		player.play(name)
-		for n in range(12):
-			player.seek(player.current_animation_length * n / 12.0, true)
-			for bone in range(skeleton.get_bone_count()):
-				var height: float = (skeleton.global_transform * skeleton.get_bone_global_pose(bone)).origin.y
-				span = Vector2(minf(span.x, height), maxf(span.y, height))
-		player.stop()
-	return span
-
-# 模型包围盒里混有脚下的附属网格，按包围盒落地和定身高会让 01 悬空约 1 米、两人还不一样高。
-# 改按骨骼：先把头顶骨到脚底骨统一成 3 米（与 2.9 米的碰撞身高一致），再让跑动时最低的骨节贴地。
-func ground_character(character: Node3D) -> void:
-	var player := animation_player(character)
-	var skeleton := skeleton_of(character)
-	if player == null or skeleton == null: return
-	var span := bone_span(player, skeleton)
-	if span.y <= span.x: return
-	character.scale *= 3.0 / (span.y - span.x)
-	character.position *= 3.0 / (span.y - span.x)
-	# 最低的是脚趾骨节，鞋底在它下面约 6 厘米。
-	character.position.y -= bone_span(player, skeleton).x - 0.06
-
 func animation_player(node: Node) -> AnimationPlayer:
 	if node is AnimationPlayer: return node
 	for child in node.get_children():
@@ -1190,7 +1168,7 @@ func build_robots() -> void:
 		add_child(robot)
 		robots.append(robot)
 		# Tripo 导出的 Armature 与 Adventurer 原生朝向相反，这里不再额外转半圈，角色仍背对镜头。
-		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.8, 0.0)
+		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.45, 0.0)
 		if animation_player(character) == null:
 			var player := AnimationPlayer.new()
 			player.name = "AnimationPlayer"
@@ -1198,7 +1176,6 @@ func build_robots() -> void:
 			player.root_node = NodePath("..")
 			player.add_animation_library("", hero_animation_library())
 		register_animation(character)
-		ground_character(character)
 		character.set_meta("base_scale",character.scale)
 		character_models.append(character)
 		# 识别灯保持两人辨识度；阴影固定在地面，角色独立腾空。

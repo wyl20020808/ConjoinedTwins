@@ -186,8 +186,8 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 
 | 文件 | 内容 | 三角面 | 字节 | SHA256 前缀 | 使用位置 |
 | --- | --- | ---: | ---: | --- | --- |
-| `assets/humans/hero_01.glb` | 青色连帽外套、背包与青色提灯的男冒险者 | 9,509 | 601,224 | 17cb4eec7ba03987 | 01 主角 |
-| `assets/humans/hero_02.glb` | 橙色短斗篷、马尾与橙色提灯的女冒险者 | 9,936 | 615,548 | ee0e12dfbfe8f45d | 02 主角 |
+| `assets/humans/hero_01.glb` | 青色连帽外套、背包与青色提灯的男冒险者 | 9,509 | 1,964,480 | f5b4d52ff3db400f | 01 主角 |
+| `assets/humans/hero_02.glb` | 橙色短斗篷、马尾与橙色提灯的女冒险者 | 9,936 | 1,975,460 | 51fc550b7465d468 | 02 主角 |
 
 动作仍来自 Quaternius Adventurer（CC0），以及本项目用 Blender 制作的救援攀爬、拉绳动画。
 
@@ -196,6 +196,17 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 - Adventurer_A 只作动画来源；Adventurer_B 不再加载，文件保留。
 
 许可同前，Tripo 部分待按账号套餐确认。
+
+### 2026-10-20 主角动画本地烘焙
+
+01 的头/颈在 Godot `rest_fixer/fix_silhouette` 下被压进胸腔；关掉 fixer 后重定向动作又整体错位。根因是 01 的 Tripo“套跑步预设后导出”留下的静止颈部与重定向不兼容。
+
+改为在 Blender 里做世界空间重定向：用 `build-tools/journey/bake_hero_animations.py` 把 `Adventurer_A.glb`（Quaternius，CC0）的 24 个动作逐帧烘焙到两名主角的 Mixamo 骨架，骨骼改为人形名（Hips/Spine/Chest/UpperChest/LeftUpperArm 等），导出带动画 GLB。新增：
+
+- `CharacterArmature|Jump`：动作源没有跳跃，用 Idle 静止姿势加髋部起伏和屈膝合成 31 帧。
+- `CharacterArmature|HitRecieve_1`：`HitRecieve` 的别名，游戏动作名使用。
+
+Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭 `fix_silhouette`；游戏直接播放模型自带的 27 个 clip，不再使用 `Adventurer_A` 的运行时动画库。主角身高统一由模型包围盒给到 3.45 米，不再用 Run 姿势的骨骼跨度归一化。01/02 的三角面未变，动画让文件从约 600 KB 增至约 1.96 MB。
 
 ## 2026-10-19 双人机关模型
 
