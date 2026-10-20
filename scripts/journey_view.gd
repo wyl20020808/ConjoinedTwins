@@ -15,6 +15,9 @@ var preparation_peak_usec := 0
 var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
+# 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
+const ONLINE_CATCHUP_FRAMES := 8
+const ONLINE_CATCHUP_USEC := 8000
 # 单位为道路单位（20/米）。预热窗口比展示窗口多 40 米，退出窗口再留 20 米迟滞。
 const MODEL_AHEAD := 2400.0
 const MODEL_PREFETCH := 3200.0
@@ -2140,7 +2143,12 @@ func online_process(delta:float)->void:
 		last_fire_sent=fire
 	var applied:=0
 	var start:=Time.get_ticks_usec()
-	while not net.frames.is_empty() and applied<4:
+	# 服务器每秒固定发 60 帧；只消化 1 帧/物理帧时，加载或卡顿造成的积压会变成永久输入延迟。
+	# 稳态只留约 2 帧缓冲（实测隧道抖动 p99 约 22 毫秒）；积压时放宽单次帧数与时间预算追帧，不丢帧也不改变模拟结果。
+	var queued:int=net.frames.size()
+	var limit:int=1 if queued<=2 else (2 if queued<=8 else mini(ONLINE_CATCHUP_FRAMES,queued-2))
+	var budget:int=Run.PRELOAD_SLICE_USEC if queued<=2 else ONLINE_CATCHUP_USEC
+	while not net.frames.is_empty() and applied<limit:
 		var index:int=net.next_frame
 		var frame:Dictionary=net.frames[0]
 		if prepared_online_frame!=index:
@@ -2158,10 +2166,11 @@ func online_process(delta:float)->void:
 		var before:String=run.state
 		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
 		if run.state!=before:clear_controls()
-		net.report(index,run.sync_hash())
+		# 状态指纹要序列化整局状态，只在需要上报的帧计算。
+		if index%NetClient.HASH_INTERVAL==0:net.report(index,run.sync_hash())
 		online_frame_applied.emit(index)
 		applied+=1
-		if Time.get_ticks_usec()-start>=Run.PRELOAD_SLICE_USEC:break
+		if Time.get_ticks_usec()-start>=budget:break
 	frame_delta=delta
 	view_pending=true
 
