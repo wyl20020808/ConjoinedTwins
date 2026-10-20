@@ -28,6 +28,15 @@ func make_gun(parent: Node3D) -> Node3D:
 	var flash: Node3D=game.box(gun,Vector3(0,0,-0.94),Vector3(0.22,0.22,0.3),game.material("gun_flash",Color("ffe7a0"),2.0))
 	flash.name="Flash"
 	flash.hide()
+	var flash_light:=OmniLight3D.new()
+	flash_light.name="FlashLight"
+	flash_light.position=Vector3(0,0,-0.95)
+	flash_light.light_color=Color("ffdca0")
+	flash_light.light_energy=3.2
+	flash_light.omni_range=3.0
+	flash_light.shadow_enabled=false
+	flash_light.visible=false
+	gun.add_child(flash_light)
 	return gun
 
 func _ready() -> void:
@@ -56,6 +65,25 @@ func _ready() -> void:
 		add_child(beam)
 		beams.append(beam)
 
+var pillar_materials:={}
+func pillar_material(kind:String)->Material:
+	if pillar_materials.has(kind):return pillar_materials[kind]
+	var color:Color={"gun":Color("ffcf6a"),"ammo":Color("ffd36a"),"medkit":Color("7dffb0")}.get(kind,Color("9fe8ff"))
+	var fade:=Gradient.new()
+	fade.set_color(0,Color(1,1,1,0.0));fade.add_point(0.8,Color(1,1,1,0.35));fade.set_color(fade.get_point_count()-1,Color(1,1,1,0.75))
+	var texture:=GradientTexture2D.new();texture.gradient=fade;texture.fill_from=Vector2(0,0);texture.fill_to=Vector2(0,1);texture.width=8;texture.height=64
+	var mat:=StandardMaterial3D.new()
+	mat.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode=BaseMaterial3D.BLEND_MODE_ADD
+	mat.cull_mode=BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test=false
+	mat.albedo_color=Color(color.r,color.g,color.b,0.5)
+	mat.albedo_texture=texture
+	mat.disable_receive_shadows=true
+	pillar_materials[kind]=mat
+	return mat
+
 func reset() -> void:
 	for view in pickup_views.values(): view.queue_free()
 	pickup_views.clear()
@@ -72,7 +100,11 @@ func sync() -> void:
 		if absf(pickup.position.y-run.distance)<3000:nearby[pickup.id]=pickup
 	for id in pickup_views.keys():
 		if not nearby.has(id):
-			pickup_views[id].queue_free()
+			var collected:Node3D=pickup_views[id]
+			var fx=game.get("fx")
+			if fx!=null and is_instance_valid(collected) and collected.visible and collected.global_position.distance_to(game.robots[0].global_position)<60.0:
+				fx.burst("spark",collected.global_position+Vector3(0,0.4,0))
+			collected.queue_free()
 			pickup_views.erase(id)
 	for pickup in nearby.values():
 		if not pickup_views.has(pickup.id):
@@ -91,6 +123,10 @@ func sync() -> void:
 					game.box(view,Vector3(0,0.28,0),Vector3(0.5,0.05,0.16),red)
 					game.box(view,Vector3(0,0.28,0),Vector3(0.16,0.05,0.5),red)
 			game.cylinder(view,Vector3(0,-0.4,0),0.75,0.04,game.material("pickup_ring",Color("62c7ba"),0.6))
+			# 竖直光柱：远处也能一眼看到拾取物，颜色按种类区分。
+			var pillar:MeshInstance3D=game.cylinder(view,Vector3(0,2.6,0),0.26,6.0,pillar_material(pickup.kind))
+			pillar.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var tube:CylinderMesh=pillar.mesh;tube.cap_top=false;tube.cap_bottom=false;tube.radial_segments=12
 			game.add_sign(view,{"gun":"冲锋枪","ammo":"弹药 +48","medkit":"医疗 +30"}[pickup.kind],Vector3(0,1.2,0),22)
 		var view: Node3D=pickup_views[pickup.id]
 		view.position=Vector3(pickup.position.x/20,0.65+sin(run.elapsed*2)*0.08,-pickup.position.y/20)
@@ -107,7 +143,7 @@ func sync() -> void:
 		var hand: Vector3=game.hand_point(role)
 		var skeleton: Skeleton3D=game.hand_skeletons.get(role)
 		if is_instance_valid(skeleton):
-			var wrist := skeleton.find_bone("Wrist.R")
+			var wrist:int=game.find_bone(skeleton,"RightHand","Wrist.R")
 			if wrist>=0: hand=skeleton.global_transform*skeleton.get_bone_global_pose(wrist).origin
 		guns[role].global_position=hand
 		var target := hand+Vector3(0,0,-5)
@@ -124,6 +160,8 @@ func sync() -> void:
 		var shot: Dictionary=run.combat.shots[role]
 		var recent: bool=not shot.is_empty() and run.elapsed-shot.time<0.065 and visual_state=="running"
 		guns[role].get_node("Flash").visible=recent
+		var flash_light:OmniLight3D=guns[role].get_node_or_null("FlashLight")
+		if flash_light!=null:flash_light.visible=recent
 		beams[role].visible=recent
 		if recent:
 			if int(weapon.get("reload",0))==0:
@@ -165,9 +203,10 @@ func apply_reload(gun:Node3D,remaining:int)->void:
 # 仅覆盖双臂：双腿继续使用走跑/跳跃动画，不增设动画状态机。
 # 两段骨骼解析到达枪握把与弹匣；每次先清除覆盖，避免累计旋转。
 func reach_hand(skeleton:Skeleton3D,side:String,target_world:Vector3)->void:
-	var upper:=skeleton.find_bone("UpperArm."+side)
-	var lower:=skeleton.find_bone("LowerArm."+side)
-	var wrist:=skeleton.find_bone("Wrist."+side)
+	var prefix:="Left" if side=="L" else "Right"
+	var upper:int=game.find_bone(skeleton,prefix+"UpperArm","UpperArm."+side)
+	var lower:int=game.find_bone(skeleton,prefix+"LowerArm","LowerArm."+side)
+	var wrist:int=game.find_bone(skeleton,prefix+"Hand","Wrist."+side)
 	if upper<0 or lower<0 or wrist<0:return
 	skeleton.force_update_all_bone_transforms()
 	var a:=skeleton.get_bone_global_pose(upper)

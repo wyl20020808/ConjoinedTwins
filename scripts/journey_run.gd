@@ -95,6 +95,8 @@ func bounded(point: Vector2, _floor: float = INF) -> Vector2:
 	var forward := maxf(point.y,maxf(0.0,distance-RETREAT_DISTANCE))
 	if charge_gate.get("active",false) and not charge_gate.open:
 		var hold: float=charge_gate.receiver.y+(46.0 if charge_gate.get("kind","")=="sync_plates" else 15.0)
+		# 接力踏板：门后踏板也在可达范围内；门关着时仍由门板本身挡住。
+		if charge_gate.get("kind","")=="relay":hold=charge_gate.far.end.y
 		forward=minf(forward,hold)
 	# 主动跑动也必须等桥板落平；父类只暂停自动推进，不能约束旅程的手动前进。
 	for gate in charge_gates:
@@ -165,6 +167,12 @@ func add_event(kind: String, y: float, side: float, combined: bool = false) -> v
 		journey_events[-1].hp=30 if kind=="boar" else 40
 		journey_events[-1].max_hp=journey_events[-1].hp
 	event_serial += 1
+
+func add_relay(y: float, side: float, suffix: String) -> void:
+	var gate:Dictionary=RelayPlates.make(y,side,EDGE)
+	gate.id=suffix
+	gate.title="接力机关门 · 一人守板一人过门"
+	charge_gates.append(gate)
 
 func add_gate(y: float, plates: bool, suffix: String) -> void:
 	var gate := SyncPlates.make_tutorial() if plates else ChargeGate.make_tutorial()
@@ -319,6 +327,11 @@ func active_hint() -> String:
 	if not narrow.is_empty():return {"center_path":"中央独木道：对准中线，前后依次通过", "edge_path":"崖边单行道：提前靠边，前后依次通过", "twin_paths":"双线镂空桥：各走一条，保持同步", "triple_paths":"三线镂空桥：选择相邻通道，别把绳拉满"}[narrow.kind]
 	if charge_gate.active and not charge_gate.open and charge_gate.receiver.y-progress()<800:
 		var conditions:Dictionary=charge_gate.get("conditions",{})
+		if charge_gate.get("kind","")=="relay":
+			var step:="一人站上门前踏板，门会打开"
+			if conditions.get("near",false):step="门已打开：另一人穿过去，站上门后踏板"
+			if conditions.get("far",false):step="门后踏板已踩住，保持站稳"
+			return "%s · %d%%\n%s"%[charge_gate.title,int(charge_gate.charge/RelayPlates.HOLD_TIME*100),step]
 		var plates:bool=charge_gate.get("kind","")=="sync_plates"
 		var duration:float=SyncPlates.HOLD_TIME if plates else ChargeGate.CHARGE_TIME
 		var hint:="两人各站一块踏板，落地保持" if plates else "两人分别站左右标记，可交换站位"

@@ -12,6 +12,7 @@ const Surfaces = preload("res://scripts/road_surfaces.gd")
 const Industrial = preload("res://scripts/industrial_obstacles.gd")
 const ChargeGate = preload("res://scripts/road_charge_gate.gd")
 const SyncPlates = preload("res://scripts/road_sync_plates.gd")
+const RelayPlates = preload("res://scripts/road_relay_plates.gd")
 const FINISH := 9000.0
 const FORWARD := 120.0
 const LATERAL := Templates.MANUAL_SPEED
@@ -49,7 +50,7 @@ const JUMP_BUFFER := 0.10
 const JUMP_BUFFER_STEPS := 12
 const BODY_HEIGHT := 58.0
 # 危险顶部/底部高度；须绕行的高货箱必须高于 JUMP_APEX，不随跳跃提高变成可越过对象。
-const HAZARD_TOPS := {"pillar": 100.0, "cargo": 60.0, "rail": 12.0, "spikes": 10.0, "active_spikes": 16.0, "scanner": 50.0, "fly_low": 10.0, "fly_body": 38.0, "fly_tall": 85.0}
+const HAZARD_TOPS := {"pillar": 100.0, "cargo": 60.0, "rail": 12.0, "spikes": 10.0, "active_spikes": 16.0, "jump_bar": 24.0, "color_gate": 100.0, "scanner": 50.0, "fly_low": 10.0, "fly_body": 38.0, "fly_tall": 85.0}
 # 复合几何和地面支撑不属于上述九类单盒高度契约，分别由 Surfaces 检测。
 const SURFACE_TOPS := {"sweeper": Surfaces.POST_TOP, "road_gap": 0.0, "drone": 48.0, "forklift": 92.0, "press": 130.0, "hammer": 136.0, "collapse": 0.0, "steam": 100.0, "shuttle": 70.0, "piston": 130.0}
 const HAZARD_BOTTOMS := {"scanner": 26.0, "fly_body": 18.0}
@@ -59,7 +60,7 @@ const HAZARD_BOTTOMS := {"scanner": 26.0, "fly_body": 18.0}
 # 位移在腾空期间就受它限制，落下时不会出现超长。
 const ROPE_BLOCKERS := ["pillar", "stone_ball", "iron_ball"]
 # 位置固定、只伤身体的陷阱（绳索不受其影响）。高柱虽然固定，但会挂住绳索，所以不在其中。
-const STATIC_KINDS := ["cargo", "spikes", "active_spikes", "rail"]
+const STATIC_KINDS := ["cargo", "spikes", "active_spikes", "rail", "jump_bar"]
 const ROPE_HEIGHT := 28.0
 const ROPE_CLEARANCE := 1.0
 const ROPE_LENGTH_TOLERANCE := 0.01
@@ -305,7 +306,7 @@ func damage(event_id: String, message: String) -> bool:
 
 func collision_event(index: int) -> String:
 	var spec: Dictionary = hazard_specs[index]
-	var cycle := int(floor((elapsed + spec.get("phase", 0.0)) / spec.get("period", 4.0))) if kinds[index] in ["active_spikes", "scanner"] else 0
+	var cycle := int(floor((elapsed + spec.get("phase", 0.0)) / spec.get("period", 4.0))) if kinds[index] in ["active_spikes", "scanner", "jump_bar"] else 0
 	return "%d:%d" % [obstacle_ids[index], cycle]
 
 func collect_rewards(pa: Vector2, pb: Vector2) -> void:
@@ -711,6 +712,8 @@ func retry(count_failure: bool = false) -> void:
 				spec.support_broken = false
 			if spec.get("front", false):
 				spec.offset = Vector2.ZERO
+				spec.aimed = false
+				spec.tripped = false
 				spec.locked = false
 				spec.trigger = -1.0
 				spec.warning_evidence = {}
@@ -816,6 +819,8 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			if kinds[index] in ["hammer", "steam"]: approach = maxf(spec.warning, approach)
 			spec.warning_evidence = {"warning": spec.warning, "maximum_forward": maximum_forward, "joint_change_time": joint_change, "earliest_approach": approach, "reaction_margin": approach - joint_change, "side": spec.side, "locked_velocity": [spec.velocity.x, spec.velocity.y], "leading_y": maxf(a.position.y, b.position.y), "rear_y": minf(a.position.y, b.position.y)}
 		if spec.get("front", false) and front_warning_near(index, forward_speed):
+			# 旅程滚球在进入预警窗口时一次性瞄准玩家所在车道，随后照常锁定并预警。
+			if spec.get("aim_players", false) and not spec.get("aimed", false) and not spec.locked: aim_ball(index)
 			Threats.warn(spec, hazard_sample(index, elapsed).rect, [a.position, b.position],
 				[Vector2(0, forward_speed * rope_resume) + input_a * LATERAL, Vector2(0, forward_speed * rope_resume) + input_b * LATERAL], LATERAL, EDGE, Motion.RADIUS, elapsed, level_speed() + LATERAL)
 	# 绕柱受阻期间自动推进停滞；解围后按 rope_resume 恢复，平时为 1（与原推进完全一致）。
@@ -910,11 +915,14 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 			if solid_sweep_clear(pa, pull_a, foot_height(0), foot_height(0)) and solid_sweep_clear(pb, pull_b, foot_height(1), foot_height(1)):
 				ca = pull_a
 				cb = pull_b
-		if charge_gate.active and not charge_gate.open:
+		if gate_door_closed():
 			# 全宽高门不允许跳过；保留横向滑行和后撤，最终约束位移还需扫掠复核。
 			var front: float = charge_gate.door.position.y - Motion.RADIUS - 0.01
 			ca.y = minf(ca.y, front)
 			cb.y = minf(cb.y, front)
+		# 专属颜色门：门洞只对对应角色开放，另一人从门前撞上时停在门前（不能跳过）。
+		ca = color_gate_block(0, pa, ca)
+		cb = color_gate_block(1, pb, cb)
 		# 巨岩只阻挡不伤人：期望位移先沿岩面滑行或原地停住，道路照常推进。
 		ca = resolve_cargo(pa, ca, old_feet[0], foot_height(0))
 		cb = resolve_cargo(pb, cb, old_feet[1], foot_height(1))
@@ -1094,7 +1102,7 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 						fail_threat(message)
 						return
 				continue
-			if kinds[index] in ["road_gap", "cargo"] or kinds[index] in Terrain.KINDS: continue
+			if kinds[index] in ["road_gap", "cargo", "color_gate"] or kinds[index] in Terrain.KINDS: continue
 			# 静止陷阱离两人和连线都远时跳过：每子步位移远小于 40 单位余量，只省计算不改判定。
 			if kinds[index] in STATIC_KINDS and (obstacles[index].position.y > maxf(maxf(pa.y, ca.y), maxf(pb.y, cb.y)) + 40.0 or obstacles[index].end.y < minf(minf(pa.y, ca.y), minf(pb.y, cb.y)) - 40.0): continue
 			if kinds[index] == "sweeper":
@@ -1102,11 +1110,16 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 					if hazard_contact(index, -1, "绳段命中旋转扫杆支座或杆体，两人共同重试"): return
 			if hazard_specs[index].get("front", false):
 				var spec: Dictionary = hazard_specs[index]
+				if spec.get("tripped", false): continue
 				var previous: Rect2 = dynamic_before.get(index, hazard_sample(index, time_end).rect)
 				var current: Rect2 = hazard_sample(index, time_end).rect
 				# 用真实前后位置包住整个运动轨迹，再排除与两人及完整绳路无交集的远处飞行物。
 				# 不按出生点或屏幕距离删碰撞；已有挂绳接触仍执行完整球体约束。
 				if not front_sweep_near(index,previous,current,hazard_bounds):continue
+				# 先判绊桶：同一子步内绳子先拦住木桶，身体便不会再被撞到。
+				if kinds[index] == "barrel" and barrel_trippable(current) and front_rope_hits(index, previous, current, old_path, old_path_heights):
+					trip_barrel(index)
+					continue
 				for i in range(2):
 					var from: Vector2 = pa if i == 0 else pb
 					var to: Vector2 = ca if i == 0 else cb
@@ -1117,7 +1130,10 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 						hit = swept_body_hits(from, to - (current.position - previous.position), old_feet[i], foot_height(i), previous.grow(Motion.RADIUS), spec.bottom, obstacle_heights[index])
 					if hit and hazard_contact(index, i, "%02d 命中%s，两人共同重试" % [i + 1, hazard_name(kinds[index])]):
 						return
-				if not Threats.is_ball(kinds[index]) and front_rope_hits(index, previous, current, old_path, old_path_heights):
+				if kinds[index] == "barrel":
+					# 绳子是绊索：拉紧且分站两侧时绊倒木桶；松弛的绳子贴地，木桶从上面滚过不受影响。
+					if front_rope_hits(index, previous, current, old_path, old_path_heights) and barrel_trippable(current): trip_barrel(index)
+				elif not Threats.is_ball(kinds[index]) and front_rope_hits(index, previous, current, old_path, old_path_heights):
 					if hazard_contact(index, -1, "绳段命中%s，两人共同重试" % hazard_name(kinds[index])): return
 				if Threats.is_ball(kinds[index]):
 					if spec.blocked and rope.touches(obstacle_ids[index]) and rope.required >= LINK_LIMIT - 0.02:
@@ -1136,7 +1152,11 @@ func fixed_step(input_a: Vector2, input_b: Vector2) -> void:
 		collect_rewards(pa, pb)
 		if charge_gate.active:
 			var was_open: bool = charge_gate.open
-			if charge_gate.get("kind", "charge") == "sync_plates":
+			if charge_gate.get("kind", "charge") == "relay":
+				RelayPlates.advance(charge_gate, a.position, b.position,
+					ground_support[0] and heights[0] == 0.0 and vertical_speed[0] == 0.0,
+					ground_support[1] and heights[1] == 0.0 and vertical_speed[1] == 0.0, Motion.RADIUS, dt)
+			elif charge_gate.get("kind", "charge") == "sync_plates":
 				# 起跳、腾空或落地的子步不计为连续地面站位。
 				SyncPlates.advance(charge_gate, a.position, b.position,
 					ground_support[0] and old_heights[0] == 0.0 and heights[0] == 0.0 and vertical_speed[0] == 0.0,
@@ -1198,8 +1218,21 @@ func solid_sweep_hits(index: int, from: Vector2, to: Vector2, h0: float, h1: flo
 	if not swept_body_hits(from, to, h0, h1, rect, 0.0, obstacle_heights[index]): return false
 	return kinds[index] == "cargo" or Rope.segment_distance(from, to, obstacles[index].get_center()) < obstacles[index].size.x * 0.5 + Motion.RADIUS - 0.001
 
+func color_gate_block(role: int, from: Vector2, to: Vector2) -> Vector2:
+	for index in indexed_kinds(["color_gate"]):
+		if int(hazard_specs[index].get("role", -1)) == role: continue
+		var rect: Rect2 = obstacles[index].grow(Motion.RADIUS - 0.001)
+		if from.y > rect.position.y or to.y <= rect.position.y: continue
+		if to.x < rect.position.x or to.x > rect.end.x: continue
+		to.y = rect.position.y - 0.01
+	return to
+
+# 闸门门板是否挡人：未开启时挡住；接力踏板守板期间门暂时打开（ajar）。
+func gate_door_closed() -> bool:
+	return charge_gate.active and not charge_gate.open and not charge_gate.get("ajar", false)
+
 func charge_gate_clear(pa: Vector2, ca: Vector2, pb: Vector2, cb: Vector2) -> bool:
-	if not charge_gate.active or charge_gate.open: return true
+	if not gate_door_closed(): return true
 	var door: Rect2 = charge_gate.door.grow(Motion.RADIUS - 0.001)
 	return not segment_hits(pa, ca, door) and not segment_hits(pb, cb, door)
 
@@ -1237,7 +1270,7 @@ func indexed_solids()->Array[int]:
 	return solid_indices
 
 func solid_sweep_clear(from: Vector2, to: Vector2, h0: float, h1: float) -> bool:
-	if charge_gate.active and not charge_gate.open and segment_hits(from, to, charge_gate.door.grow(Motion.RADIUS - 0.001)):
+	if gate_door_closed() and segment_hits(from, to, charge_gate.door.grow(Motion.RADIUS - 0.001)):
 		return false
 	# 绳索约束会反复调用，先用保守包围盒排除远处实体，保留原精确判定。
 	var bounds:=Rect2(from,Vector2.ZERO).expand(to).grow(Motion.RADIUS)
@@ -1259,9 +1292,9 @@ func charge_path_clear() -> bool:
 	for point in path:bounds=bounds.expand(point)
 	for index in obstacles_in_bounds(bounds):
 		# 这些类型的平面包围盒不随时间移动；完全分离时无需构造高度采样。
-		if kinds[index] in ["road_gap","collapse"]:continue
+		if kinds[index] in ["road_gap","collapse","color_gate"]:continue
 		if kinds[index] in Terrain.KINDS and kinds[index] not in Industrial.KINDS:continue
-		if not hazard_specs[index].get("front",false) and kinds[index] in ["cargo","pillar","spikes","active_spikes","rail","scanner","sweeper"] and not bounds.intersects(obstacles[index],true):continue
+		if not hazard_specs[index].get("front",false) and kinds[index] in ["cargo","pillar","spikes","active_spikes","rail","scanner","sweeper","jump_bar"] and not bounds.intersects(obstacles[index],true):continue
 		if kinds[index] in Industrial.KINDS and not bounds.intersects(Industrial.motion_envelope(kinds[index],obstacles[index],hazard_specs[index]),true):continue
 		var sample := hazard_sample(index, elapsed)
 		if not sample.active or kinds[index] in ["road_gap", "collapse"]: continue
@@ -1612,6 +1645,27 @@ func ball_contact() -> bool:
 	return false
 
 # 球的驱动与绳索硬约束共同求解：连续推进接触圆，长度耗尽时停在最后合法位置。
+func barrel_trippable(rect: Rect2) -> bool:
+	var center: float = rect.get_center().x
+	return rope.required >= LINK_LIMIT * Threats.BARREL_TRIP_TENSION and (a.position.x - center) * (b.position.x - center) < 0.0
+
+func trip_barrel(index: int) -> void:
+	hazard_specs[index].tripped = true
+	hazard_specs[index].tripped_at = elapsed
+	coins += Threats.BARREL_TRIP_COINS
+
+# 两人同侧或相距不远时对准两人中点；分站两侧时对准领先的一人。
+# 只平移尚未锁定的球所在车道（通过 offset，不改原始矩形），之后 warn 按新车道计算换侧时间与预警。
+func aim_ball(index: int) -> void:
+	var spec: Dictionary = hazard_specs[index]
+	var target: float = (a.position.x + b.position.x) * 0.5
+	if signf(a.position.x) != signf(b.position.x) and absf(a.position.x - b.position.x) > 160.0:
+		target = a.position.x if a.position.y >= b.position.y else b.position.x
+	var half: float = obstacles[index].size.x * 0.5
+	target = clampf(target, -EDGE + half + 4.0, EDGE - half - 4.0)
+	spec.offset.x = target - obstacles[index].get_center().x
+	spec.aimed = true
+
 # 不把端点拉过障碍，不瞬移球或角色；这是有界运动驱动，非质量/弹性/摆荡物理。
 func front_warning_near(index:int, forward_speed:float)->bool:
 	var spec:Dictionary=hazard_specs[index]
@@ -1632,6 +1686,7 @@ func advance_threats(dt: float) -> Dictionary:
 		if distance < spec.get("start_distance", -INF): continue
 		previous[index] = hazard_sample(index, elapsed).rect
 		spec.blocked = false
+		if spec.get("tripped", false): continue
 		var move: Vector2 = spec.velocity * dt
 		if not Threats.is_ball(kinds[index]):
 			spec.offset += move
@@ -1891,7 +1946,7 @@ func install_block(block: Dictionary, base: float, prefix: String) -> void:
 			spec.angular_speed = hazard.get("angular_speed", Surfaces.ANGULAR_SPEED)
 		if hazard.get("filler", false): spec.filler = true
 		if hazard.get("extra", false): spec.extra = true
-		if kind in ["active_spikes", "steam"]:
+		if kind in ["active_spikes", "steam", "jump_bar"]:
 			for key in ["period", "warning", "active", "phase"]:
 				if hazard.has(key): spec[key] = hazard[key]
 		if kind == "active_spikes":
@@ -1933,7 +1988,7 @@ static func hazard_name(kind: String) -> String:
 	if kind == "rocket": return "弩箭：两人同侧避让"
 	if kind == "stone_ball": return "滚石：两人同侧避让"
 	if kind == "iron_ball": return "铁刺球：两人同侧避让"
-	return {"pillar": "高柱：两人同侧绕行", "cargo": "巨岩：左右绕行", "rail": "矮石栏：跳跃或绕行", "spikes": "固定地刺：跳跃或绕行", "active_spikes": "活动地刺：伸出期间跳跃或绕行", "scanner": "高位扫描束：绕行或等待安全时窗", "fly_low": "低空飞石：跳跃或绕行", "fly_body": "飞石：四向避让", "fly_tall": "高大飞行物：四向避让"}.get(kind, "能量屏障")
+	return {"pillar": "高柱：两人同侧绕行", "cargo": "巨岩：左右绕行", "rail": "矮石栏：跳跃或绕行", "spikes": "固定地刺：跳跃或绕行", "active_spikes": "活动地刺：伸出期间跳跃或绕行", "jump_bar": "跳绳木杆：贴地瞬间两人同时起跳", "barrel": "横滚木桶：分站两侧拉紧绳子绊倒它，或一起侧身躲开", "color_gate": "专属颜色门：青门只放 01，橙门只放 02", "scanner": "高位扫描束：绕行或等待安全时窗", "fly_low": "低空飞石：跳跃或绕行", "fly_body": "飞石：四向避让", "fly_tall": "高大飞行物：四向避让"}.get(kind, "能量屏障")
 
 # 仅消费最后一次生产子步的条件；暂停冻结、重试和实例重建自然保留或清空提示。
 # 侧别由生产条件给出，与角色编号无关；HUD 和主题共用这份反馈。
@@ -2026,11 +2081,13 @@ func hazard_sample(index: int, time: float) -> Dictionary:
 		return {"rect": rect, "bottom": 0.0, "top": 0.0, "active": false, "warning": true, "stage": "unsupported"}
 	if spec.get("front", false):
 		rect.position += spec.offset
+		if spec.get("tripped", false):
+			return {"rect": rect, "bottom": bottom, "top": top, "active": false, "warning": false, "stage": "tripped", "ttc": INF}
 		var closing: float = (speed() if streaming else FORWARD) - spec.velocity.y
 		var ttc := maxf(0, (rect.position.y - Motion.RADIUS - maxf(a.position.y, b.position.y)) / closing)
 		warning = spec.locked and rect.end.y >= minf(a.position.y, b.position.y)
 		return {"rect": rect, "bottom": bottom, "top": top, "active": true, "warning": warning, "stage": "warning" if warning else "active", "ttc": ttc}
-	if kind in ["active_spikes", "scanner"]:
+	if kind in ["active_spikes", "scanner", "jump_bar"]:
 		var cycle := fposmod(time + float(spec.get("phase", 0)), float(spec.get("period", 4)))
 		var warn: float = spec.get("warning", 1.0)
 		var duration: float = spec.get("active", 1.5)
@@ -2087,7 +2144,7 @@ func timed_hazard_hits(index: int, start: float, end: float, from: Vector2, to: 
 		# 圆柱：先用含高度的包围盒扫掠，再按圆形截面精确判定。
 		var pillar: Rect2 = obstacles[index]
 		return swept_body_hits(from, to, h0, h1, pillar.grow(Motion.RADIUS), spec.get("bottom", 0.0), obstacle_heights[index]) and Rope.segment_distance(from, to, pillar.get_center()) <= pillar.size.x * 0.5 + Motion.RADIUS
-	if kind in ["active_spikes", "scanner"]:
+	if kind in ["active_spikes", "scanner", "jump_bar"]:
 		var period: float = spec.get("period", 4.0)
 		var phase: float = spec.get("phase", 0.0)
 		var warning: float = spec.get("warning", 1.0)

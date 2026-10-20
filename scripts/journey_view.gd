@@ -23,9 +23,29 @@ const MODEL_BEHIND := 600.0
 const Landscape = preload("res://scripts/journey_landscape.gd")
 const TRIPO_BOULDER := "res://assets/journey/tripo_boulder.glb"
 const TRIPO_TIMBER := "res://assets/journey/tripo_timber_ram.glb"
+# 双人机关模型（Tripo 文生 3D，1K 贴图）。
+const MECH_PIVOT := "res://assets/mechanisms/pivot_pillar.glb"
+const MECH_CRUSHER := "res://assets/mechanisms/crusher.glb"
+const MECH_PLATE := "res://assets/mechanisms/pressure_plate.glb"
+const MECH_ARCH := ["res://assets/mechanisms/arch_teal.glb","res://assets/mechanisms/arch_amber.glb"]
+# 机关外观统一批次（Tripo 文生 3D，1K 贴图）；只替换外观，碰撞与运动仍由模拟矩形驱动。
+const MECH_SPIKED_BALL := "res://assets/mechanisms/spiked_ball.glb"
+const MECH_STONE_POST := "res://assets/mechanisms/stone_post.glb"
+const MECH_SPIKE_TRAP := "res://assets/mechanisms/spike_trap.glb"
+const MECH_FIRE_BOLT := "res://assets/mechanisms/fire_bolt.glb"
+const MECH_FLYING_ROCK := "res://assets/mechanisms/flying_rock.glb"
+const MECH_STEAM_VENT := "res://assets/mechanisms/steam_vent.glb"
+const MECH_SPIKED_LOG := "res://assets/mechanisms/spiked_log.glb"
+const MECH_LIFT := "res://assets/mechanisms/lift_platform.glb"
+const BARREL_MODEL := "res://assets/mechanisms/barrel.glb"
+# 跳绳木杆：转轴高度与转动半径（米），最低点离地约 0.15 米。
+const JUMP_BAR_AXLE := 1.75
+const JUMP_BAR_RADIUS := 1.6
 var landscape
 const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
 var atmosphere
+const Fx = preload("res://scripts/journey_fx.gd")
+var fx
 const Buddy=preload("res://scripts/journey_buddy.gd")
 var buddy=Buddy.new()
 var play_mode:="solo"
@@ -67,6 +87,14 @@ var weapon_detail: Label
 var weapon_icon: TextureRect
 var health_panel: PanelContainer
 var weapon_panel: PanelContainer
+var post_canvas: CanvasLayer
+var vignette_mat: ShaderMaterial
+var damage_flash := 0.0
+var low_health := 0.0
+var last_health := [100, 100]
+var visual_yaw := [0.0, 0.0]
+var visual_last_heights := [0.0, 0.0]
+var land_impact := [0.0, 0.0]
 var training_button: Button
 var restart_button: Button
 var fire_blocked := true
@@ -75,6 +103,9 @@ var drop_requested := false
 var frame_costs := {}
 var view_pending:=false
 var journey_camera_returning:=false
+const UNDERSTORY:=["fern","shrub","grass","detail_fern_bed"]
+const DESKTOP_NATIVE_HEIGHT:=800.0
+const DESKTOP_RENDER_HEIGHT:=800.0
 
 func create_run():
 	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
@@ -111,6 +142,9 @@ func _ready() -> void:
 	elif landscape.mobile:
 		get_viewport().scaling_3d_scale=.75
 		get_viewport().msaa_3d=Viewport.MSAA_DISABLED
+	elif Atmosphere.forward_plus():
+		apply_desktop_quality()
+		get_viewport().size_changed.connect(apply_desktop_quality)
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
@@ -128,10 +162,14 @@ func _ready() -> void:
 	canopy_light.rotation_degrees=Vector3(-48,120,0)
 	canopy_light.light_color=Color("fff1d4")
 	canopy_light.light_energy=1.8
-	camera.position=Vector3(0,11.5,22)
-	camera.look_at(Vector3(0,1.2,-22))
+	# 镜头比旧版更近更低：角色在画面中约占八分之一高，空路面减少；
+	# FOV 收窄到 57°，保持固定朝向、不旋转不晃动。
+	camera.position=Vector3(0,9.6,18)
+	camera.look_at(Vector3(0,1.4,-22))
+	camera.fov=57
 	camera_home=camera.transform
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
+	fx=Fx.new();add_child(fx)
 	if incremental_loading:
 		set_physics_process(false)
 		set_process_unhandled_key_input(false)
@@ -197,6 +235,22 @@ func apply_web_quality() -> void:
 	var size:=get_viewport().get_visible_rect().size
 	get_viewport().scaling_3d_scale=minf(1.0,minf(960.0/maxf(size.x,1.0),540.0/maxf(size.y,1.0)))
 	get_viewport().msaa_3d=Viewport.MSAA_DISABLED
+
+func apply_desktop_quality() -> void:
+	# 桌面 Forward+ 的森林段受像素填充限制（茂密双面树叶 + 全屏后期）：
+	# 720p 以下保持原生 + MSAA；更高分辨率改用时间性超分，内部渲染高度约 800 像素，
+	# 同时获得时间性抗锯齿，压住树叶与细绳的闪烁。macOS 用 MetalFX，其余平台用 FSR2。
+	var viewport:=get_viewport()
+	# canvas_items 拉伸下可见矩形固定为 1280×720，3D 实际按窗口像素渲染，故取窗口尺寸。
+	var height:=float(get_window().size.y)
+	if height<=DESKTOP_NATIVE_HEIGHT:
+		viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_BILINEAR
+		viewport.scaling_3d_scale=1.0
+		viewport.msaa_3d=Viewport.MSAA_2X
+		return
+	viewport.msaa_3d=Viewport.MSAA_DISABLED
+	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_METALFX_TEMPORAL if OS.get_name()=="macOS" else Viewport.SCALING_3D_MODE_FSR2
+	viewport.scaling_3d_scale=clampf(DESKTOP_RENDER_HEIGHT/height,0.34,1.0)
 
 func _exit_tree() -> void:
 	if is_instance_valid(net):net.disconnect_from()
@@ -278,6 +332,114 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 			var crack:=box(floor_node,Vector3((rect.position.x+k*rect.size.x/6)/SCALE,0.025,-rect.get_center().y/SCALE),Vector3(0.09,0.025,rect.size.y/SCALE),material("crack",Color("351f16")))
 			crack.rotation.y=0.17 if k%2==0 else -0.17
 
+func add_lamp(parent: Node3D,pos: Vector3,kind: String) -> void:
+	# 木杆 + 铁臂 + 发光灯芯；灯芯 HDR 超过 1 才会晕开。灯光不投影，远处淡出。
+	var level:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
+	if level<=0.0:return
+	var root:=Node3D.new();root.name="Lamp";root.position=pos;parent.add_child(root)
+	var inward:=-signf(pos.x)
+	var torch:=kind=="torch"
+	var height:=2.3 if torch else 3.4
+	var wood:=material("lamp_post",Color("4a3828"))
+	cylinder(root,Vector3(0,height*.5,0),0.075 if torch else 0.09,height,wood)
+	var head:=Vector3(0,height+.12,0)
+	if not torch:
+		box(root,Vector3(inward*.32,height-.05,0),Vector3(.7,.06,.06),material("lamp_iron",Color("2b2b2c")))
+		head=Vector3(inward*.62,height-.36,0)
+		box(root,head+Vector3(0,.2,0),Vector3(.32,.06,.32),material("lamp_iron",Color("2b2b2c")))
+	else:
+		cylinder(root,head+Vector3(0,-.12,0),.13,.16,material("lamp_iron",Color("2b2b2c")))
+	var flame_color:=Color("ff8a3c") if torch else Color("ffc77a")
+	var flame:=MeshInstance3D.new();var sphere:=SphereMesh.new()
+	sphere.radius=.17 if torch else .15;sphere.height=sphere.radius*(2.6 if torch else 2.0)
+	sphere.radial_segments=10;sphere.rings=6
+	flame.mesh=sphere;flame.position=head;flame.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.material_override=material("lamp_flame_"+kind,flame_color,6.0)
+	root.add_child(flame)
+	var light:=OmniLight3D.new()
+	light.position=head+Vector3(0,.15,0)
+	light.light_color=flame_color
+	light.light_energy=(4.2 if torch else 2.6)*level
+	light.omni_range=11.0 if torch else 9.0
+	light.omni_attenuation=1.4
+	light.shadow_enabled=false
+	light.light_volumetric_fog_energy=2.5
+	light.distance_fade_enabled=true
+	light.distance_fade_begin=70.0
+	light.distance_fade_length=20.0
+	if torch:light.set_meta("flicker",pos.z*.37)
+	root.add_child(light)
+	if torch:
+		var lights:Array=parent.get_meta("flicker_lights",[]);lights.append(light);parent.set_meta("flicker_lights",lights)
+
+var water_shader_material:ShaderMaterial
+func water_material()->Material:
+	if water_shader_material==null:
+		water_shader_material=ShaderMaterial.new()
+		water_shader_material.shader=preload("res://scripts/journey_water.gdshader")
+		water_shader_material.set_shader_parameter("bank_near",Run.EDGE/SCALE+3.0)
+		water_shader_material.set_shader_parameter("bank_far",Run.EDGE/SCALE+29.0)
+	return water_shader_material
+
+const CRYSTAL_COLORS:=[Color("6fe9ff"),Color("b48cff"),Color("7dffc4")]
+func add_crystals(parent: Node3D,pos: Vector3,seed_value: int) -> void:
+	# 路缘外的一簇发光矿晶：六棱锥，HDR 自发光晕开，配一盏不投影的小灯。只作展示。
+	var rng:=RandomNumberGenerator.new();rng.seed=seed_value*977+int(pos.z)
+	var tint:Color=CRYSTAL_COLORS[seed_value%CRYSTAL_COLORS.size()]
+	var root:=Node3D.new();root.name="Crystals";root.position=pos;parent.add_child(root)
+	var glow:=material("crystal_%s"%tint.to_html(false),tint.darkened(.35),5.0)
+	glow.emission=tint;glow.roughness=.15;glow.metallic_specular=.9
+	for n in range(rng.randi_range(4,7)):
+		var shard:=MeshInstance3D.new();var cone:=CylinderMesh.new()
+		cone.top_radius=0.0;cone.bottom_radius=rng.randf_range(.12,.26);cone.height=rng.randf_range(.6,1.7)
+		cone.radial_segments=6;cone.rings=1
+		shard.mesh=cone;shard.material_override=glow
+		shard.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		shard.position=Vector3(rng.randf_range(-.5,.5),cone.height*.42,rng.randf_range(-.6,.6))
+		shard.rotation=Vector3(rng.randf_range(-.45,.45),rng.randf()*TAU,rng.randf_range(-.45,.45))
+		root.add_child(shard)
+	var light:=OmniLight3D.new()
+	light.position=Vector3(0,1.0,0);light.light_color=tint
+	light.light_energy=2.2;light.omni_range=7.0;light.omni_attenuation=1.5
+	light.shadow_enabled=false;light.light_volumetric_fog_energy=1.8
+	light.distance_fade_enabled=true;light.distance_fade_begin=70.0;light.distance_fade_length=20.0
+	root.add_child(light)
+
+func light_building(chunk: Node3D,building: Node3D,side: float) -> void:
+	# 夜间厂房：朝路一面加两排窗灯（冷白为主、少量暖黄、部分熄灭），屋顶一盏红色航空信标。
+	var bounds:=model_bounds(chunk,building)
+	if bounds.size==Vector3.ZERO:return
+	var face_x:=bounds.position.x-.05 if side>0 else bounds.end.x+.05
+	var rng:=RandomNumberGenerator.new();rng.seed=int(bounds.position.z*13.0)
+	var cool:=material("window_cool",Color("1c2a33"),2.0);cool.emission=Color("a9d6ff")
+	var warm:=material("window_warm",Color("332616"),2.2);warm.emission=Color("ffc07a")
+	var columns:=maxi(3,int(bounds.size.z/2.4))
+	for row in range(2):
+		for column in range(columns):
+			if rng.randf()<.4:continue
+			var z:=bounds.position.z+(column+.5)*bounds.size.z/columns
+			var y:=bounds.position.y+bounds.size.y*(.28+row*.3)
+			var pane:=box(chunk,Vector3(face_x,y,z),Vector3(.06,bounds.size.y*.08,bounds.size.z/columns*.4),warm if rng.randf()<.22 else cool)
+			pane.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var beacon_pos:=Vector3(bounds.get_center().x,bounds.end.y+.25,bounds.get_center().z)
+	var beacon:=MeshInstance3D.new();var orb:=SphereMesh.new();orb.radius=.22;orb.height=.44;orb.radial_segments=8;orb.rings=4
+	beacon.mesh=orb;beacon.position=beacon_pos;beacon.material_override=material("beacon_red",Color("ff2a1a"),8.0)
+	beacon.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	chunk.add_child(beacon)
+	var light:=OmniLight3D.new();light.position=beacon_pos;light.light_color=Color("ff3020")
+	light.omni_range=6.0;light.light_energy=1.6;light.shadow_enabled=false;light.light_volumetric_fog_energy=2.0
+	light.distance_fade_enabled=true;light.distance_fade_begin=90.0;light.distance_fade_length=20.0
+	chunk.add_child(light)
+	var beacons:Array=chunk.get_meta("beacons",[]);beacons.append([beacon,light,rng.randf()]);chunk.set_meta("beacons",beacons)
+	# 路侧一盏冷白泛光灯打在墙面上，给厂房一个可读的轮廓。
+	var flood:=SpotLight3D.new()
+	flood.position=Vector3(face_x-side*3.5,.6,bounds.get_center().z)
+	flood.light_color=Color("cfe2ff");flood.light_energy=3.0;flood.spot_range=16.0;flood.spot_angle=38.0
+	flood.shadow_enabled=false;flood.light_volumetric_fog_energy=1.2
+	flood.distance_fade_enabled=true;flood.distance_fade_begin=80.0;flood.distance_fade_length=20.0
+	chunk.add_child(flood)
+	flood.look_at(Vector3(face_x,bounds.position.y+bounds.size.y*.65,bounds.get_center().z),Vector3.UP)
+
 func add_sign(parent: Node3D,text: String,position: Vector3,size: int=32) -> Label3D:
 	var sign:=Label3D.new()
 	sign.text=text
@@ -318,23 +480,37 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 				var split:=45.0 if landscape.mobile or OS.has_feature("web") else 70.0
 				landscape.batch(chunk,path,item[2],split)
 				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
+			elif item[1] in UNDERSTORY:
+				# 蕨类每株约千面、灌木约五百面，70 米外被树干与林雾遮住，不再远距离整批绘制。
+				landscape.batch(chunk,path,item[2],60 if landscape.mobile or OS.has_feature("web") else 75)
 			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile or OS.has_feature("web") else 170)
 		"landscape_rock":
 			var cliff:Material=tex_material("cliff_face","rock_face_03",.11,Color("a89a90"))
 			var mesh:Mesh=rock_mesh("ridge_spire",44,8,2.8,70,.2) if item[3] else rock_mesh("ridge_buttress",60,3.6,1.8,24,.24)
 			rock(chunk,mesh,cliff,item[1],item[2],item[4])
 		"land":
-			var surface:Material=landscape.terrain if item[3] in ["village","farm"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			var surface:Material=landscape.terrain if item[3] in ["village","farm","river"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			# 矿道与设施两侧原是纯色平面，夜里像一片灰板；改为碎石岩面。
+			if item[3] in ["mine","ruins","facility"]:surface=tex_material("night_gravel","rock_boulder_dry",.22,Color("6e675f"))
 			box(chunk,item[1],item[2],surface)
-		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
+		"water":
+			var surface:=box(chunk,item[1],item[2],water_material())
+			surface.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		"riverbed": box(chunk,item[1],item[2],tex_material("riverbed","rock_boulder_dry",.3,Color("3c3a32")))
 		"model":
 			var node := model("res://assets/decor/%s.glb"%item[1],chunk,item[2],item[3],item[4],item[5])
 			if item.size()>6 and node:
 				node.set_meta("wind",item[6])
 				var moving:Array=chunk.get_meta("wind_nodes",[]);moving.append(node);chunk.set_meta("wind_nodes",moving)
-		"rock": rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),ground_material("ruins"),item[2],item[3])
+		"rock":
+			# 原用铺地石材质，大石块上出现方砖纹；改为三平面岩面。每三块配一簇发光矿晶。
+			rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),tex_material("mine_rock","rock_face_03",.16,Color("958a80")),item[2],item[3])
+			if run.level_index==2 and item[1]%3==0:add_crystals(chunk,Vector3(signf(item[2].x)*17.9,0,item[2].z),item[1])
 		"asset": asset(chunk,item[1],item[2],item[3],item[4])
-		"building": model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+		"building":
+			var building:=model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+			if run.level_index==2:light_building(chunk,building,signf(item[1].x))
+		"lamp": add_lamp(chunk,item[1],item[2])
 		"farm": box(chunk,item[1],Vector3(12,0.1,1.2),material("farmland",Color("51412c")))
 		"sign": add_sign(chunk,item[1],item[2],38)
 
@@ -384,7 +560,9 @@ func prepare_journey_frame() -> bool:
 		if event.kind in ["cart","stone"]:retained.append("res://assets/journey/villager_actions.glb")
 		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():retained.append(CombatView.EnemyView.model_path(event.archetype))
 	for gate in run.charge_gates:
-		if model_resident(gate.receiver.y):retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
+		if model_resident(gate.receiver.y):
+			retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
+			if gate.get("kind","")=="relay":retained.append(MECH_PLATE)
 	retained.append_array(chunk_assets.pending);retained.append_array(chunk_assets.active)
 	var hazard_assets:Array=[]
 	for index in visual_hazard_candidates():
@@ -450,9 +628,10 @@ func prepare_event_views(deadline: int) -> bool:
 	for gate in run.charge_gates:
 		if not model_preload(gate.receiver.y) or gate_views.has(gate.id): continue
 		var paths: Array=["res://assets/journey/gate.glb", "res://assets/journey/%s.glb"%("waterwheel" if gate.id=="waterwheel" else "drawbridge")]
+		if gate.get("kind","")=="relay":paths.append(MECH_PLATE)
 		chunk_assets.request(paths)
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
-			gate_views[gate.id]=build_gate(gate)
+			gate_views[gate.id]=quiet_world_text(build_gate(gate))
 			gate_views[gate.id].hide()
 		elif model_visible(gate.receiver.y): ready=false
 	return ready
@@ -548,6 +727,7 @@ func build_event(event: Dictionary) -> Node3D:
 	warning.name="Warning"
 	warning.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	add_sign(root,run.EVENT_NAMES[kind],Vector3(0,5,0),24).name="Hint"
+	quiet_world_text(root)
 	return root
 
 func sync_events() -> void:
@@ -626,12 +806,24 @@ func build_gate(gate: Dictionary) -> Node3D:
 	for side in [-1,1]:
 		var barrier:=box(door,Vector3(side*10,2.4,0),Vector3(12,4.8,0.4),material("gatewood",Color("6d5033")))
 		barrier.name="SideBarrier%d"%side
+	if gate.get("kind","")=="relay":
+		# 接力门：门前、门后各一块石踏板；有人踩住时符文发光。
+		for side in ["near","far"]:
+			var rect:Rect2=gate[side]
+			var center:Vector2=rect.get_center()
+			var plate:=Node3D.new();plate.name=side;root.add_child(plate)
+			plate.position=Vector3(center.x/SCALE,0,-(center.y-gate.door.position.y)/SCALE)
+			tripo_model(plate,MECH_PLATE,Vector3(rect.size.x/SCALE*1.15,.32,rect.size.y/SCALE*1.15),Vector3(0,.12,0))
+			var glow:=cylinder(plate,Vector3(0,.3,0),rect.size.x/SCALE*.42,.03,material("relay_glow_"+side,Color("57dbea") if side=="near" else Color("ffb95e"),1.2))
+			glow.name="Glow"
+		add_sign(root,gate.title,Vector3(0,6,0),32).name="GateTitle"
+		return root
 	for side in ["left","right"]:
 		var rect:Rect2=gate[side]
 		var center:Vector2=rect.get_center()
 		var plate:=box(root,Vector3(center.x/SCALE,0.045,-(center.y-gate.door.position.y)/SCALE),Vector3(rect.size.x/SCALE,0.08,rect.size.y/SCALE),material("plate_"+side,Color("4baba0") if side=="left" else Color("d8a45c"),0.25))
 		plate.name=side
-	add_sign(root,gate.title,Vector3(0,6,0),32)
+	add_sign(root,gate.title,Vector3(0,6,0),32).name="GateTitle"
 	if gate.id=="waterwheel": asset(root,"waterwheel",Vector3(19,0,0),9,PI/2)
 	elif "bridge" in gate.id:
 		asset(root,"drawbridge",Vector3(0,-0.1,-9),0.8)
@@ -646,15 +838,27 @@ func sync_gates() -> void:
 			continue
 		if not gate_views.has(gate.id):
 			if incremental_loading: continue
-			gate_views[gate.id]=build_gate(gate)
+			gate_views[gate.id]=quiet_world_text(build_gate(gate))
 		var view:Node3D=gate_views[gate.id]
 		view.show()
 		sample_animation(view,"BridgeLower",clampf((run.elapsed-gate.opened_at)/0.6,0,1) if gate.open else 0)
 		if gate.id=="waterwheel":sample_animation(view,"WheelTurn",run.elapsed)
 		view.position=Vector3(0,0,-gate.door.position.y/SCALE)
 		var opening:float=clampf((run.elapsed-gate.opened_at)/0.8,0,1) if gate.open else 0
+		# 接力门守板期间门板升起；离开踏板后落下（门洞里有人时模拟会保持打开）。
+		if gate.get("kind","")=="relay":
+			var target:=1.0 if gate.open or gate.get("ajar",false) else 0.0
+			var current:float=view.get_meta("relay_opening",0.0)
+			current=move_toward(current,target,get_process_delta_time()*4.0)
+			view.set_meta("relay_opening",current)
+			opening=maxf(opening,current)
 		sample_animation(view.get_node("Door"),"GateOpen",opening)
 		for side in [-1,1]:view.get_node("Door/SideBarrier%d"%side).position.y=2.4+opening*6.5
+		if gate.get("kind","")=="relay":
+			for n in range(2):
+				var plate:Node3D=view.get_node(["near","far"][n])
+				plate.get_node("Glow").visible=gate.occupied[n] and not gate.open
+			continue
 		for side in ["left","right"]:
 			view.get_node(side).visible=not gate.open
 	# 终点固定在世界中，双方都到达才结算。
@@ -670,6 +874,7 @@ func sync_gates() -> void:
 	road.get_node("JourneyFinish").position.z=-run.finish_distance()/SCALE
 
 func build_journey_ui() -> void:
+	build_post_fx()
 	var canvas:=CanvasLayer.new()
 	canvas.name="JourneyCanvas"
 	add_child(canvas)
@@ -678,20 +883,28 @@ func build_journey_ui() -> void:
 	column.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	column.add_theme_constant_override("separation",5)
 	health_panel.add_child(column)
-	hud=label("",18)
+	hud=label("",17,Color("8fe3d2"))
 	column.add_child(hud)
-	combat_health=health_bar(Color("9cdeb9"),12)
+	combat_health=health_bar(Color("9cdeb9"),10)
 	column.add_child(combat_health)
-	partner_status=label("",15,Color("e4c7a7"))
+	var divider:=ColorRect.new()
+	divider.custom_minimum_size=Vector2(0,1)
+	divider.color=Color(1,1,1,0.12)
+	divider.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	column.add_child(divider)
+	partner_status=label("",13,Color("e4c7a7"))
 	column.add_child(partner_status)
-	partner_health=health_bar(Color("e4b883"),6)
+	partner_health=health_bar(Color("e4b883"),5)
 	column.add_child(partner_health)
 	weapon_panel=hud_panel(canvas)
 	var weapon_column:=VBoxContainer.new()
 	weapon_column.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	weapon_column.add_theme_constant_override("separation",2)
 	weapon_panel.add_child(weapon_column)
-	combat_status=label("",18)
+	var weapon_caption:=label("武器",11,Color("9fb0a6"))
+	weapon_caption.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	weapon_column.add_child(weapon_caption)
+	combat_status=label("",15,Color("cfd6cc"))
 	weapon_column.add_child(combat_status)
 	weapon_icon=TextureRect.new()
 	weapon_icon.texture=preload("res://assets/ui/smg.svg")
@@ -702,9 +915,9 @@ func build_journey_ui() -> void:
 	weapon_icon.tooltip_text="冲锋枪"
 	weapon_icon.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	weapon_column.add_child(weapon_icon)
-	weapon_ammo=label("",30)
+	weapon_ammo=label("",34)
 	weapon_column.add_child(weapon_ammo)
-	weapon_detail=label("",15,Color("e4c7a7"))
+	weapon_detail=label("",13,Color("e4c7a7"))
 	weapon_column.add_child(weapon_detail)
 	for text_label in [combat_status,weapon_ammo,weapon_detail]:
 		text_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
@@ -721,8 +934,16 @@ func build_journey_ui() -> void:
 	touch.combat_buttons=true
 	canvas.add_child(touch)
 	pause_button=Button.new()
-	for state_name in ["normal","hover","pressed","disabled"]:
-		pause_button.add_theme_stylebox_override(state_name,StyleBoxEmpty.new())
+	var pause_normal:=glass_style(0.55,0.30,0,20)
+	pause_normal.content_margin_left=0;pause_normal.content_margin_right=0
+	pause_normal.content_margin_top=0;pause_normal.content_margin_bottom=0
+	var pause_hover:StyleBoxFlat=pause_normal.duplicate()
+	pause_hover.bg_color=Color(0.10,0.13,0.14,0.72)
+	pause_hover.border_color=Color(0.95,0.82,0.60,0.55)
+	pause_button.add_theme_stylebox_override("normal",pause_normal)
+	pause_button.add_theme_stylebox_override("hover",pause_hover)
+	pause_button.add_theme_stylebox_override("pressed",pause_normal)
+	pause_button.add_theme_stylebox_override("focus",StyleBoxEmpty.new())
 	pause_button.tooltip_text="暂停 · Esc"
 	pause_button.draw.connect(func():
 		for x in [14.0,24.0]:
@@ -738,18 +959,21 @@ func build_journey_ui() -> void:
 	panel.position=Vector2(240,170)
 	panel.size=Vector2(800,360)
 	canvas.add_child(panel)
+	panel.add_theme_stylebox_override("panel",glass_style(0.82,0.36,24,14))
 	var inner:=VBoxContainer.new()
-	inner.add_theme_constant_override("separation",10)
+	inner.add_theme_constant_override("separation",12)
 	panel.add_child(inner)
-	title=label("",32)
+	title=label("",38,Color("f7f2e6"))
 	inner.add_child(title)
-	subtitle=label("",17)
+	subtitle=label("",16,Color("cfd6cc"))
+	subtitle.add_theme_constant_override("line_spacing",4)
 	subtitle.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	inner.add_child(subtitle)
 	primary=Button.new()
-	primary.custom_minimum_size=Vector2(0,52)
+	primary.custom_minimum_size=Vector2(0,54)
 	primary.pressed.connect(journey_primary)
 	inner.add_child(primary)
+	style_button(primary,true)
 	training_button=Button.new()
 	training_button.text="战斗训练 · 持枪步行约 90 秒"
 	training_button.custom_minimum_size=Vector2(0,46)
@@ -758,14 +982,17 @@ func build_journey_ui() -> void:
 		run.new_campaign()
 		reset_journey_views())
 	inner.add_child(training_button)
+	style_button(training_button)
 	restart_button=Button.new()
 	restart_button.text="重新开始本关"
 	restart_button.custom_minimum_size=Vector2(0,42)
 	restart_button.pressed.connect(func():
 		command("retry"))
 	inner.add_child(restart_button)
+	style_button(restart_button)
 	touch.blockers.assign([panel,pause_button])
 	var modes:=HBoxContainer.new()
+	modes.add_theme_constant_override("separation",8)
 	inner.add_child(modes)
 	for entry in [["solo","单人＋搭档"],["online","远程双人"]]:
 		var button:=Button.new()
@@ -773,6 +1000,7 @@ func build_journey_ui() -> void:
 		button.set_meta("mode",entry[0])
 		button.pressed.connect(func():choose_mode(entry[0]))
 		modes.add_child(button)
+		style_button(button,false,16,true)
 		mode_buttons.append(button)
 	online_row=HBoxContainer.new()
 	inner.add_child(online_row)
@@ -782,14 +1010,19 @@ func build_journey_ui() -> void:
 	net_address.text=NetClient.page_default_address()
 	if net_address.text.is_empty():net_address.text="ws://127.0.0.1:24681"
 	online_row.add_child(net_address)
+	net_address.add_theme_stylebox_override("normal",glass_style(0.72,0.24,10,8))
+	net_address.add_theme_color_override("font_color",Color("f2ede0"))
+	net_address.add_theme_color_override("caret_color",Color("e8bd7d"))
 	net_button=Button.new()
 	net_button.text="连接队友"
 	net_button.pressed.connect(toggle_online)
 	online_row.add_child(net_button)
+	style_button(net_button,false,16,true)
 	net_status=label("远程双人：连接同一版本网页",16)
 	inner.add_child(net_status)
 	touch.blockers.append(net_button)
 	var choice:=HBoxContainer.new()
+	choice.add_theme_constant_override("separation",8)
 	inner.add_child(choice)
 	for name in ["简单","普通","困难"]:
 		var button:=Button.new()
@@ -797,12 +1030,87 @@ func build_journey_ui() -> void:
 		button.pressed.connect(func():
 			command("difficulty",name))
 		choice.add_child(button)
+		style_button(button,false,16,true)
 		difficulty_buttons.append(button)
+
+func glass_style(alpha:float=0.72,border_alpha:float=0.30,pad:int=16,radius:int=10) -> StyleBoxFlat:
+	# 统一的暗色玻璃面板：深底、细暖边、圆角和轻微投影。
+	var style:=StyleBoxFlat.new()
+	style.bg_color=Color(0.045,0.06,0.07,alpha)
+	style.border_color=Color(0.92,0.78,0.52,border_alpha)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(radius)
+	style.content_margin_left=pad
+	style.content_margin_right=pad
+	style.content_margin_top=pad
+	style.content_margin_bottom=pad
+	style.shadow_color=Color(0,0,0,0.35)
+	style.shadow_size=10
+	return style
+
+func mark_choice(button:Button,selected:bool) -> void:
+	# 模式/难度当前项的选中态；重复调用只在状态变化时改样式。
+	if button.get_meta("choice_selected",false)==selected:return
+	button.set_meta("choice_selected",selected)
+	if selected:
+		var style:=glass_style(0.98,0.80,10,8)
+		style.bg_color=Color("e8bd7d")
+		style.border_color=Color("fff0cd")
+		button.add_theme_stylebox_override("normal",style)
+		button.add_theme_stylebox_override("hover",style)
+		button.add_theme_color_override("font_color",Color("211d16"))
+		button.add_theme_color_override("font_hover_color",Color("211d16"))
+	else:
+		style_button(button,false,16,true)
+
+func style_button(button:Button,accent:bool=false,font_size:int=19,compact:bool=false) -> void:
+	# 主按钮用暖金实心，其余用暗色玻璃；悬停和按下只改亮度和描边。
+	var normal:=glass_style(0.86 if not accent else 1.0,0.30,12 if compact else 16,8)
+	normal.bg_color=Color("e8bd7d") if accent else Color(0.06,0.08,0.09,0.80)
+	normal.border_color=Color("f4d9a6") if accent else Color(0.80,0.68,0.48,0.34)
+	normal.content_margin_top=8 if compact else 12
+	normal.content_margin_bottom=8 if compact else 12
+	var hover:StyleBoxFlat=normal.duplicate()
+	hover.bg_color=Color("f2cd90") if accent else Color(0.10,0.13,0.14,0.90)
+	hover.border_color=Color("fff0cd") if accent else Color(0.95,0.82,0.60,0.58)
+	var pressed:StyleBoxFlat=normal.duplicate()
+	pressed.bg_color=Color("d8ad6e") if accent else Color(0.035,0.045,0.05,0.94)
+	var disabled:StyleBoxFlat=normal.duplicate()
+	disabled.bg_color=Color(0.08,0.09,0.10,0.45)
+	disabled.border_color=Color(1,1,1,0.08)
+	button.add_theme_stylebox_override("normal",normal)
+	button.add_theme_stylebox_override("hover",hover)
+	button.add_theme_stylebox_override("pressed",pressed)
+	button.add_theme_stylebox_override("disabled",disabled)
+	button.add_theme_stylebox_override("focus",StyleBoxEmpty.new())
+	button.add_theme_color_override("font_color",Color("211d16") if accent else Color("f2ede0"))
+	button.add_theme_color_override("font_hover_color",Color("211d16") if accent else Color("ffffff"))
+	button.add_theme_color_override("font_pressed_color",Color("211d16") if accent else Color("efe6d4"))
+	button.add_theme_color_override("font_disabled_color",Color(0.7,0.7,0.7,0.5))
+	button.add_theme_font_size_override("font_size",font_size)
+	if compact:
+		button.custom_minimum_size=Vector2(0,36)
+
+func build_post_fx() -> void:
+	# HUD 在 CanvasLayer 1，后处理放在 0：只压 3D 画面，不压界面。
+	post_canvas=CanvasLayer.new()
+	post_canvas.name="PostFX"
+	post_canvas.layer=0
+	add_child(post_canvas)
+	var vignette:=ColorRect.new()
+	vignette.name="Vignette"
+	vignette.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	vignette_mat=ShaderMaterial.new()
+	vignette_mat.shader=preload("res://scripts/journey_vignette.gdshader")
+	vignette_mat.set_shader_parameter("damage",0.0)
+	vignette_mat.set_shader_parameter("low",0.0)
+	vignette.material=vignette_mat
+	post_canvas.add_child(vignette)
+	vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 func hud_panel(canvas: CanvasLayer) -> PanelContainer:
 	var result:=PanelContainer.new()
-	var style:=StyleBoxEmpty.new()
-	result.add_theme_stylebox_override("panel",style)
+	result.add_theme_stylebox_override("panel",glass_style(0.58,0.26,12,10))
 	result.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(result)
 	return result
@@ -813,9 +1121,15 @@ func health_bar(color: Color, height: float) -> ProgressBar:
 	result.show_percentage=false
 	result.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	var back:=StyleBoxFlat.new()
-	back.bg_color=Color(0.92,0.96,0.91,0.18)
+	back.bg_color=Color(0.015,0.02,0.022,0.85)
+	back.set_corner_radius_all(int(height*0.5))
+	back.border_color=Color(1,1,1,0.10)
+	back.set_border_width_all(1)
 	var fill:=StyleBoxFlat.new()
 	fill.bg_color=color
+	fill.set_corner_radius_all(int(height*0.5))
+	fill.shadow_color=Color(color.r,color.g,color.b,0.40)
+	fill.shadow_size=5
 	result.add_theme_stylebox_override("background",back)
 	result.add_theme_stylebox_override("fill",fill)
 	return result
@@ -902,14 +1216,19 @@ func _physics_process(delta: float) -> void:
 			cost.samples+=1;cost.total_usec+=sample[1];cost.max_usec=maxi(cost.max_usec,sample[1])
 			frame_costs[sample[0]]=cost
 
-func _process(_delta:float)->void:
+func _process(delta:float)->void:
+	# 受击红边和低血量暗角先于视图更新，暂停时也自然衰减。
+	if is_instance_valid(vignette_mat):
+		damage_flash=maxf(0.0,damage_flash-delta*2.4)
+		vignette_mat.set_shader_parameter("damage",damage_flash)
+		vignette_mat.set_shader_parameter("low",low_health)
 	# 每个画面帧只提交一次最终状态，本地与网页使用同一规则。
 	if scene_prepared and view_pending:
 		view_pending=false
 		var started:=Time.get_ticks_usec()
-		frame_delta=_delta
+		frame_delta=delta
 		sync_view()
-		pump_ambience(_delta)
+		pump_ambience(delta)
 		if web_verify:
 			var cost:Dictionary=frame_costs.get("render_view",{"samples":0,"total_usec":0,"max_usec":0})
 			var duration:=Time.get_ticks_usec()-started
@@ -958,31 +1277,97 @@ func sync_view() -> void:
 		shadows[i].position=Vector3(point.x/SCALE,0.02,-point.y/SCALE)
 		shadows[i].scale=Vector3.ONE*(1.0-run.heights[i]/Run.JUMP_APEX*0.35)
 		sync_journey_character(i)
+		# 只在正常行进时出扬尘；救援、失败、暂停与坠落不出。
+		fx.sync_player(i,Vector3(point.x/SCALE,run.floor_heights[i]/SCALE+.05,-point.y/SCALE),run.heights[i],run.state=="running" and not falling(),get_process_delta_time())
 	var path:Array[Vector3]=[]
 	var points:PackedVector2Array=run.rope.physical_path()
 	var zs:PackedFloat32Array=run.rope.physical_heights()
 	for n in range(points.size()): path.append(Vector3(points[n].x/SCALE,zs[n]/SCALE,-points[n].y/SCALE))
-	if path.size()>1: rope_view.simulate(path,0,Color.WHITE,0)
+	if path.size()>1:
+		var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
+		rope_view.energy_level=1.0+night*0.6
+		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time() if run.state=="running" else 0.0)
+		rope_view.simulate(path,0,Color.WHITE,0)
+		sync_rope_light(path,night)
 	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
 	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)*(Atmosphere.SUN_SCALE if atmosphere.enabled else 1.0)
 	canopy_light.light_color=Color("ffe2bd").lerp(Color("e7edce"),forest_weight)
 	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)*(Atmosphere.AMBIENT_SCALE if atmosphere.enabled else 1.0)
-	world_environment.fog_density=lerpf(0.0032,0.0065,forest_weight)
+	# 旧值 0.0032/0.0065 让中景整片发灰；保留空气透视但把层次还给模型和阴影。
+	world_environment.fog_density=lerpf(0.0021,0.0042,forest_weight)
 	world_environment.fog_sky_affect=forest_weight*.85
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
+	var middle:Vector2=(run.a.position+run.b.position)*.5
+	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
+	var lamp:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
 			node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
+		for entry in chunk.get_meta("beacons",[]):
+			var on:bool=fmod(run.elapsed*.8+float(entry[2]),1.0)<.18
+			entry[0].visible=on;entry[1].visible=on
+		for light:OmniLight3D in chunk.get_meta("flicker_lights",[]):
+			var seed:float=light.get_meta("flicker")
+			light.light_energy=4.2*lamp*(0.86+0.1*sin(run.elapsed*13.0+seed)+0.06*sin(run.elapsed*29.0+seed*2.3))
+	sync_hero_lights(float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0)
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 	publish_web_verification()
+
+var rope_light:OmniLight3D
+func sync_rope_light(path:Array[Vector3],night:float)->void:
+	if OS.has_feature("web") or landscape.mobile:return
+	if rope_light==null:
+		rope_light=OmniLight3D.new();rope_light.name="RopeLight"
+		rope_light.shadow_enabled=false;rope_light.omni_range=4.5;rope_light.omni_attenuation=1.3
+		rope_light.light_volumetric_fog_energy=0.0
+		add_child(rope_light)
+	var total:=0.0
+	for n in range(1,path.size()):total+=path[n-1].distance_to(path[n])
+	rope_light.position=RopeView.along(path,total*.5)+Vector3(0,.25,0)
+	var tension:=clampf(run.rope_tension(),0.0,1.0)
+	var blocked:bool=run.rope_status() in ["blocked","unwinding","failed"]
+	rope_light.light_color=Color("ff4a3a") if blocked else Color("9fe8ff").lerp(Color("ffc58a"),.5)
+	rope_light.light_energy=(0.35+0.5*tension+night*0.6)*(1.6 if blocked else 1.0)
+
+# 夜间随身灯：两人头顶各一盏暖/冷色小灯照亮自身与绳索，
+# 再各绑一盏朝前方路面的头灯（聚光），把前方约 20 米内的机关照出来。
+var hero_lights:Array[OmniLight3D]=[]
+var head_lamps:Array[SpotLight3D]=[]
+func sync_hero_lights(level:float)->void:
+	if hero_lights.is_empty():
+		if level<=0.0:return
+		for i in range(2):
+			var light:=OmniLight3D.new()
+			light.light_color=Color("bfeaff") if i==0 else Color("ffe2c4")
+			light.omni_range=9.0;light.omni_attenuation=1.0
+			light.shadow_enabled=false
+			light.light_volumetric_fog_energy=0.6
+			add_child(light);hero_lights.append(light)
+			var lamp:=SpotLight3D.new()
+			lamp.light_color=Color("e6f4ff") if i==0 else Color("fff0dc")
+			lamp.spot_range=22.0;lamp.spot_angle=32.0;lamp.spot_angle_attenuation=0.7;lamp.spot_attenuation=0.45
+			lamp.shadow_enabled=false;lamp.light_volumetric_fog_energy=1.4
+			add_child(lamp);head_lamps.append(lamp)
+	for i in range(2):
+		var light:=hero_lights[i]
+		light.visible=level>0.0 and is_instance_valid(robots[i])
+		head_lamps[i].visible=light.visible
+		if not light.visible:continue
+		light.light_energy=0.75*level
+		light.global_position=robots[i].global_position+Vector3(0,3.6,1.6)
+		var lamp:=head_lamps[i]
+		lamp.visible=true;lamp.light_energy=10.0*level
+		var head:=robots[i].global_position+Vector3(0,2.0,0.2)
+		lamp.global_position=head
+		lamp.look_at(robots[i].global_position+Vector3(0,0,-9.0),Vector3.UP)
 
 # 旅程使用固定世界坐标；沿用道路版动作与腰部旋转，身体仍由真实物理位置驱动。
 func sync_journey_character(i:int)->void:
@@ -992,9 +1377,26 @@ func sync_journey_character(i:int)->void:
 	for child in robots[i].get_children():
 		if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
 	robots[i].rotation=Vector3.ZERO
+	# 横向移动时身体朝移动方向轻微转向，不再像横向滑移。
+	var target_yaw:float=0.0
+	if visual_state=="running":
+		target_yaw=-run.move_directions[i].x*0.42
+	visual_yaw[i]=lerpf(visual_yaw[i],target_yaw,clampf(frame_delta*10.0,0.0,1.0))
+	if visual_state in ["running","start","settlement","complete"]:
+		robots[i].rotation.y=visual_yaw[i]
 	if visual_state=="running":
 		robots[i].rotation.x=-0.13-run.move_directions[i].y*0.07 if run.actions[i]=="Run" else 0.0
 		robots[i].rotation.z=-run.move_directions[i].x*0.06
+	# 起跳/落地只做视觉压缩，不改物理高度和碰撞。
+	if visual_last_heights[i]>6.0 and run.heights[i]<=0.5:land_impact[i]=1.0
+	visual_last_heights[i]=run.heights[i]
+	land_impact[i]=maxf(0.0,land_impact[i]-frame_delta*7.0)
+	if i<character_models.size():
+		var model_node:Node3D=character_models[i]
+		var base:Vector3=model_node.get_meta("base_scale",model_node.scale)
+		var squash:float=land_impact[i]
+		var target_scale:Vector3=base*Vector3(1.0+squash*0.10,1.0-squash*0.16,1.0+squash*0.10)
+		if not model_node.scale.is_equal_approx(target_scale):model_node.scale=target_scale
 	if rescuing:
 		var body:Vector3=run.rescue_body_position(i)
 		robots[i].position=Vector3(body.x/SCALE,body.y/SCALE,-body.z/SCALE)
@@ -1040,7 +1442,10 @@ func sync_journey_character(i:int)->void:
 	if run.state in ["start","settlement","complete"]:action="Idle"
 	play_action(player,action)
 	var pace:float=run.WALK_SPEED/160.0*(run.Combat.MOVE_SCALE if not run.combat.weapons[i].is_empty() else 1.0)
-	player.speed_scale=1.1*pace if action=="Run" else 1.0
+	if action=="Run":
+		player.speed_scale=1.1*pace
+	else:
+		player.speed_scale=1.0
 	if run.heights[i]>0:
 		player.seek(clampf((Run.JUMP_SPEED-run.vertical_speed[i])/Run.GRAVITY/(2*Run.JUMP_SPEED/Run.GRAVITY),0,1)*player.current_animation_length,true)
 
@@ -1156,6 +1561,9 @@ func update_journey_ui() -> void:
 	for button in mode_buttons:
 		button.visible=run.state=="start" and not run.combat_trial
 		button.disabled=net.active()
+		mark_choice(button,button.get_meta("mode","")==play_mode)
+	for button in difficulty_buttons:
+		mark_choice(button,button.text==run.difficulty)
 	online_row.visible=play_mode=="online" and run.state in ["start","paused"]
 	net_status.visible=play_mode=="online"
 	net_button.text="断开连接" if net.active() else "连接队友"
@@ -1170,13 +1578,32 @@ func update_journey_ui() -> void:
 	weapon_panel.position=Vector2(viewport.x-inset-hud_width,inset)
 	pause_button.position=Vector2(viewport.x/2-20,inset)
 	pause_button.size=Vector2(40,40)
-	panel.size.x=minf(800,viewport.x-32)
-	panel.position=Vector2((viewport.x-panel.size.x)/2,maxf(12,(viewport.y-panel.size.y)/2))
+	# 开始页和暂停页的按钮数量不同，面板高度跟内容走，避免底部留一大块空板。
+	var panel_width:=minf(800,viewport.x-32)
+	var panel_height:=maxf(260.0,panel.get_combined_minimum_size().y)
+	panel.size=Vector2(panel_width,panel_height)
+	panel.position=Vector2((viewport.x-panel_width)/2,maxf(12,(viewport.y-panel_height)/2))
 	var role: int=net.role if play_mode=="online" and net.in_match else 0
 	combat_health.value=run.combat.health[role]
 	partner_health.value=run.combat.health[1-role]
 	hud.text="%02d   %d / 100%s"%[role+1,run.combat.health[role],"  护盾" if run.shield else ""]
 	partner_status.text="%02d   %d / 100"%[2-role,run.combat.health[1-role]]
+	# 受击红边与低血量暗角：只读取同步后的真实血量，不参与判定。
+	var top_health: int = run.combat.health[role]
+	var second_health: int = run.combat.health[1-role]
+	if top_health<last_health[0] or second_health<last_health[1]:
+		damage_flash=1.0
+		for hurt_role in range(2):
+			var before:int=last_health[0] if hurt_role==role else last_health[1]
+			if run.combat.health[hurt_role]<before and is_instance_valid(fx):
+				fx.impact(robots[hurt_role].global_position,Color("ff3b2a"),1.8,2.6)
+	last_health[0]=top_health;last_health[1]=second_health
+	low_health=clampf((35.0-minf(top_health,second_health))/35.0,0.0,1.0)
+	var role_color:=Color("8fe3d2") if role==0 else Color("f0c089")
+	if hud.get_meta("role_color",Color(-1,-1,-1))!=role_color:
+		hud.set_meta("role_color",role_color)
+		hud.add_theme_color_override("font_color",role_color)
+		partner_status.add_theme_color_override("font_color",Color("f0c089") if role==0 else Color("8fe3d2"))
 	for entry in [[combat_health,role],[partner_health,1-role]]:
 		var fill: StyleBoxFlat=entry[0].get_theme_stylebox("fill")
 		fill.bg_color=Color("ef8078") if run.combat.health[entry[1]]<=30 else (Color("9cdeb9") if entry[1]==role else Color("e4b883"))
@@ -1303,13 +1730,24 @@ func hazard_view_y(index: int) -> float:
 	return run.obstacles[index].get_center().y
 
 func hazard_has_view(index: int) -> bool:
-	return run.hazard_specs[index].get("front",false) or run.kinds[index] in ["drone","rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
+	return run.hazard_specs[index].get("front",false) or run.kinds[index] in ["drone","rail","pillar","cargo","active_spikes","jump_bar","color_gate","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
 
 func hazard_asset_paths(index:int)->Array:
 	match run.kinds[index]:
 		"drone":return ["res://assets/props/Eagle_Flying.glb"]
 		"stone_ball":return [TRIPO_BOULDER]
+		"iron_ball":return [MECH_SPIKED_BALL]
+		"pillar":return [MECH_STONE_POST]
+		"active_spikes":return [MECH_SPIKE_TRAP]
+		"rocket":return [MECH_FIRE_BOLT]
+		"fly_low","fly_body":return [MECH_FLYING_ROCK]
+		"steam":return [MECH_STEAM_VENT]
+		"sweeper":return [MECH_SPIKED_LOG,MECH_PIVOT]
+		"lift":return [MECH_LIFT]
 		"rail":return [TRIPO_TIMBER]
+		"jump_bar":return [MECH_PIVOT]
+		"barrel":return [BARREL_MODEL]
+		"color_gate":return [MECH_ARCH[int(run.hazard_specs[index].get("role",0))]]
 	return []
 
 # 模型只适配已有危险体；轮廓中心、旋转轴和碰撞规则不随美术替换变化。
@@ -1327,12 +1765,13 @@ func tripo_model(parent:Node3D,path:String,size:Vector3,center:Vector3)->Node3D:
 
 func build_ball_model(chunk:Node3D,index:int)->void:
 	super.build_ball_model(chunk,index)
-	if run.kinds[index]!="stone_ball":return
+	if run.kinds[index] not in ["stone_ball","iron_ball"]:return
 	var body:MeshInstance3D=chunk.get_node("BallBody")
 	for child in body.get_children():child.free()
 	body.material_override=zone_material("hidden_tripo_ball",Color(0,0,0,0))
 	var diameter:float=run.obstacles[index].size.x/SCALE
-	tripo_model(body,TRIPO_BOULDER,Vector3.ONE*diameter,Vector3.ZERO)
+	# 铁球换成带刺铁锤球；刺尖略超出碰撞球体约 6%，对玩家从宽。
+	tripo_model(body,TRIPO_BOULDER if run.kinds[index]=="stone_ball" else MECH_SPIKED_BALL,Vector3.ONE*diameter*(1.0 if run.kinds[index]=="stone_ball" else 1.12),Vector3.ZERO)
 
 func prepare_hazard_views(deadline: int) -> bool:
 	var ready:=true
@@ -1361,7 +1800,7 @@ func sync_static_hazard(i: int) -> void:
 	if kind=="drone" or run.hazard_specs[i].get("front",false):
 		sync_moving_threat(i)
 		return
-	if kind not in ["rail","pillar","cargo","active_spikes","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:return
+	if kind not in ["rail","pillar","cargo","active_spikes","jump_bar","color_gate","collapse","sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]:return
 	var rect:Rect2=run.obstacles[i]
 	if not model_preload(rect.get_center().y):
 		if static_views.has(i):static_views[i].hide()
@@ -1383,8 +1822,15 @@ func sync_static_hazard(i: int) -> void:
 		road.add_child(view)
 		if kind=="rail":
 			tripo_model(view,TRIPO_TIMBER,Vector3(rect.size.x/SCALE,.6,rect.size.y/SCALE),Vector3(0,.3,0))
-		elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
-		elif kind=="cargo":
+		elif kind=="pillar":
+			# 立柱换成雕刻石界桩；方柱外接碰撞圆柱，高度与碰撞顶高（5 米）一致。
+			tripo_model(view,MECH_STONE_POST,Vector3(rect.size.x/SCALE*1.25,5.0,rect.size.x/SCALE*1.25),Vector3(0,2.5,0))
+		elif kind=="jump_bar":build_jump_bar(view,rect)
+		elif kind=="color_gate":build_color_gate(view,rect,int(run.hazard_specs[i].get("role",0)))
+		elif kind=="cargo" and run.hazard_specs[i].get("color_wall",false):
+			# 颜色门两侧与中间的石墙：整齐砌石，与门拱同高同色。
+			box(view,Vector3(0,1.5,0),Vector3(rect.size.x/SCALE,3.0,rect.size.y/SCALE+.2),landscape.palette.Stone)
+		elif kind=="cargo" and not run.hazard_specs[i].get("color_wall",false):
 			rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
 			var half_height:float=run.obstacle_heights[i]/SCALE/2 if run.hazard_specs[i].get("small",false) else 1.5
 			view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,half_height,rect.size.y/SCALE/2)
@@ -1394,25 +1840,201 @@ func sync_static_hazard(i: int) -> void:
 			for n in range(7):
 				var crack:=box(view,Vector3(-rect.size.x/SCALE/2+n*1.6,.027,0),Vector3(.08,.025,rect.size.y/SCALE),material("fragile_cracks",Color("25261d")));crack.rotation.y=.18 if n%2==0 else -.18
 		else:
-			box(view,Vector3(0,.03,0),Vector3(rect.size.x/SCALE,.06,rect.size.y/SCALE),material("trap_base",Color("524935")))
-			var spike_count:int=maxi(1,floori(rect.size.x/SCALE/.65))
-			for n in range(spike_count):
-				var spike:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=0;mesh.bottom_radius=.18;mesh.height=.8;mesh.radial_segments=5
-				spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3((float(n)+.5)/spike_count*rect.size.x/SCALE-rect.size.x/SCALE/2,.4,0);view.add_child(spike)
+			# 活动地刺：铁刺陷阱板模型（原模型竖放、刺尖朝 +X，绕 Z 轴放平使刺尖朝上），伸缩时整块升降。
+			var trap:=Node3D.new();trap.name="TrapModel";view.add_child(trap)
+			var holder:=Node3D.new();trap.add_child(holder);holder.rotation.z=PI/2
+			tripo_model(holder,MECH_SPIKE_TRAP,Vector3(.8,rect.size.x/SCALE,rect.size.y/SCALE*1.05),Vector3.ZERO)
+			holder.position.y=.4
 			var warning:=box(view,Vector3(0,.065,0),Vector3(rect.size.x/SCALE+.08,.025,rect.size.y/SCALE+.08),material("small_trap_warning",Color("e7ae43"),.25))
 			warning.name="SpikeWarning"
-		static_views[i]=view
+		static_views[i]=quiet_world_text(view)
 	static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 	static_views[i].visible=model_visible(rect.get_center().y)
+	if kind=="color_gate":fade_passed_color_gate(static_views[i],rect.get_center().y)
 	if kind=="collapse":static_views[i].visible=static_views[i].visible and run.hazard_sample(i,run.elapsed).stage!="collapsed"
+	if kind=="jump_bar":sync_jump_bar(static_views[i],i)
 	if kind=="active_spikes":
 		var sample:Dictionary=run.hazard_sample(i,run.elapsed)
-		for n in range(1,static_views[i].get_child_count()):
-			var spike:Node3D=static_views[i].get_child(n)
-			if spike.name=="SpikeWarning":
-				spike.visible=sample.warning
-				continue
-			spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
+		static_views[i].get_node("SpikeWarning").visible=sample.warning
+		# 收回时刺板沉到路面以下，伸出量与模拟顶高同步。
+		static_views[i].get_node("TrapModel").position.y=(clampf(sample.top/16.0,0.0,1.0)-1.0)*.75
+
+# 两侧石质转轴柱 + 横贯全路的木杆；木杆绕 X 轴整圈旋转，最低点对齐模拟中贴地窗口的中点。
+func build_jump_bar(view:Node3D,rect:Rect2)->void:
+	var half:float=rect.size.x/SCALE/2
+	for side in [-1.0,1.0]:
+		var post:=Node3D.new();view.add_child(post);post.position=Vector3(side*(half+.9),0,0)
+		tripo_model(post,MECH_PIVOT,Vector3(1.3,JUMP_BAR_AXLE+.45,1.3),Vector3(0,(JUMP_BAR_AXLE+.45)/2,0))
+	var axle:=Node3D.new();axle.name="Axle";view.add_child(axle);axle.position.y=JUMP_BAR_AXLE
+	var arm:=Node3D.new();arm.name="Arm";axle.add_child(arm)
+	var wood:Material=landscape.palette.Wood
+	var log:=cylinder(arm,Vector3(0,JUMP_BAR_RADIUS,0),.28,half*2+1.8,wood);log.rotation.z=PI/2
+	for side in [-1.0,1.0]:
+		var spoke:=cylinder(arm,Vector3(side*(half+.9),JUMP_BAR_RADIUS/2,0),.09,JUMP_BAR_RADIUS,landscape.palette.Iron)
+	var warning:=box(view,Vector3(0,.02,0),Vector3(half*2,.02,rect.size.y/SCALE+.6),material("jump_bar_warning",Color(1,.45,.12,.45),.35))
+	warning.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	warning.name="Warning"
+
+func sync_jump_bar(view:Node3D,index:int)->void:
+	var spec:Dictionary=run.hazard_specs[index]
+	var period:float=spec.get("period",2.4)
+	var cycle:=fposmod(run.elapsed+float(spec.get("phase",0.0)),period)
+	var bottom_time:float=float(spec.get("warning",.9))+float(spec.get("active",.22))*.5
+	# θ=0 木杆在正上方，θ=π 贴地；匀速一圈一周期。
+	view.get_node("Axle/Arm").rotation.x=PI+TAU*(cycle-bottom_time)/period
+	view.get_node("Warning").visible=run.hazard_sample(index,run.elapsed).warning
+
+# ---- 预警表现：地面图形取代世界文字 ----
+# 机关说明、事件提示与合作门标题不在场景里渲染（顶部提示栏仍显示当前最近的危险与做法）；
+# 所有地面预警片统一为红橙斜纹、呼吸闪烁的着色器，按世界坐标铺纹，不随尺寸拉伸。
+const QUIET_LABELS := ["WarningLabel","Hint","GateTitle","TerrainSign"]
+const TELEGRAPH_NODES := ["WarningFootprint","FlightRoute","TrajectoryCorridor","Warning","HammerZone","SpikeWarning"]
+var telegraph_material:ShaderMaterial
+
+func telegraph()->ShaderMaterial:
+	if telegraph_material==null:
+		var shader:=Shader.new()
+		shader.code="""shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+varying vec3 world;
+void vertex(){ world=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz; }
+void fragment(){
+	float stripe=step(0.5,fract((world.x+world.z)*0.55-TIME*0.9));
+	float pulse=0.62+0.38*sin(TIME*7.0);
+	ALBEDO=mix(vec3(0.95,0.18,0.07),vec3(1.0,0.6,0.12),stripe);
+	ALPHA=(0.30+0.32*stripe)*pulse;
+}"""
+		telegraph_material=ShaderMaterial.new();telegraph_material.shader=shader
+	return telegraph_material
+
+func quiet_world_text(node:Node)->Node:
+	if node is Label3D and node.name in QUIET_LABELS:node.layers=0
+	elif node is MeshInstance3D and node.name in TELEGRAPH_NODES:node.material_override=telegraph()
+	for child in node.get_children():quiet_world_text(child)
+	return node
+
+func make_hazard_view(index:int)->Node3D:
+	var view:Node3D=super.make_hazard_view(index)
+	if run.kinds[index]=="rocket":dress_rocket(view,index)
+	return quiet_world_text(view)
+
+# 火箭的方块机身与尾翼换成火焰弩箭；箭头朝向镜头（+Z，迎面飞来），长度与危险盒一致。
+func dress_rocket(view:Node3D,index:int)->void:
+	for child in view.get_children():
+		if child is MeshInstance3D and child.name not in TELEGRAPH_NODES and child.name!="DangerVolume" and child.name!="ThreatShadow":child.visible=false
+		if child.name=="DangerVolume":child.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	var rect:Rect2=run.obstacles[index]
+	var spec:Dictionary=run.hazard_specs[index]
+	var holder:=Node3D.new();holder.name="Bolt";view.add_child(holder)
+	holder.position.y=(spec.bottom+run.obstacle_heights[index])/SCALE/2
+	tripo_model(holder,MECH_FIRE_BOLT,Vector3(rect.size.x/SCALE*.9,(run.obstacle_heights[index]-spec.bottom)/SCALE*1.2,rect.size.y/SCALE*1.1),Vector3.ZERO)
+
+# 压机、活塞、横移撞锤：保留同源碰撞尺寸与运动，只把纯色方块换成石块与木架材质，
+# 危险部件为花岗岩并保留黄色警示条，支架为木料，不再是橙色占位方块。
+func build_industrial_model(chunk:Node3D,index:int)->void:
+	super.build_industrial_model(chunk,index)
+	if run.kinds[index]=="steam":
+		# 地火喷口：贴地喷嘴平板换成石圈铁栅喷口模型，喷流保持原样。
+		var nozzle:MeshInstance3D=chunk.get_node("nozzle")
+		nozzle.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+		var rect:Rect2=run.obstacles[index]
+		var vent:=Node3D.new();vent.name="Vent";chunk.add_child(vent)
+		tripo_model(vent,MECH_STEAM_VENT,Vector3(minf(rect.size.x,rect.size.y*2.2)/SCALE,.5,rect.size.y/SCALE*1.1),Vector3(0,.2,0))
+		return
+	if run.kinds[index]=="hammer":
+		# 摆锤门架的钢柱、横梁改为木料，与村庄与林地的木构一致。
+		for name in ["PostLeft","PostRight","Beam"]:
+			if chunk.has_node(name):chunk.get_node(name).material_override=landscape.palette.Wood
+		return
+	if run.kinds[index] not in ["press","piston","shuttle"]:return
+	for child in chunk.get_children():
+		if not child is MeshInstance3D:continue
+		if child.name in ["head","plate","ram"]:
+			child.material_override=landscape.palette.Stone
+			if run.kinds[index]=="press":
+				for band in [-.32,.32]:
+					var strip:=box(child,Vector3(band,0,.505),Vector3(.1,.9,.01),material("mechanical_stripe",Color("ffcf72")))
+		elif child.name.begins_with("post_") or child.name in ["beam","shaft","track"]:
+			child.material_override=landscape.palette.Wood
+
+# 颜色门：水晶石拱（模型开口沿 Z，旋转 90° 后横跨门洞）+ 同色地面引导带。
+func build_color_gate(view:Node3D,rect:Rect2,role:int)->void:
+	var holder:=Node3D.new();view.add_child(holder);holder.rotation.y=PI/2
+	tripo_model(holder,MECH_ARCH[role],Vector3(1.4,5.2,rect.size.x/SCALE+1.0),Vector3(0,2.6,0))
+	var color:=Color("57dbea") if role==0 else Color("ffb95e")
+	var lane:=box(view,Vector3(0,.025,1.6),Vector3(rect.size.x/SCALE*.8,.02,3.2),material("color_lane_%d"%role,Color(color.r,color.g,color.b,.5),.6))
+	lane.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	add_sign(view,"01" if role==0 else "02",Vector3(0,5.8,0),40).modulate=color
+
+# 角色通过水晶门后，拱门正落在镜头下缘，会挡住前路并和角色头顶的 01/02 重复。
+# 按落后距离让整座门（含标签）逐渐淡出，最后直接隐藏；碰撞与判定完全不变。
+func fade_passed_color_gate(view:Node3D,y:float)->void:
+	var behind: float = run.distance-y
+	var fade: float = clampf((behind-40.0)/180.0,0.0,1.0)
+	view.visible=view.visible and fade<0.99
+	if not view.visible:return
+	for node in view.find_children("*","GeometryInstance3D",true,false):
+		if node is Label3D:
+			var base:Color=node.get_meta("look_base_modulate",node.modulate)
+			node.set_meta("look_base_modulate",base)
+			node.modulate=Color(base.r,base.g,base.b,base.a*(1.0-fade))
+		else:
+			(node as GeometryInstance3D).transparency=fade
+
+# 升降平台：木板拼的台面换成带护栏的木质升降台模型，挂在随模拟升降的 TerrainDeck 下。
+func build_terrain_model(view:Node3D,index:int)->void:
+	super.build_terrain_model(view,index)
+	if run.kinds[index]!="lift":return
+	var deck:MeshInstance3D=view.get_node("TerrainDeck")
+	deck.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	for child in deck.get_children():
+		if child is MeshInstance3D:child.visible=false
+	var rect:Rect2=run.obstacles[index]
+	var platform:=Node3D.new();deck.add_child(platform)
+	tripo_model(platform,MECH_LIFT,Vector3(rect.size.x/SCALE,.9,rect.size.y/SCALE),Vector3(0,-.3,0))
+
+# 旋转扫杆：立柱换成石质转轴，橙色杆体换成带刺圆木（模型长轴沿 Z，转 90° 对齐杆体 X 轴）。
+func build_surface_hazard(chunk:Node3D,index:int)->void:
+	super.build_surface_hazard(chunk,index)
+	if run.kinds[index]!="sweeper":return
+	var post:MeshInstance3D=chunk.get_node("SweeperPost")
+	var arm:MeshInstance3D=chunk.get_node("SweeperArm")
+	var post_size:Vector3=Vector3(post.mesh.top_radius*2,post.mesh.height,post.mesh.top_radius*2)
+	post.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	var pivot:=Node3D.new();chunk.add_child(pivot)
+	tripo_model(pivot,MECH_PIVOT,Vector3(post_size.x*1.6,post_size.y,post_size.z*1.6),Vector3(0,post_size.y/2,0))
+	var size:Vector3=arm.mesh.size
+	arm.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	for child in arm.get_children():
+		if child is MeshInstance3D:child.visible=false
+	var log:=Node3D.new();log.rotation.y=PI/2;arm.add_child(log)
+	tripo_model(log,MECH_SPIKED_LOG,Vector3(size.y*1.6,size.y*1.6,size.x),Vector3.ZERO)
+
+# 两个横躺木桶并排组成 4.5 米宽的滚桶；只替换外观，危险体仍按模拟矩形判定。
+func build_barrel_row(view:Node3D,rect:Rect2,sample:Dictionary)->void:
+	view.get_node("DangerVolume").visible=false
+	var row:=Node3D.new();row.name="BarrelRow";view.add_child(row)
+	var diameter:float=(sample.top-sample.bottom)/SCALE
+	row.position.y=diameter/2
+	var piece:float=rect.size.x/SCALE/2
+	for n in range(2):
+		var holder:=Node3D.new();row.add_child(holder);holder.position.x=(n-.5)*piece
+		# 模型桶轴沿 Z，绕 Y 轴转 90° 后沿 X；桶长略短于每段宽度留出缝隙。
+		tripo_model(holder,BARREL_MODEL,Vector3(diameter,diameter,piece*.94),Vector3.ZERO)
+		holder.rotation.y=PI/2
+
+func sync_barrel_row(view:Node3D,index:int,sample:Dictionary)->void:
+	var row:Node3D=view.get_node("BarrelRow")
+	var spec:Dictionary=run.hazard_specs[index]
+	view.get_node("WarningFootprint").visible=sample.warning
+	if sample.stage=="tripped":
+		# 被绳子绊倒：向前翻倒、下沉并在 0.6 秒内消失。
+		var age:float=run.elapsed-float(spec.get("tripped_at",run.elapsed))
+		row.rotation.x=-smoothstep(0.0,.35,age)*1.1
+		row.position.y=(sample.top-sample.bottom)/SCALE/2-smoothstep(.2,.6,age)*1.5
+		view.visible=view.visible and age<.6
+		return
+	row.rotation.x=float(spec.travel)/((sample.top-sample.bottom)/2)
 
 func sync_moving_threat(index:int)->void:
 	var kind:String=run.kinds[index]
@@ -1426,7 +2048,10 @@ func sync_moving_threat(index:int)->void:
 		if kind.begins_with("fly_"):
 			var volume:MeshInstance3D=created.get_node("DangerVolume")
 			volume.material_override=zone_material("hidden_flying_stone",Color(0,0,0,0))
-			CombatView.EnemyView.volume(volume,Vector3.ZERO,Vector3(rect.size.x/SCALE,(sample.top-sample.bottom)/SCALE,rect.size.y/SCALE),landscape.palette.Stone)
+			var rock_size:=Vector3(rect.size.x/SCALE,(sample.top-sample.bottom)/SCALE,rect.size.y/SCALE)
+			var spin:=Node3D.new();spin.name="Spin";volume.add_child(spin)
+			tripo_model(spin,MECH_FLYING_ROCK,Vector3.ONE*maxf(rock_size.x,rock_size.y)*1.05,Vector3.ZERO)
+		if kind=="barrel":build_barrel_row(created,rect,sample)
 		static_views[index]=created
 	var view:Node3D=static_views[index]
 	view.position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
@@ -1443,10 +2068,12 @@ func sync_moving_threat(index:int)->void:
 	if Run.Threats.is_ball(kind):
 		view.get_node("BallBody").rotation.x=run.hazard_specs[index].travel/(rect.size.x/2)
 		view.get_node("ContactRing").visible=run.rope.touches(run.obstacle_ids[index])
+	elif kind=="barrel":sync_barrel_row(view,index,sample)
 	else:
 		var volume:Node3D=view.get_node("DangerVolume")
 		volume.position.y=(sample.bottom+sample.top)/SCALE/2
 		volume.visible=sample.active
+		if volume.has_node("Spin"):volume.get_node("Spin").rotation=Vector3(run.elapsed*5.0,run.elapsed*2.0,0)
 		view.get_node("WarningFootprint").visible=sample.warning
 
 func choose_mode(value:String)->void:

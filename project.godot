@@ -15,6 +15,7 @@ renderer/rendering_method.mobile="gl_compatibility"
 renderer/rendering_method.web="gl_compatibility"
 gl_compatibility/driver.windows="opengl3_angle"
 anti_aliasing/quality/msaa_3d=1
+anti_aliasing/quality/use_debanding=true
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.055, 0.075, 0.11, 1)
 

@@ -18,6 +18,7 @@ var run = create_run()
 var road := Node3D.new()
 var camera := Camera3D.new()
 var robots: Array[Node3D] = []
+var character_models: Array[Node3D] = []
 # 旧版方条绳索的节点池已由 rope_view 取代；保留空数组供历史测试读取。
 var cable_parts: Array[MeshInstance3D] = []
 var hud: Label
@@ -267,6 +268,25 @@ func model_bounds(root: Node3D, node: Node) -> AABB:
 	return bounds
 
 # Blender 生成的救援动作（tools/blender/make_rescue_anims.py）：与冒险者共用骨架路径。
+# Tripo 生成的两名主角（Mixamo 骨架），动作沿用 Adventurer 与救援动画：
+# 导入时两边都映射到 Godot 人形骨骼并修正为 T 姿势，动画轨道统一为 %GeneralSkeleton:<人形骨骼名>。
+const HERO_MODELS := ["res://assets/humans/hero_01.glb", "res://assets/humans/hero_02.glb"]
+const ANIMATION_SOURCE := "res://assets/humans/Adventurer_A.glb"
+var hero_library: AnimationLibrary
+
+func hero_animation_library() -> AnimationLibrary:
+	if hero_library == null:
+		var source: Node = load(ANIMATION_SOURCE).instantiate()
+		var players: Array = source.find_children("*", "AnimationPlayer", true, false)
+		hero_library = players[0].get_animation_library("").duplicate() if not players.is_empty() else AnimationLibrary.new()
+		source.free()
+	return hero_library
+
+# 人形骨骼名优先，旧 Quaternius 名作后备。
+static func find_bone(skeleton: Skeleton3D, humanoid: String, legacy: String) -> int:
+	var bone := skeleton.find_bone(humanoid)
+	return bone if bone >= 0 else skeleton.find_bone(legacy)
+
 const RESCUE_CLIPS := {"RopePull": "res://assets/humans/rescue_ropepull.glb", "Climb": "res://assets/humans/rescue_climb.glb"}
 var rescue_clips := {}
 
@@ -280,6 +300,11 @@ func add_rescue_clips(player: AnimationPlayer) -> void:
 			if not source.is_empty() and not source[0].get_animation_list().is_empty():
 				var anim: Animation = source[0].get_animation(source[0].get_animation_list()[0]).duplicate()
 				anim.loop_mode = Animation.LOOP_LINEAR
+				# 动作源把脚骨叫 PT.L/PT.R，主角烘焙后是人形 LeftToes/RightToes。
+				for track in range(anim.get_track_count()):
+					var path := String(anim.track_get_path(track))
+					if path.contains("PT.L") or path.contains("PT.R"):
+						anim.track_set_path(track, NodePath(path.replace("PT.L","LeftToes").replace("PT.R","RightToes")))
 				rescue_clips[clip] = anim
 			root.free()
 	var library: AnimationLibrary = player.get_animation_library("")
@@ -299,8 +324,8 @@ func hand_point(i: int) -> Vector3:
 	if skeleton == null or not is_instance_valid(skeleton): return fallback
 	var sum := Vector3.ZERO
 	var count := 0
-	for bone_name in ["Wrist.L", "Wrist.R"]:
-		var bone := skeleton.find_bone(bone_name)
+	for names in [["LeftHand", "Wrist.L"], ["RightHand", "Wrist.R"]]:
+		var bone := find_bone(skeleton, names[0], names[1])
 		if bone >= 0:
 			sum += skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
 			count += 1
@@ -657,6 +682,9 @@ func build_hazard_model(chunk: Node3D, index: int) -> void:
 	volume.name = "DangerVolume"
 	if kind == "rail":
 		box(chunk, Vector3(0, height - 0.08, 0), Vector3(rect.size.x / SCALE, 0.16, rect.size.y / SCALE), material("rail_stripe", Color("ffe4a1")))
+	if kind == "barrel":
+		# 横滚木桶外观由旅程视图替换；这里只保留与飞行物一致的地面来向预警线。
+		box(chunk, Vector3(0, 0.025, 5), Vector3(rect.size.x / SCALE, 0.02, 10), zone_material("flight_route", Color(1.0, 0.3, 0.12, 0.4))).name = "FlightRoute"
 	if kind.begins_with("fly_") or kind == "rocket":
 		# 前灯和推进器位于危险包围盒内部，不扩大视觉危险范围。
 		box(volume, Vector3(0, 0, rect.size.y / SCALE / 2 + 0.001), Vector3(rect.size.x / SCALE * 0.7, height * 0.15, 0.02), material("flight_light", Color("ffc15c"), 0.8))
@@ -905,8 +933,9 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 	corridor.rotation.y = atan2(-delta.x, delta.y)
 	var sign: Label3D = view.get_node("WarningLabel")
 	sign.position = Vector3(0, 7.0, 0)
-	var stage: String = {"warning": "预警", "flight": "俯冲", "spent": "已通过", "parked": "停驻", "crossing": "横穿", "down": "下压", "hold": "停留", "up": "回升", "safe": "开放时窗", "ready": "待触发", "lower": "落锤", "swing": "摆动", "raise": "抬锤", "intact": "完整地板", "crack": "裂纹预警", "grace": "退出宽限", "collapsed": "已塌陷", "pressure": "升压", "jet": "喷射", "fade": "消退"}.get(sample.stage, sample.stage)
-	sign.text = stage + " · " + Run.hazard_name(run.kinds[index])
+	var stage: String = {"warning": "预警", "flight": "俯冲", "spent": "已通过", "parked": "停驻", "crossing": "横穿", "down": "下压", "hold": "停留", "up": "回升", "safe": "开放时窗", "ready": "待触发", "lower": "落锤", "swing": "摆动", "raise": "抬锤", "intact": "完整地板", "crack": "裂纹预警", "grace": "退出宽限", "collapsed": "已塌陷", "pressure": "升压", "jet": "喷射", "fade": "消退", "shuttling": "往复横移", "cycling": "升降循环", "active": "启动", "extend": "伸出", "retract": "收回", "tripped": "已绊倒", "rotate": "旋转"}.get(sample.stage, "")
+	# 未登记的内部阶段名不显示，避免英文代号出现在提示里。
+	sign.text = (stage + " · " if stage != "" else "") + Run.hazard_name(run.kinds[index])
 	if run.kinds[index] == "collapse" and sample.remaining >= 0: sign.text += " · %.1f 秒" % sample.remaining
 	if run.kinds[index] == "drone": sign.text += " · 高度 0.9–2.4m · 锁定后不追踪"
 
@@ -1025,22 +1054,23 @@ func skeleton_of(node: Node) -> Skeleton3D:
 		if found != null: return found
 	return null
 
-# Run 动画一整圈里骨骼的最低和最高点（世界坐标）。
+# Idle 站姿一整圈里骨骼的最低和最高点（世界坐标）。
+# 原先用 Run 姿势：两人跑姿不同（02 跑得更直立），会被缩成不同身高。站姿两人一致。
 func bone_span(player: AnimationPlayer, skeleton: Skeleton3D) -> Vector2:
 	var span := Vector2(INF, -INF)
 	for name in player.get_animation_list():
-		if not name.ends_with("Run"): continue
+		if not name.ends_with("|Idle"): continue
 		player.play(name)
-		for n in range(12):
-			player.seek(player.current_animation_length * n / 12.0, true)
+		for n in range(6):
+			player.seek(player.current_animation_length * n / 6.0, true)
 			for bone in range(skeleton.get_bone_count()):
 				var height: float = (skeleton.global_transform * skeleton.get_bone_global_pose(bone)).origin.y
 				span = Vector2(minf(span.x, height), maxf(span.y, height))
 		player.stop()
 	return span
 
-# 模型包围盒里混有脚下的附属网格，按包围盒落地和定身高会让 01 悬空约 1 米、两人还不一样高。
-# 改按骨骼：先把头顶骨到脚底骨统一成 3 米（与 2.9 米的碰撞身高一致），再让跑动时最低的骨节贴地。
+# 模型包围盒里混有脚下的附属网格，按包围盒落地和定身高会让 01 悬空、两人还不一样高。
+# 改按骨骼：头顶骨到脚趾骨统一成 3 米（与 2.9 米的碰撞身高一致），再让站姿最低的骨节贴地。
 func ground_character(character: Node3D) -> void:
 	var player := animation_player(character)
 	var skeleton := skeleton_of(character)
@@ -1165,9 +1195,21 @@ func build_robots() -> void:
 		var robot := Node3D.new()
 		add_child(robot)
 		robots.append(robot)
-		var character := model("res://assets/humans/%s.glb" % ["Adventurer_A", "Adventurer_B"][index], robot, Vector3.ZERO, 3.8, PI)
+		# Tripo 导出的 Armature 与 Adventurer 原生朝向相反，这里不再额外转半圈，角色仍背对镜头。
+		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.8, 0.0)
+		if animation_player(character) == null:
+			var player := AnimationPlayer.new()
+			player.name = "AnimationPlayer"
+			character.add_child(player)
+			player.root_node = NodePath("..")
+			player.add_animation_library("", hero_animation_library())
 		register_animation(character)
 		ground_character(character)
+		var head_skeleton := skeleton_of(character)
+		if head_skeleton != null:
+			head_skeleton.add_child(preload("res://scripts/hero_head_level.gd").new())
+		character.set_meta("base_scale",character.scale)
+		character_models.append(character)
 		# 识别灯保持两人辨识度；阴影固定在地面，角色独立腾空。
 		var accent := material("robot_%d" % index, Color("57dbea") if index == 0 else Color("ffb95e"), 0.65)
 		# 两人衣着接近路面颜色，脚下加各自识别色的光环，远处也分得清谁是谁。

@@ -13,7 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
-    "tripo_village_assets", "tripo_village_expansion",
+    "tripo_village_assets", "tripo_village_expansion", "coop_mechanisms",
     "journey_random_layout", "journey_streaming", "journey_warning_window",
     "journey_spatial_regression", "journey_front_sweep", "web_performance_regression",
     "physical_rope_terrain", "journey_pursuit", "journey_combat",

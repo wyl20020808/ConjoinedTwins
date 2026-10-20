@@ -3,14 +3,18 @@ extends RefCounted
 # 复用场景材质；怪物、血条与反馈都由模拟时间驱动，无逐怪物 _process / Tween。
 # Tripo 文生 3D 静态模型（约 5.7k 三角面、1024 贴图）：[路径, 缩放, 实际高度(米)]。
 # 原生最长边为 1、朝向 +X、脚底在原点；人形原生高 1，狼原生高约 0.73。
+# rigged/ 下是 build-tools/journey/rig_npcs.py 自动绑定并手写动作（Idle/Walk/Run/Attack/Hit）后的版本。
 const SCANNED := {
-	"briar":["res://assets/monsters/bark_sprite.glb",2.5,2.5],
-	"raider":["res://assets/monsters/raider.glb",3.1,3.1],
-	"sentinel":["res://assets/monsters/stone_guard.glb",3.7,3.7],
-	"archer":["res://assets/monsters/raider_slinger.glb",3.0,3.0],
-	"dasher":["res://assets/monsters/brute_charger.glb",3.2,3.2],
-	"wolf":["res://assets/monsters/grey_wolf.glb",2.8,2.0],
+	"briar":["res://assets/monsters/rigged/bark_sprite.glb",2.5,2.5],
+	"raider":["res://assets/monsters/rigged/raider.glb",3.1,3.1],
+	"sentinel":["res://assets/monsters/rigged/stone_guard.glb",3.7,3.7],
+	"archer":["res://assets/monsters/rigged/raider_slinger.glb",3.0,3.0],
+	"dasher":["res://assets/monsters/rigged/brute_charger.glb",3.2,3.2],
+	"wolf":["res://assets/monsters/rigged/grey_wolf.glb",2.8,2.0],
 }
+# 狼与树精的模型原生朝 +Z（其余朝 +X）。原先统一转 -90°，导致它们一直侧身朝玩家移动。
+const NATIVE_FORWARD_Z := ["wolf","briar"]
+const LOOPING := ["Idle","Walk","Run"]
 
 static func model_path(archetype: String) -> String:
 	return SCANNED[archetype][0] if SCANNED.has(archetype) else ""
@@ -88,8 +92,16 @@ static func make_scanned(parent: Node3D, archetype: String) -> Node3D:
 	var actor := Node3D.new();actor.name="Monster";parent.add_child(actor)
 	var figure:Node3D=load(SCANNED[archetype][0]).instantiate();figure.name="Figure"
 	figure.scale=Vector3.ONE*SCANNED[archetype][1]
-	figure.rotation.y=-PI/2
+	figure.rotation.y=0.0 if archetype in NATIVE_FORWARD_Z else -PI/2
 	actor.add_child(figure)
+	var players:=figure.find_children("*","AnimationPlayer",true,false)
+	if not players.is_empty():
+		var player:AnimationPlayer=players[0]
+		for clip in player.get_animation_list():
+			if clip.get_slice("|",clip.get_slice_count("|")-1) in LOOPING:
+				player.get_animation(clip).loop_mode=Animation.LOOP_LINEAR
+		player.speed_scale=0.0
+		actor.set_meta("anim",player)
 	for limb in ["LeftLeg","RightLeg","LeftArm","RightArm"]:
 		var joint:=Node3D.new();joint.name=limb;actor.add_child(joint)
 	actor.set_meta("figure_height",SCANNED[archetype][2])
@@ -145,13 +157,42 @@ static func prepare(game, view: Node3D, event: Dictionary) -> void:
 	view.set_meta("last_hit_at",-1.0)
 	view.set_meta("hit_flash",false)
 	var health:=Node3D.new();health.name="EnemyHealth";view.add_child(health)
-	panel(game,health,"Back",Vector2(3.15,.34),Color("18262d"))
-	var fill:=panel(game,health,"Fill",Vector2(3.0,.22),Color("81d694"));fill.position.z=.02
+	panel(game,health,"Back",Vector2(3.35,.26),Color("0d1418"))
+	var fill:=panel(game,health,"Fill",Vector2(3.2,.13),Color("a9d39b"));fill.position.z=.02
 	var title:Label3D=game.add_sign(health,"",Vector3(0,.7,0),28);title.name="Title";title.pixel_size=.03
 	var damage:Label3D=game.add_sign(view,"",Vector3.ZERO,30);damage.name="HitNumber";damage.pixel_size=.03;damage.modulate=Color("fff1b5")
 	var burst:=Node3D.new();burst.name="HitBurst";view.add_child(burst)
 	for angle in [PI/4,-PI/4]:
 		var ray:=panel(game,burst,"Spark",Vector2(.75,.09),Color("ffe8a0"));ray.rotation.z=angle
+
+# 骨骼动作完全由模拟量决定播放位置（不让动画自己走时间）：暂停自然定格，脚步与移动相位同步。
+# 走/跑用移动相位 stride；预警期播攻击的蓄力段，出手期播挥击段；受击与倒地播 Hit。
+static func sync_animation(run, actor: Node3D, event: Dictionary, died: bool, hit_age: float) -> void:
+	var player:AnimationPlayer=actor.get_meta("anim")
+	var figure:Node3D=actor.get_node("Figure")
+	figure.rotation.x=0.0;figure.rotation.z=0.0
+	actor.rotation.x=0.0
+	var moving:bool=event.get("velocity",Vector2.ZERO).length_squared()>1 and not died
+	var clip:="Idle"
+	var phase:=fposmod(run.elapsed*0.5+float(event.id)*0.37,1.0)
+	if died or hit_age<.32:
+		clip="Hit";phase=clampf((hit_age if not died else run.elapsed-event.get("defeated_at",run.elapsed))/.32,0,1)
+	elif event.phase=="warning":
+		clip="Attack";phase=clampf((run.elapsed-event.trigger)/run.Monsters.profile(event).windup,0,1)*.45
+	elif event.phase=="active":
+		var start:float=event.trigger+run.Monsters.profile(event).windup
+		clip="Attack";phase=.45+clampf((run.elapsed-start)/.5,0,1)*.55
+	elif moving:
+		clip="Run" if event.archetype in ["dasher","wolf"] else "Walk"
+		phase=fposmod(event.get("stride",0.0)/TAU,1.0)
+	var name:String=actor.get_meta("anim_names",{}).get(clip,"")
+	if name.is_empty():
+		for candidate in player.get_animation_list():
+			if candidate.get_slice("|",candidate.get_slice_count("|")-1)==clip:name=candidate
+		var names:Dictionary=actor.get_meta("anim_names",{});names[clip]=name;actor.set_meta("anim_names",names)
+	if name.is_empty():return
+	if player.current_animation!=name:player.play(name)
+	player.seek(phase*player.current_animation_length,true)
 
 static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var run=game.run
@@ -201,6 +242,16 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)
+	if event.kind=="monster" and actor.has_meta("anim"):sync_animation(run,actor,event,died,hit_age)
+	# 命中火花与倒地尘爆：按模拟命中/击败时间各触发一次，只读状态。
+	var fx=game.get("fx")
+	if fx!=null and event.kind=="monster":
+		var body_height:float=actor.get_meta("figure_height",2.9)
+		if event.get("hit_at",-10.0)>view.get_meta("fx_hit_at",-10.0) and hit_age<.1:
+			view.set_meta("fx_hit_at",event.hit_at);fx.burst("spark",location+Vector3(0,body_height*.6,0))
+		if died and not view.get_meta("fx_dead",false):
+			view.set_meta("fx_dead",true);fx.burst("dust",location+Vector3(0,.1,0))
+			fx.impact(location,Color("ffb35a"),3.2,3.5)
 	var flashing:bool=hit_age<.09
 	if flashing!=view.get_meta("hit_flash",false):
 		var flash:Material=game.material("enemy_hit_flash",Color("ffe2ad"),.9) if flashing else null
@@ -212,19 +263,20 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		actor.scale*=maxf(.01,1.0-smoothstep(.18,.48,death_age))
 		view.get_node("Warning").hide();view.get_node("Hint").hide()
 	var health:Node3D=view.get_node("EnemyHealth")
-	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800
+	var locked:bool=run.combat.weapons.any(func(w):return not w.is_empty() and w.target==event.id)
+	# 满血且未被锁定时不挂血条，减少世界内文字与条状元素。
+	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800 and (event.hp<event.max_hp or locked or hit_age<1.0)
 	if health.visible:
 		health.global_position=location+Vector3(0,view.get_meta("bar_height",3.5)+event.get("ground_height",0.0)/20,0)
 		health.global_basis=game.camera.global_basis
 		var health_key:Vector2i=Vector2i(event.hp,event.max_hp)
 		if view.get_meta("health_key",Vector2i(-1,-1))!=health_key:
 			var ratio:=clampf(float(event.hp)/event.max_hp,0,1)
-			var fill:MeshInstance3D=health.get_node("Fill");fill.scale.x=maxf(.001,ratio);fill.position.x=-1.5*(1-ratio)
-			var color:=Color("81d694") if ratio>.5 else (Color("ffc36a") if ratio>.25 else Color("f17666"))
+			var fill:MeshInstance3D=health.get_node("Fill");fill.scale.x=maxf(.001,ratio);fill.position.x=-1.6*(1-ratio)
+			var color:=Color("a9d39b") if ratio>.5 else (Color("e8c07a") if ratio>.25 else Color("e08a7a"))
 			fill.material_override=game.material("enemy_ui_"+color.to_html(),color)
 			fill.material_override.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 			view.set_meta("health_key",health_key)
-	var locked:bool=run.combat.weapons.any(func(w):return not w.is_empty() and w.target==event.id)
 	var title:Label3D=health.get_node("Title")
 	var enemy_name:String=run.Monsters.NAMES[event.archetype] if event.kind=="monster" else ("野猪" if event.kind=="boar" else "投掷者")
 	title.visible=locked or hit_age<.4

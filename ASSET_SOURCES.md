@@ -179,3 +179,75 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 ### 2026-10-19 Tripo 村庄资源减重
 
 上述 28 件 Tripo 村庄、地表与机关 GLB 中，25 件运行时模型的内嵌贴图由 2048 缩至 1024（`build-tools/shrink_glb.py`，格式与网格不变）。卵石路、石板路、泥地车辙三件只用于烘焙地面纹理，保留 2K 原件并从导出包排除。来源版本与运行时版本的哈希均记录在 `build-tools/journey/tripo-village-assets.json` 与 `tripo-village-expansion-assets.json`。许可同前，仍待按 Tripo 账号套餐确认。
+
+## 2026-10-19 Tripo 主角与动作重定向
+
+两名主角由用户的 Tripo 账号文生 3D 生成（H3.1、T 姿势、2K 贴图、三角面上限 10000），再用 Tripo「人形 / Mixamo」自动绑定。Tripo 不带动画导出的 GLB，蒙皮几乎全部绑在 Hips 上，无法弯曲；因此改在动画页套用「跑步」预设后带骨骼导出，取得正确蒙皮。Tripo 的跑步动画在导入时关闭，不使用。贴图用 `build-tools/shrink_glb.py` 缩到 1024。
+
+| 文件 | 内容 | 三角面 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | ---: | --- | --- |
+| `assets/humans/hero_01.glb` | 青色连帽外套、背包与青色提灯的男冒险者 | 9,509 | 1,964,480 | f5b4d52ff3db400f | 01 主角 |
+| `assets/humans/hero_02.glb` | 橙色短斗篷、马尾与橙色提灯的女冒险者 | 9,936 | 1,975,460 | 51fc550b7465d468 | 02 主角 |
+
+动作仍来自 Quaternius Adventurer（CC0），以及本项目用 Blender 制作的救援攀爬、拉绳动画。
+
+- `build-tools/journey/make_humanoid_bonemaps.gd` 生成 Quaternius 与 Mixamo 两份 Godot 人形骨骼映射。Quaternius 的骨盆动画在 Body 骨上，人形 Hips 因此映射到 Body。
+- 五个 GLB 导入时做重定向，并开启轮廓修正，统一为 T 姿势静止姿态。
+- Adventurer_A 只作动画来源；Adventurer_B 不再加载，文件保留。
+
+许可同前，Tripo 部分待按账号套餐确认。
+
+### 2026-10-20 主角动画本地烘焙
+
+01 的头/颈在 Godot `rest_fixer/fix_silhouette` 下被压进胸腔；关掉 fixer 后重定向动作又整体错位。根因是 01 的 Tripo“套跑步预设后导出”留下的静止颈部与重定向不兼容。
+
+改为在 Blender 里做世界空间重定向：用 `build-tools/journey/bake_hero_animations.py` 把 `Adventurer_A.glb`（Quaternius，CC0）的 24 个动作逐帧烘焙到两名主角的 Mixamo 骨架，骨骼改为人形名（Hips/Spine/Chest/UpperChest/LeftUpperArm 等），导出带动画 GLB。新增：
+
+- `CharacterArmature|Jump`：动作源没有跳跃，用 Idle 静止姿势加髋部起伏和屈膝合成 31 帧。
+- `CharacterArmature|HitRecieve_1`：`HitRecieve` 的别名，游戏动作名使用。
+
+Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭 `fix_silhouette`；游戏直接播放模型自带的 27 个 clip，不再使用 `Adventurer_A` 的运行时动画库。主角身高统一由模型包围盒给到 3.45 米，不再用 Run 姿势的骨骼跨度归一化。01/02 的三角面未变，动画让文件从约 600 KB 增至约 1.96 MB。
+
+## 2026-10-19 双人机关模型
+
+由用户的 Tripo 账号文生 3D 生成（H3.1、2K、去光、三角面上限 6000），用户导出 GLB，再用 `build-tools/shrink_glb.py` 把贴图缩到 1024。
+
+| 文件 | 内容 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | --- | --- |
+| `assets/mechanisms/pivot_pillar.glb` | 带铁齿轮盖的石质转轴柱 | 242,716 | adf39c3102015d0c | 跳绳杆两侧转轴 |
+| `assets/mechanisms/pressure_plate.glb` | 刻符文的圆形石踏板 | 255,244 | c811c6808c518b02 | 接力门踏板 |
+| `assets/mechanisms/arch_amber.glb` | 橙色水晶石拱 | 262,360 | eea0e82fa021bd0a | 颜色门橙门（02） |
+| `assets/mechanisms/arch_teal.glb` | 由橙门派生：`build-tools/recolor_glb.py` 把贴图中高饱和暖色旋转到青色 | 286,352 | 53a08eb745b46f8e | 颜色门青门（01） |
+| `assets/mechanisms/crusher.glb` | 木吊架石块压锤 | 293,716 | 10d56167e47ddf0f | 已入库，本轮未接入 |
+
+另生成的"铁箍木桶"未导出成功，滚桶外观改用既有的 `assets/landscape/barrel.glb`。许可同前，待按 Tripo 账号套餐确认。
+
+## 2026-10-19 机关美术统一批次
+
+由用户的 Tripo 账号文生 3D 生成（H3.1、2K、去光、三角面上限 6000），贴图用 `build-tools/shrink_glb.py` 缩到 1024。8 个文件被应用内浏览器存成隐藏临时名，按外观识别后入库。
+
+| 文件 | 内容 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | --- | --- |
+| `assets/mechanisms/spiked_ball.glb` | 带刺铁锤球 | 248,160 | 69e14e13150d885a | 铁球 `iron_ball` |
+| `assets/mechanisms/stone_post.glb` | 雕刻石界桩 | 254,468 | 27210c993738db5d | 立柱 `pillar` |
+| `assets/mechanisms/spike_trap.glb` | 铁刺陷阱板 | 248,328 | 60b22dd460f19184 | 活动地刺 `active_spikes` |
+| `assets/mechanisms/fire_bolt.glb` | 火焰弩箭 | 264,220 | e5f927a8d85d7506 | 火箭 `rocket` |
+| `assets/mechanisms/flying_rock.glb` | 带余烬的碎岩 | 208,168 | 322edafb71d4619f | 飞石 `fly_low` / `fly_body` |
+| `assets/mechanisms/steam_vent.glb` | 石圈铁栅喷口 | 252,580 | c5e197848f737499 | 地火喷口 `steam` |
+| `assets/mechanisms/spiked_log.glb` | 带刺铁箍圆木 | 346,188 | 7c7f2cfd987ab692 | 旋转扫杆 `sweeper` |
+| `assets/mechanisms/lift_platform.glb` | 带护栏木质升降台 | 287,032 | 35f171ba99347dbf | 升降平台 `lift` |
+| `assets/mechanisms/barrel.glb` | 铁箍木桶（上一轮生成，此次找回） | 264,400 | 596563c295dac6bc | 横滚木桶 `barrel` |
+
+摆锤吊架与石阶块也已生成但未入库（前者外形不合格，后者需与碰撞台阶严格吻合）。许可同前，待按 Tripo 账号套餐确认。
+
+## 2026-10-19 Tripo 文生地标（第五刀）
+
+用户在自己的 Tripo Studio 国际版账号中生产。Agent 在用户已登录的 Chrome for Testing 窗口内批量提交文生 3D 任务（H3.1 最高质量，30 积分/次），随后对每件模型做一次纹理生成（2K，30 积分/次）。导出 GLB 后用 `build-tools/journey/process_tripo_landmark.py` 在 Blender 5.2 后台减面，并把内嵌 8192 baseColor 缩到 1024。
+
+| 运行时文件 | 三角面 | 大小 | 提示词摘要 | 实际使用位置 |
+| --- | --- | --- | --- | --- |
+| `assets/landscape/landmark_watchtower.glb` | 45,000 | 3.2 MB | tall medieval stone watchtower, wooden balcony, conical shingle roof, red banner | 第一章村庄段 x=38 米，缩放 22 |
+| `assets/landscape/landmark_headframe.glb` | 45,000 | 3.4 MB | wooden mine headframe, timber A-frame, iron pulley wheel, weathered planks | 第三章矿道 x=-19.5 米，缩放 18 |
+| `assets/landscape/landmark_shrine.glb` | 25,000 | 2.5 MB | small medieval roadside stone shrine, wooden roof, glowing lantern | 全章路侧 x=17.8 米，缩放 3 |
+
+另生成但未接入：廊桥（缺少水面支撑）、橡树（纹理生成无贴图且下载截断）。原始导出与提示词保存工程外，不入库。许可同前：Tripo 生成内容的授权取决于账号套餐（免费套餐通常为公开且需署名，付费套餐归用户所有），正式发布前须由用户在账号中确认并按需补充署名。

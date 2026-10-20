@@ -37,6 +37,7 @@ func _init(owner_game)->void:
 	game=owner_game
 	mobile=OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
 	terrain=ShaderMaterial.new();terrain.shader=SHADER
+	terrain.set_shader_parameter("road_macro",load("res://assets/landscape/ground/road_macro.png"))
 	terrain.set_shader_parameter("stone",load("res://assets/env/monastery_stone_floor_diff.jpg"))
 	terrain.set_shader_parameter("soil",load("res://assets/journey/forest_leaves_02_diff.jpg"))
 	terrain.set_shader_parameter("rock",load("res://assets/env/rock_face_03_diff.jpg"))
@@ -79,6 +80,7 @@ func road_material(chapter:int,theme:String,continuous:bool)->ShaderMaterial:
 		var mat:ShaderMaterial=terrain.duplicate()
 		mat.set_shader_parameter("chapter",chapter)
 		mat.set_shader_parameter("road_region",2 if theme=="village" else (1 if theme in ["forest","farm","meadow"] else 0))
+		mat.set_shader_parameter("night",1 if chapter==2 and theme in ["mine","ruins","facility"] else 0)
 		road_materials[key]=mat
 	return road_materials[key]
 
@@ -119,10 +121,30 @@ static func surface_plan(pieces:Array,number:int,chapter:int,theme:String,gaps:A
 			var border:="tripo_grass_soil_border" if p.x<.5 else "tripo_stone_road_curb"
 			var x:=side*16.6
 			add_instance(batches,border,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1,PI/2 if border=="tripo_stone_road_curb" else 0.0)
+			# 路缘草簇：打碎 16 米的几何直边，也遮住铺装与泥土的硬接缝。
+			if border=="tripo_grass_soil_border":
+				var edge_seed:=meters*3.7+side*9.1
+				var edge_roll:=fposmod(sin(edge_seed)*17343.21,1.0)
+				if edge_roll>0.42:
+					var gx:=side*(14.55+edge_roll*0.45)
+					var gy:=meters+(fposmod(sin(edge_seed*1.7)*9871.3,1.0)-0.5)*2.4
+					var grass_foot:=Rect2(Vector2(gx-0.85,gy-0.85)*20,Vector2(1.7,1.7)*20)
+					if contained(pieces,grass_foot):
+						add_instance(batches,"grass",Vector3(gx,.02,-gy),0.55+edge_roll*0.5,fposmod(sin(edge_seed*2.1)*3571.7,1.0)*TAU)
 			if row%2==0 and p.y>.25:
 				var litter_x:=side*12.5
-				var litter_foot:=Rect2(Vector2(litter_x-1.25,meters-1.25)*20,Vector2(2.5,2.5)*20)
-				if contained(pieces,litter_foot):add_instance(batches,"tripo_leaf_litter_patch",Vector3(litter_x,.025,-meters),1,0)
+				# 同一模型原本每 8 米完全复制一次；用坐标散列打散间距、朝向和大小，
+				# 降低“环形落叶堆等距排队”的重复感，不改变道路、碰撞和缺口。
+				var litter_seed:=meters*7.31+side*13.7
+				var roll:=fposmod(sin(litter_seed)*43758.5453,1.0)
+				var yaw:=(roll-0.5)*0.7
+				var litter_scale:=0.78+roll*0.22
+				var offset_x:=side*(roll-0.5)*0.4
+				var offset_z:=(fposmod(sin(litter_seed*2.3)*56445.234,1.0)-0.5)*1.0
+				# 安全切片按实际网格外接盒判断：4 米见方的检查框覆盖旋转、缩放与偏移后的最大范围。
+				var litter_foot:=Rect2(Vector2(litter_x+offset_x-2.4,meters-offset_z-2.4)*20,Vector2(4.8,4.8)*20)
+				if roll>0.22 and contained(pieces,litter_foot):
+					add_instance(batches,"tripo_leaf_litter_patch",Vector3(litter_x+offset_x,.025,-meters+offset_z),litter_scale,yaw)
 			if row%2==0 and p.x>.5:
 				add_instance(batches,"tripo_layered_cliff_face",Vector3(side*17.5,-.08,-meters),1,side*PI/2)
 	# 坑沿最高点低于站立平面，仅在缺口两端下方露出破损侧壁。
@@ -146,6 +168,37 @@ func surface_details(parent:Node3D,pieces:Array,number:int,chapter:int,theme:Str
 	# 贴地模块没有独立碰撞体，也不向路面投射大批细碎阴影。
 	for child in parent.get_children():
 		if child is MultiMeshInstance3D:child.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pit_depths(parent,number,gaps)
+
+# 缺口内部：底部一层近黑的深渊面，压住穿透到下方的远景；内壁脚下散落碎石，做出塌陷纵深。
+# 只是表现，不参与支撑或碰撞；按区块裁剪，跨区块的长缺口不重复铺设。
+const PIT_DEPTH := 4.4
+func pit_depths(parent:Node3D,number:int,gaps:Array)->void:
+	if gaps.is_empty():return
+	var chunk:=Rect2(-HALF*20-40,number*WIDTH*20,HALF*40+80,WIDTH*20)
+	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rubble:Array=[]
+	for gap:Rect2 in gaps:
+		var clip:=gap.intersection(chunk)
+		if clip.size.x<=0 or clip.size.y<=0:continue
+		var x0:=clip.position.x/20;var x1:=clip.end.x/20;var z0:=-clip.position.y/20;var z1:=-clip.end.y/20
+		quad(tool,Vector3(x0,-PIT_DEPTH,z0),Vector3(x1,-PIT_DEPTH,z0),Vector3(x1,-PIT_DEPTH,z1),Vector3(x0,-PIT_DEPTH,z1))
+		var rng:=RandomNumberGenerator.new();rng.seed=int(clip.position.x*31+clip.position.y*17)
+		for n in range(clampi(int(clip.size.x*clip.size.y/9000.0),2,8)):
+			rubble.append(Vector3(rng.randf_range(x0+.4,x1-.4),-PIT_DEPTH+.15,rng.randf_range(z1+.4,z0-.4)))
+	var floor:=MeshInstance3D.new();floor.name="PitAbyss";floor.mesh=tool.commit()
+	var dark:=StandardMaterial3D.new();dark.albedo_color=Color(.035,.032,.03);dark.roughness=1.0
+	floor.material_override=dark;floor.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(floor)
+	if rubble.is_empty():return
+	var rock:=SphereMesh.new();rock.radius=.5;rock.height=.7;rock.radial_segments=6;rock.rings=3
+	var multi:=MultiMesh.new();multi.transform_format=MultiMesh.TRANSFORM_3D;multi.mesh=rock;multi.instance_count=rubble.size()
+	for i in range(rubble.size()):
+		var size:=.35+fmod(abs(rubble[i].x*7.3+rubble[i].z*3.1),.5)
+		multi.set_instance_transform(i,Transform3D(Basis(Vector3.UP,rubble[i].x).scaled(Vector3(size,size*.7,size*1.2)),rubble[i]))
+	var stones:=MultiMeshInstance3D.new();stones.name="PitRubble";stones.multimesh=multi
+	stones.material_override=cut_material;stones.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(stones)
 
 func quad(tool:SurfaceTool,a:Vector3,b:Vector3,c:Vector3,d:Vector3)->void:
 	for v in [a,c,b,a,d,c]:
@@ -177,7 +230,7 @@ func load_parts(path:String)->Array:
 	if parts.has(path):return parts[path]
 	var scene:Node3D=load(path).instantiate()
 	var result:Array=[]
-	collect(scene,Transform3D.IDENTITY,result)
+	collect(scene,Transform3D.IDENTITY,result,path)
 	scene.free()
 	if path.get_file().get_basename() in SURFACE_KINDS:
 		for part in result:
@@ -189,7 +242,7 @@ func load_parts(path:String)->Array:
 	parts[path]=result
 	return result
 
-func collect(node:Node3D,transform:Transform3D,result:Array)->void:
+func collect(node:Node3D,transform:Transform3D,result:Array,path:String="")->void:
 	transform=transform*node.transform
 	if node is MeshInstance3D:
 		# 保留导入网格的索引和 LOD，不重新读取、上传整份顶点数组。
@@ -197,12 +250,38 @@ func collect(node:Node3D,transform:Transform3D,result:Array)->void:
 		for surface in range(mesh.get_surface_count()):
 			var source:Material=mesh.surface_get_material(surface)
 			var mat:Material=palette.get(source.resource_name,source) if source else palette.Leaf
+			if path.get_file().contains("villager_"):
+				mat=villager_material(source)
 			mesh.surface_set_material(surface,mat)
 		result.append({"mesh":mesh,"transform":transform})
 	for child in node.get_children():
-		if child is Node3D:collect(child,transform,result)
+		if child is Node3D:collect(child,transform,result,path)
+
+func villager_material(source:Material) -> ShaderMaterial:
+	var mat:=ShaderMaterial.new()
+	mat.shader=preload("res://scripts/villager_sway.gdshader")
+	if source is BaseMaterial3D:
+		var base:=source as BaseMaterial3D
+		mat.set_shader_parameter("albedo_color",base.albedo_color)
+		if base.albedo_texture:
+			mat.set_shader_parameter("albedo_tex",base.albedo_texture)
+			mat.set_shader_parameter("has_albedo",true)
+		if base.normal_enabled and base.normal_texture:
+			mat.set_shader_parameter("normal_tex",base.normal_texture)
+			mat.set_shader_parameter("has_normal",true)
+	else:
+		mat.set_shader_parameter("albedo_color",Color("cfc5b0"))
+	return mat
+
+# 带骨骼动作的村民（build-tools/journey/rig_npcs.py 生成）；不存在时退回 MultiMesh + 顶点摆动。
+static func rigged_villager(path:String)->String:
+	return path.replace("/landscape/","/landscape/rigged/") if path.get_file().begins_with("villager_") else ""
 
 func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)->void:
+	var rigged:=rigged_villager(path)
+	if not rigged.is_empty() and ResourceLoader.exists(rigged):
+		spawn_villagers(parent,rigged,transforms,end)
+		return
 	if transforms.size()>8:
 		# MultiMesh 整批剔除；世界坐标大批次既画满远处林地，也让距离 LOD 参考错误的原点。
 		var cells:={}
@@ -216,14 +295,41 @@ func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)
 		return
 	batch_cell(parent,path,transforms,end,begin,Vector3.ZERO)
 
+# 村民逐个实例化：每个区块只有几个人。按位置散列在待机、说话、张望中挑一个循环动作并错开起始帧，
+# 避免整排同步；动作随时间自然播放，只是路边布景，不参与玩法。
+const VILLAGER_CLIPS:=["Idle","Talk","Look","Idle","Talk"]
+func spawn_villagers(parent:Node3D,path:String,transforms:Array,end:float)->void:
+	var scene:PackedScene=load(path)
+	for transform:Transform3D in transforms:
+		var node:Node3D=scene.instantiate()
+		node.name="Villager"
+		parent.add_child(node)
+		node.transform=transform
+		for mesh:MeshInstance3D in node.find_children("*","MeshInstance3D",true,false):
+			mesh.visibility_range_end=end
+			mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if not mobile else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var players:=node.find_children("*","AnimationPlayer",true,false)
+		if players.is_empty():continue
+		var player:AnimationPlayer=players[0]
+		var seed:=absi(int(transform.origin.x*7.31+transform.origin.z*3.17))
+		var clip:String=VILLAGER_CLIPS[seed%VILLAGER_CLIPS.size()]
+		for name in player.get_animation_list():
+			player.get_animation(name).loop_mode=Animation.LOOP_LINEAR
+			if name.get_slice("|",name.get_slice_count("|")-1)==clip:
+				player.play(name)
+				player.seek(fposmod(seed*0.37,player.current_animation_length),true)
+
 func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float,center:Vector3)->void:
 	for part in load_parts(path):
 		var multi:=MultiMesh.new();multi.transform_format=MultiMesh.TRANSFORM_3D
+		var villagers:=path.get_file().contains("villager_")
+		multi.use_custom_data=villagers
 		multi.mesh=part.mesh;multi.instance_count=transforms.size()
 		for i in range(transforms.size()):
 			var local:Transform3D=transforms[i]*part.transform
 			local.origin-=center
 			multi.set_instance_transform(i,local)
+			if villagers:multi.set_instance_custom_data(i,Color(fposmod(float(i)*0.371,1.0),0,0,1))
 		var view:=MultiMeshInstance3D.new();view.multimesh=multi
 		view.position=center
 		view.visibility_range_begin=begin
@@ -326,6 +432,16 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			add_instance(batches,"tripo_forester_cabin",Vector3(side*31,height_at(side*31,middle,chapter),-middle),.9,-side*PI/2)
 		if (village_only or region.z>.7) and posmod(number,3)==1 and side>0:
 			add_instance(batches,"tripo_village_windmill",Vector3(65,height_at(65,middle,chapter) if not village_only else 0.0,-middle),1,-PI/2)
+	# 路缘生活带：在 17–19.6 米空地填入木桶、倒木与苔石，遮住道路直边。
+	for side:float in [-1.0,1.0]:
+		for n in range(6):
+			var meters:=start+n*6.6+3.3
+			var seed_value:=meters*5.3+side*17.2
+			var roll:=fposmod(sin(seed_value)*24634.6,1.0)
+			if roll<0.24:continue
+			var x:=side*(17.1+roll*1.7)
+			var kind:String=["barrel","detail_deadwood","detail_moss_rocks"][posmod(n+int(side+1),3)]
+			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),0.7+roll*0.45,fposmod(sin(seed_value*1.9)*7314.2,1.0)*TAU)
 	# 新住宅自带门廊；院门和货物只跟随实际住宅，不在过渡带孤立生成。
 	for kind in batches.keys():
 		if kind in TRIPO_HOUSES:
@@ -343,6 +459,18 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			var size:=house.basis.get_scale().x
 			var side:=signf(house.origin.x)
 			add_instance(batches,"detail_porch",house.origin+Vector3(-side*3.6*size,0,0),.85*size,-side*PI/2)
+	# 地标：每三到四个区块一座，放在第二排或路侧，远看有明确剪影；纯展示，不参与物理。
+	var landmark_middle:=start+40
+	var landmark_region:=profile(landmark_middle,chapter)
+	if not village_only:
+		if chapter==0 and landmark_region.z>.55 and posmod(number,3)==1:
+			var tower_x:=38.0
+			add_instance(batches,"landmark_watchtower",Vector3(tower_x,height_at(tower_x,landmark_middle,chapter),-landmark_middle),22.0,-PI/2)
+		elif chapter==2 and posmod(number,3)==1:
+			add_instance(batches,"landmark_headframe",Vector3(-36,0,-landmark_middle),16.0,PI/2)
+		if posmod(number,4)==3:
+			var shrine_x:=17.8
+			add_instance(batches,"landmark_shrine",Vector3(shrine_x,height_at(shrine_x,landmark_middle,chapter) if chapter==0 else 0.0,-landmark_middle),3.0,-PI/2)
 	# 接触暗部使用低成本透明网格，不恢复 Web 端整片树林的动态阴影。
 	for kind in batches.keys():
 		if kind not in ["natural_oak_7","natural_oak_17","natural_birch","house_0","house_1","house_2","detail_market","detail_moss_rocks","tripo_road_edge","tripo_stump"] and kind not in VILLAGERS and kind not in TRIPO_HOUSES:continue
