@@ -22,14 +22,17 @@ var tangent_offset := 0
 var uv_stride := 0
 var uv_offset := 0
 var rope_material := StandardMaterial3D.new()
+# 能量外壳作为麻绳材质的 next_pass，复用同一网格与缓冲区，不增加拓扑。
+var energy_material := ShaderMaterial.new()
+var energy_level := 1.0
 var length := 7.33
-# 张力反馈：0 为松弛，1 为达到绳长上限。麻绳保持无自发光，只改变纤维颜色；
-# 深红棕在浅色卵石、泥路和草地上都有足够反差。
+# 张力反馈：0 为松弛，1 为达到绳长上限。麻绳本体压暗作为能量外壳的芯，
+# 亮度与配色交给 rope_energy 外壳（青→橙渐变、能量包、受阻红闪）。
 var tension := 0.0
 var blocked := false
 var pulse_clock := 0.0
-const SLACK_COLOR := Color("b8442a")
-const TAUT_COLOR := Color("ff8a3a")
+const SLACK_COLOR := Color("5a2a22")
+const TAUT_COLOR := Color("8a4a2a")
 const BLOCKED_COLOR := Color("e0302a")
 
 func set_tension(value: float, status: String, delta: float) -> void:
@@ -48,6 +51,8 @@ func _ready() -> void:
 	rope_material.normal_scale = 0.55
 	rope_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	rope_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	energy_material.shader = preload("res://scripts/rope_energy.gdshader")
+	rope_material.next_pass = energy_material
 	material_override = rope_material
 
 # 三股捻绳和细纤维由确定性纹理生成，无外部素材依赖。
@@ -77,6 +82,10 @@ func simulate(path: Array[Vector3], _delta: float, _tint: Color, _glow: float) -
 	if blocked: color = color.lerp(BLOCKED_COLOR, 0.55 + 0.45 * sin(pulse_clock * TAU * 3.0))
 	rope_material.albedo_color = color
 	rope_material.emission_enabled = false
+	energy_material.set_shader_parameter("tension", clampf(tension, 0.0, 1.0))
+	energy_material.set_shader_parameter("alarm_mix", (0.55 + 0.45 * sin(pulse_clock * TAU * 3.0)) if blocked else 0.0)
+	energy_material.set_shader_parameter("clock", pulse_clock)
+	energy_material.set_shader_parameter("energy", energy_level)
 	draw()
 
 static func along(path: Array[Vector3], distance: float) -> Vector3:
@@ -149,8 +158,9 @@ func draw() -> void:
 			attribute_data.encode_float(uv_offset+index*uv_stride+4,uvs[index].y)
 		RenderingServer.mesh_surface_update_vertex_region(surface.get_rid(),0,0,vertex_data)
 		RenderingServer.mesh_surface_update_attribute_region(surface.get_rid(),0,0,attribute_data)
+	energy_material.set_shader_parameter("span", travelled / 0.18)
 	# 缓冲区更新不会自动重算包围盒，救援下坠和镜头切换都必须覆盖。
-	custom_aabb=bounds.grow(RADIUS*1.1)
+	custom_aabb=bounds.grow(RADIUS*1.1+0.08)
 
 func encode_direction(offset:int,value:Vector2)->void:
 	vertex_data.encode_u16(offset,clampi(int(value.x*65535),0,65535))

@@ -1206,8 +1206,11 @@ func sync_view() -> void:
 	var zs:PackedFloat32Array=run.rope.physical_heights()
 	for n in range(points.size()): path.append(Vector3(points[n].x/SCALE,zs[n]/SCALE,-points[n].y/SCALE))
 	if path.size()>1:
-		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time())
+		var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
+		rope_view.energy_level=1.0+night*0.6
+		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time() if run.state=="running" else 0.0)
 		rope_view.simulate(path,0,Color.WHITE,0)
+		sync_rope_light(path,night)
 	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
@@ -1236,6 +1239,22 @@ func sync_view() -> void:
 	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 	publish_web_verification()
+
+var rope_light:OmniLight3D
+func sync_rope_light(path:Array[Vector3],night:float)->void:
+	if OS.has_feature("web") or landscape.mobile:return
+	if rope_light==null:
+		rope_light=OmniLight3D.new();rope_light.name="RopeLight"
+		rope_light.shadow_enabled=false;rope_light.omni_range=4.5;rope_light.omni_attenuation=1.3
+		rope_light.light_volumetric_fog_energy=0.0
+		add_child(rope_light)
+	var total:=0.0
+	for n in range(1,path.size()):total+=path[n-1].distance_to(path[n])
+	rope_light.position=RopeView.along(path,total*.5)+Vector3(0,.25,0)
+	var tension:=clampf(run.rope_tension(),0.0,1.0)
+	var blocked:bool=run.rope_status() in ["blocked","unwinding","failed"]
+	rope_light.light_color=Color("ff4a3a") if blocked else Color("9fe8ff").lerp(Color("ffc58a"),.5)
+	rope_light.light_energy=(0.35+0.5*tension+night*0.6)*(1.6 if blocked else 1.0)
 
 # 夜间随身灯：两人头顶各一盏暖/冷色小灯，保证夜景里角色、绳索与脚下机关可读。
 var hero_lights:Array[OmniLight3D]=[]
