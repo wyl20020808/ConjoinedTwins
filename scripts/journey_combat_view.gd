@@ -28,6 +28,15 @@ func make_gun(parent: Node3D) -> Node3D:
 	var flash: Node3D=game.box(gun,Vector3(0,0,-0.94),Vector3(0.22,0.22,0.3),game.material("gun_flash",Color("ffe7a0"),2.0))
 	flash.name="Flash"
 	flash.hide()
+	var flash_light:=OmniLight3D.new()
+	flash_light.name="FlashLight"
+	flash_light.position=Vector3(0,0,-0.95)
+	flash_light.light_color=Color("ffdca0")
+	flash_light.light_energy=3.2
+	flash_light.omni_range=3.0
+	flash_light.shadow_enabled=false
+	flash_light.visible=false
+	gun.add_child(flash_light)
 	return gun
 
 func _ready() -> void:
@@ -72,7 +81,11 @@ func sync() -> void:
 		if absf(pickup.position.y-run.distance)<3000:nearby[pickup.id]=pickup
 	for id in pickup_views.keys():
 		if not nearby.has(id):
-			pickup_views[id].queue_free()
+			var collected:Node3D=pickup_views[id]
+			var fx=game.get("fx")
+			if fx!=null and is_instance_valid(collected) and collected.visible and collected.global_position.distance_to(game.robots[0].global_position)<60.0:
+				fx.burst("spark",collected.global_position+Vector3(0,0.4,0))
+			collected.queue_free()
 			pickup_views.erase(id)
 	for pickup in nearby.values():
 		if not pickup_views.has(pickup.id):
@@ -124,6 +137,8 @@ func sync() -> void:
 		var shot: Dictionary=run.combat.shots[role]
 		var recent: bool=not shot.is_empty() and run.elapsed-shot.time<0.065 and visual_state=="running"
 		guns[role].get_node("Flash").visible=recent
+		var flash_light:OmniLight3D=guns[role].get_node_or_null("FlashLight")
+		if flash_light!=null:flash_light.visible=recent
 		beams[role].visible=recent
 		if recent:
 			if int(weapon.get("reload",0))==0:

@@ -10,6 +10,7 @@ var last_heights := [0.0, 0.0]
 var last_feet := [Vector3.ZERO, Vector3.ZERO]
 var leaves: GPUParticles3D
 var motes: GPUParticles3D
+var embers: GPUParticles3D
 var scale_amount := 1.0
 
 func _ready() -> void:
@@ -30,6 +31,7 @@ func _ready() -> void:
 		run_dust.append(dust)
 	leaves = make_leaves()
 	motes = make_motes()
+	embers = make_embers()
 
 # 柔边圆点贴图，所有粒子共用。
 static func dot_texture() -> Texture2D:
@@ -184,6 +186,36 @@ func make_motes() -> GPUParticles3D:
 	particles.visibility_aabb = AABB(Vector3(-30, -8, -34), Vector3(60, 16, 68))
 	return particles
 
+# 矿道余烬：细小暖色火星缓慢上飘，给第三章一点空气感。
+func make_embers() -> GPUParticles3D:
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	process.emission_box_extents = Vector3(18, 3, 24)
+	process.direction = Vector3(0, 1, 0)
+	process.spread = 24.0
+	process.initial_velocity_min = 0.2
+	process.initial_velocity_max = 0.75
+	process.gravity = Vector3(0, 0.25, 0)
+	process.turbulence_enabled = true
+	process.turbulence_noise_strength = 0.8
+	process.turbulence_noise_scale = 5.0
+	process.scale_min = 0.3
+	process.scale_max = 0.8
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1.0, 0.55, 0.2, 0.0))
+	gradient.add_point(0.25, Color(1.0, 0.62, 0.28, 0.85))
+	gradient.add_point(0.8, Color(1.0, 0.28, 0.10, 0.7))
+	gradient.set_color(gradient.get_point_count() - 1, Color(1.0, 0.2, 0.06, 0.0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	process.color_ramp = ramp
+	var particles := emitter(46, 5.0, process, billboard(0.09, true))
+	particles.one_shot = false
+	particles.explosiveness = 0.0
+	particles.preprocess = 5.0
+	particles.visibility_aabb = AABB(Vector3(-26, -8, -30), Vector3(52, 18, 60))
+	return particles
+
 func burst(kind: String, point: Vector3) -> void:
 	var list: Array = pools[kind]
 	var particles: GPUParticles3D = list[cursor[kind]]
@@ -204,11 +236,14 @@ func sync_player(i: int, feet: Vector3, height: float, grounded_allowed: bool, d
 	last_feet[i] = feet
 
 # 环境粒子跟随两人中点前方；forest 为林地权重，village 为村庄/原野权重。
-func sync_ambient(center: Vector3, forest: float, village: float) -> void:
+func sync_ambient(center: Vector3, forest: float, village: float, mine: float = 0.0) -> void:
 	var anchor := center + Vector3(0, 3.0, -14.0)
 	leaves.global_position = anchor + Vector3(0, 3.0, 0)
 	motes.global_position = anchor
+	embers.global_position = anchor + Vector3(0, 1.5, 0)
 	leaves.amount_ratio = clampf(forest, 0.0, 1.0)
 	motes.amount_ratio = clampf(0.25 + village * 0.75, 0.0, 1.0)
+	embers.amount_ratio = clampf(mine, 0.0, 1.0)
 	leaves.emitting = forest > 0.05
 	motes.emitting = true
+	embers.emitting = mine > 0.02

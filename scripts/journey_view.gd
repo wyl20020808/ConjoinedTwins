@@ -92,6 +92,9 @@ var vignette_mat: ShaderMaterial
 var damage_flash := 0.0
 var low_health := 0.0
 var last_health := [100, 100]
+var visual_yaw := [0.0, 0.0]
+var visual_last_heights := [0.0, 0.0]
+var land_impact := [0.0, 0.0]
 var training_button: Button
 var restart_button: Button
 var fire_blocked := true
@@ -901,6 +904,21 @@ func glass_style(alpha:float=0.72,border_alpha:float=0.30,pad:int=16,radius:int=
 	style.shadow_size=10
 	return style
 
+func mark_choice(button:Button,selected:bool) -> void:
+	# 模式/难度当前项的选中态；重复调用只在状态变化时改样式。
+	if button.get_meta("choice_selected",false)==selected:return
+	button.set_meta("choice_selected",selected)
+	if selected:
+		var style:=glass_style(0.98,0.80,10,8)
+		style.bg_color=Color("e8bd7d")
+		style.border_color=Color("fff0cd")
+		button.add_theme_stylebox_override("normal",style)
+		button.add_theme_stylebox_override("hover",style)
+		button.add_theme_color_override("font_color",Color("211d16"))
+		button.add_theme_color_override("font_hover_color",Color("211d16"))
+	else:
+		style_button(button,false,16,true)
+
 func style_button(button:Button,accent:bool=false,font_size:int=19,compact:bool=false) -> void:
 	# 主按钮用暖金实心，其余用暗色玻璃；悬停和按下只改亮度和描边。
 	var normal:=glass_style(0.86 if not accent else 1.0,0.30,12 if compact else 16,8)
@@ -1138,7 +1156,7 @@ func sync_view() -> void:
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
 	var middle:Vector2=(run.a.position+run.b.position)*.5
-	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight)
+	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
@@ -1156,9 +1174,26 @@ func sync_journey_character(i:int)->void:
 	for child in robots[i].get_children():
 		if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
 	robots[i].rotation=Vector3.ZERO
+	# 横向移动时身体朝移动方向轻微转向，不再像横向滑移。
+	var target_yaw:float=0.0
+	if visual_state=="running":
+		target_yaw=-run.move_directions[i].x*0.42
+	visual_yaw[i]=lerpf(visual_yaw[i],target_yaw,clampf(frame_delta*10.0,0.0,1.0))
+	if visual_state in ["running","start","settlement","complete"]:
+		robots[i].rotation.y=visual_yaw[i]
 	if visual_state=="running":
 		robots[i].rotation.x=-0.13-run.move_directions[i].y*0.07 if run.actions[i]=="Run" else 0.0
 		robots[i].rotation.z=-run.move_directions[i].x*0.06
+	# 起跳/落地只做视觉压缩，不改物理高度和碰撞。
+	if visual_last_heights[i]>6.0 and run.heights[i]<=0.5:land_impact[i]=1.0
+	visual_last_heights[i]=run.heights[i]
+	land_impact[i]=maxf(0.0,land_impact[i]-frame_delta*7.0)
+	if i<character_models.size():
+		var model_node:Node3D=character_models[i]
+		var base:Vector3=model_node.get_meta("base_scale",model_node.scale)
+		var squash:float=land_impact[i]
+		var target_scale:Vector3=base*Vector3(1.0+squash*0.10,1.0-squash*0.16,1.0+squash*0.10)
+		if not model_node.scale.is_equal_approx(target_scale):model_node.scale=target_scale
 	if rescuing:
 		var body:Vector3=run.rescue_body_position(i)
 		robots[i].position=Vector3(body.x/SCALE,body.y/SCALE,-body.z/SCALE)
@@ -1204,7 +1239,10 @@ func sync_journey_character(i:int)->void:
 	if run.state in ["start","settlement","complete"]:action="Idle"
 	play_action(player,action)
 	var pace:float=run.WALK_SPEED/160.0*(run.Combat.MOVE_SCALE if not run.combat.weapons[i].is_empty() else 1.0)
-	player.speed_scale=1.1*pace if action=="Run" else 1.0
+	if action=="Run":
+		player.speed_scale=1.1*pace
+	else:
+		player.speed_scale=1.0
 	if run.heights[i]>0:
 		player.seek(clampf((Run.JUMP_SPEED-run.vertical_speed[i])/Run.GRAVITY/(2*Run.JUMP_SPEED/Run.GRAVITY),0,1)*player.current_animation_length,true)
 
@@ -1320,6 +1358,9 @@ func update_journey_ui() -> void:
 	for button in mode_buttons:
 		button.visible=run.state=="start" and not run.combat_trial
 		button.disabled=net.active()
+		mark_choice(button,button.get_meta("mode","")==play_mode)
+	for button in difficulty_buttons:
+		mark_choice(button,button.text==run.difficulty)
 	online_row.visible=play_mode=="online" and run.state in ["start","paused"]
 	net_status.visible=play_mode=="online"
 	net_button.text="断开连接" if net.active() else "连接队友"

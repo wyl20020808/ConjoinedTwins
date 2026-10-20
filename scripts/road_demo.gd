@@ -18,6 +18,7 @@ var run = create_run()
 var road := Node3D.new()
 var camera := Camera3D.new()
 var robots: Array[Node3D] = []
+var character_models: Array[Node3D] = []
 # 旧版方条绳索的节点池已由 rope_view 取代；保留空数组供历史测试读取。
 var cable_parts: Array[MeshInstance3D] = []
 var hud: Label
@@ -1198,6 +1199,8 @@ func build_robots() -> void:
 			player.add_animation_library("", hero_animation_library())
 		register_animation(character)
 		ground_character(character)
+		character.set_meta("base_scale",character.scale)
+		character_models.append(character)
 		# 识别灯保持两人辨识度；阴影固定在地面，角色独立腾空。
 		var accent := material("robot_%d" % index, Color("57dbea") if index == 0 else Color("ffb95e"), 0.65)
 		# 两人衣着接近路面颜色，脚下加各自识别色的光环，远处也分得清谁是谁。
