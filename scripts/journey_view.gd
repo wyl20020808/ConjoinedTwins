@@ -103,6 +103,9 @@ var drop_requested := false
 var frame_costs := {}
 var view_pending:=false
 var journey_camera_returning:=false
+const UNDERSTORY:=["fern","shrub","grass","detail_fern_bed"]
+const DESKTOP_NATIVE_HEIGHT:=800.0
+const DESKTOP_RENDER_HEIGHT:=800.0
 
 func create_run():
 	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
@@ -139,6 +142,9 @@ func _ready() -> void:
 	elif landscape.mobile:
 		get_viewport().scaling_3d_scale=.75
 		get_viewport().msaa_3d=Viewport.MSAA_DISABLED
+	elif Atmosphere.forward_plus():
+		apply_desktop_quality()
+		get_viewport().size_changed.connect(apply_desktop_quality)
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
@@ -229,6 +235,22 @@ func apply_web_quality() -> void:
 	var size:=get_viewport().get_visible_rect().size
 	get_viewport().scaling_3d_scale=minf(1.0,minf(960.0/maxf(size.x,1.0),540.0/maxf(size.y,1.0)))
 	get_viewport().msaa_3d=Viewport.MSAA_DISABLED
+
+func apply_desktop_quality() -> void:
+	# 桌面 Forward+ 的森林段受像素填充限制（茂密双面树叶 + 全屏后期）：
+	# 720p 以下保持原生 + MSAA；更高分辨率改用时间性超分，内部渲染高度约 800 像素，
+	# 同时获得时间性抗锯齿，压住树叶与细绳的闪烁。macOS 用 MetalFX，其余平台用 FSR2。
+	var viewport:=get_viewport()
+	# canvas_items 拉伸下可见矩形固定为 1280×720，3D 实际按窗口像素渲染，故取窗口尺寸。
+	var height:=float(get_window().size.y)
+	if height<=DESKTOP_NATIVE_HEIGHT:
+		viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_BILINEAR
+		viewport.scaling_3d_scale=1.0
+		viewport.msaa_3d=Viewport.MSAA_2X
+		return
+	viewport.msaa_3d=Viewport.MSAA_DISABLED
+	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_METALFX_TEMPORAL if OS.get_name()=="macOS" else Viewport.SCALING_3D_MODE_FSR2
+	viewport.scaling_3d_scale=clampf(DESKTOP_RENDER_HEIGHT/height,0.34,1.0)
 
 func _exit_tree() -> void:
 	if is_instance_valid(net):net.disconnect_from()
@@ -350,6 +372,9 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 				var split:=45.0 if landscape.mobile or OS.has_feature("web") else 70.0
 				landscape.batch(chunk,path,item[2],split)
 				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
+			elif item[1] in UNDERSTORY:
+				# 蕨类每株约千面、灌木约五百面，70 米外被树干与林雾遮住，不再远距离整批绘制。
+				landscape.batch(chunk,path,item[2],60 if landscape.mobile or OS.has_feature("web") else 75)
 			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile or OS.has_feature("web") else 170)
 		"landscape_rock":
 			var cliff:Material=tex_material("cliff_face","rock_face_03",.11,Color("a89a90"))

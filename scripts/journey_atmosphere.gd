@@ -67,6 +67,8 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	env.ssao_enabled=true
 	env.ssao_radius=1.4;env.ssao_intensity=2.6;env.ssao_power=1.6
 	env.ssao_detail=0.6;env.ssao_light_affect=0.25
+	# 低档半分辨率 SSAO：1080p 实测省约 2–3 毫秒，近景接触暗部基本不变。
+	RenderingServer.environment_set_ssao_quality(RenderingServer.ENV_SSAO_QUALITY_LOW,true,0.5,2,50.0,300.0)
 	# SSIL 实测森林段约 1 毫秒，只提很轻的间接色；为 60 帧余量关闭，保留 SSAO。
 	env.ssil_enabled=false
 	env.glow_enabled=true
@@ -87,12 +89,7 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	sun.shadow_blur=1.8
 	# 远景环带需要更远的裁剪面；区块加载窗口不变，不增加实际模型数量。
 	camera.far=2600.0
-	var attributes:=CameraAttributesPractical.new()
-	attributes.dof_blur_far_enabled=true
-	attributes.dof_blur_far_distance=95.0
-	attributes.dof_blur_far_transition=80.0
-	attributes.dof_blur_amount=0.05
-	camera.attributes=attributes
+	# 远景景深（0.05 强度）在 1080p 约占 3 毫秒、画面几乎看不出，改由距离雾与大气透视表现纵深。
 
 func build_horizon(parent:Node3D) -> void:
 	horizon=Node3D.new();horizon.name="Horizon"
