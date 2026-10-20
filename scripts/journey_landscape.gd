@@ -146,6 +146,37 @@ func surface_details(parent:Node3D,pieces:Array,number:int,chapter:int,theme:Str
 	# 贴地模块没有独立碰撞体，也不向路面投射大批细碎阴影。
 	for child in parent.get_children():
 		if child is MultiMeshInstance3D:child.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pit_depths(parent,number,gaps)
+
+# 缺口内部：底部一层近黑的深渊面，压住穿透到下方的远景；内壁脚下散落碎石，做出塌陷纵深。
+# 只是表现，不参与支撑或碰撞；按区块裁剪，跨区块的长缺口不重复铺设。
+const PIT_DEPTH := 4.4
+func pit_depths(parent:Node3D,number:int,gaps:Array)->void:
+	if gaps.is_empty():return
+	var chunk:=Rect2(-HALF*20-40,number*WIDTH*20,HALF*40+80,WIDTH*20)
+	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rubble:Array=[]
+	for gap:Rect2 in gaps:
+		var clip:=gap.intersection(chunk)
+		if clip.size.x<=0 or clip.size.y<=0:continue
+		var x0:=clip.position.x/20;var x1:=clip.end.x/20;var z0:=-clip.position.y/20;var z1:=-clip.end.y/20
+		quad(tool,Vector3(x0,-PIT_DEPTH,z0),Vector3(x1,-PIT_DEPTH,z0),Vector3(x1,-PIT_DEPTH,z1),Vector3(x0,-PIT_DEPTH,z1))
+		var rng:=RandomNumberGenerator.new();rng.seed=int(clip.position.x*31+clip.position.y*17)
+		for n in range(clampi(int(clip.size.x*clip.size.y/9000.0),2,8)):
+			rubble.append(Vector3(rng.randf_range(x0+.4,x1-.4),-PIT_DEPTH+.15,rng.randf_range(z1+.4,z0-.4)))
+	var floor:=MeshInstance3D.new();floor.name="PitAbyss";floor.mesh=tool.commit()
+	var dark:=StandardMaterial3D.new();dark.albedo_color=Color(.035,.032,.03);dark.roughness=1.0
+	floor.material_override=dark;floor.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(floor)
+	if rubble.is_empty():return
+	var rock:=SphereMesh.new();rock.radius=.5;rock.height=.7;rock.radial_segments=6;rock.rings=3
+	var multi:=MultiMesh.new();multi.transform_format=MultiMesh.TRANSFORM_3D;multi.mesh=rock;multi.instance_count=rubble.size()
+	for i in range(rubble.size()):
+		var size:=.35+fmod(abs(rubble[i].x*7.3+rubble[i].z*3.1),.5)
+		multi.set_instance_transform(i,Transform3D(Basis(Vector3.UP,rubble[i].x).scaled(Vector3(size,size*.7,size*1.2)),rubble[i]))
+	var stones:=MultiMeshInstance3D.new();stones.name="PitRubble";stones.multimesh=multi
+	stones.material_override=cut_material;stones.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(stones)
 
 func quad(tool:SurfaceTool,a:Vector3,b:Vector3,c:Vector3,d:Vector3)->void:
 	for v in [a,c,b,a,d,c]:

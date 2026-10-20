@@ -210,3 +210,21 @@ Godot 导入时把内嵌贴图提取为同目录的 `*_tripo_image_*.jpg`。模�
 | `assets/mechanisms/crusher.glb` | 木吊架石块压锤 | 293,716 | 10d56167e47ddf0f | 已入库，本轮未接入 |
 
 另生成的"铁箍木桶"未导出成功，滚桶外观改用既有的 `assets/landscape/barrel.glb`。许可同前，待按 Tripo 账号套餐确认。
+
+## 2026-10-19 机关美术统一批次
+
+由用户的 Tripo 账号文生 3D 生成（H3.1、2K、去光、三角面上限 6000），贴图用 `build-tools/shrink_glb.py` 缩到 1024。8 个文件被应用内浏览器存成隐藏临时名，按外观识别后入库。
+
+| 文件 | 内容 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | --- | --- |
+| `assets/mechanisms/spiked_ball.glb` | 带刺铁锤球 | 248,160 | 69e14e13150d885a | 铁球 `iron_ball` |
+| `assets/mechanisms/stone_post.glb` | 雕刻石界桩 | 254,468 | 27210c993738db5d | 立柱 `pillar` |
+| `assets/mechanisms/spike_trap.glb` | 铁刺陷阱板 | 248,328 | 60b22dd460f19184 | 活动地刺 `active_spikes` |
+| `assets/mechanisms/fire_bolt.glb` | 火焰弩箭 | 264,220 | e5f927a8d85d7506 | 火箭 `rocket` |
+| `assets/mechanisms/flying_rock.glb` | 带余烬的碎岩 | 208,168 | 322edafb71d4619f | 飞石 `fly_low` / `fly_body` |
+| `assets/mechanisms/steam_vent.glb` | 石圈铁栅喷口 | 252,580 | c5e197848f737499 | 地火喷口 `steam` |
+| `assets/mechanisms/spiked_log.glb` | 带刺铁箍圆木 | 346,188 | 7c7f2cfd987ab692 | 旋转扫杆 `sweeper` |
+| `assets/mechanisms/lift_platform.glb` | 带护栏木质升降台 | 287,032 | 35f171ba99347dbf | 升降平台 `lift` |
+| `assets/mechanisms/barrel.glb` | 铁箍木桶（上一轮生成，此次找回） | 264,400 | 596563c295dac6bc | 横滚木桶 `barrel` |
+
+摆锤吊架与石阶块也已生成但未入库（前者外形不合格，后者需与碰撞台阶严格吻合）。许可同前，待按 Tripo 账号套餐确认。

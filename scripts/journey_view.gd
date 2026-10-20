@@ -28,7 +28,16 @@ const MECH_PIVOT := "res://assets/mechanisms/pivot_pillar.glb"
 const MECH_CRUSHER := "res://assets/mechanisms/crusher.glb"
 const MECH_PLATE := "res://assets/mechanisms/pressure_plate.glb"
 const MECH_ARCH := ["res://assets/mechanisms/arch_teal.glb","res://assets/mechanisms/arch_amber.glb"]
-const BARREL_MODEL := "res://assets/landscape/barrel.glb"
+# 机关外观统一批次（Tripo 文生 3D，1K 贴图）；只替换外观，碰撞与运动仍由模拟矩形驱动。
+const MECH_SPIKED_BALL := "res://assets/mechanisms/spiked_ball.glb"
+const MECH_STONE_POST := "res://assets/mechanisms/stone_post.glb"
+const MECH_SPIKE_TRAP := "res://assets/mechanisms/spike_trap.glb"
+const MECH_FIRE_BOLT := "res://assets/mechanisms/fire_bolt.glb"
+const MECH_FLYING_ROCK := "res://assets/mechanisms/flying_rock.glb"
+const MECH_STEAM_VENT := "res://assets/mechanisms/steam_vent.glb"
+const MECH_SPIKED_LOG := "res://assets/mechanisms/spiked_log.glb"
+const MECH_LIFT := "res://assets/mechanisms/lift_platform.glb"
+const BARREL_MODEL := "res://assets/mechanisms/barrel.glb"
 # 跳绳木杆：转轴高度与转动半径（米），最低点离地约 0.15 米。
 const JUMP_BAR_AXLE := 1.75
 const JUMP_BAR_RADIUS := 1.6
@@ -467,7 +476,7 @@ func prepare_event_views(deadline: int) -> bool:
 		if gate.get("kind","")=="relay":paths.append(MECH_PLATE)
 		chunk_assets.request(paths)
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
-			gate_views[gate.id]=build_gate(gate)
+			gate_views[gate.id]=quiet_world_text(build_gate(gate))
 			gate_views[gate.id].hide()
 		elif model_visible(gate.receiver.y): ready=false
 	return ready
@@ -563,6 +572,7 @@ func build_event(event: Dictionary) -> Node3D:
 	warning.name="Warning"
 	warning.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	add_sign(root,run.EVENT_NAMES[kind],Vector3(0,5,0),24).name="Hint"
+	quiet_world_text(root)
 	return root
 
 func sync_events() -> void:
@@ -651,14 +661,14 @@ func build_gate(gate: Dictionary) -> Node3D:
 			tripo_model(plate,MECH_PLATE,Vector3(rect.size.x/SCALE*1.15,.32,rect.size.y/SCALE*1.15),Vector3(0,.12,0))
 			var glow:=cylinder(plate,Vector3(0,.3,0),rect.size.x/SCALE*.42,.03,material("relay_glow_"+side,Color("57dbea") if side=="near" else Color("ffb95e"),1.2))
 			glow.name="Glow"
-		add_sign(root,gate.title,Vector3(0,6,0),32)
+		add_sign(root,gate.title,Vector3(0,6,0),32).name="GateTitle"
 		return root
 	for side in ["left","right"]:
 		var rect:Rect2=gate[side]
 		var center:Vector2=rect.get_center()
 		var plate:=box(root,Vector3(center.x/SCALE,0.045,-(center.y-gate.door.position.y)/SCALE),Vector3(rect.size.x/SCALE,0.08,rect.size.y/SCALE),material("plate_"+side,Color("4baba0") if side=="left" else Color("d8a45c"),0.25))
 		plate.name=side
-	add_sign(root,gate.title,Vector3(0,6,0),32)
+	add_sign(root,gate.title,Vector3(0,6,0),32).name="GateTitle"
 	if gate.id=="waterwheel": asset(root,"waterwheel",Vector3(19,0,0),9,PI/2)
 	elif "bridge" in gate.id:
 		asset(root,"drawbridge",Vector3(0,-0.1,-9),0.8)
@@ -673,7 +683,7 @@ func sync_gates() -> void:
 			continue
 		if not gate_views.has(gate.id):
 			if incremental_loading: continue
-			gate_views[gate.id]=build_gate(gate)
+			gate_views[gate.id]=quiet_world_text(build_gate(gate))
 		var view:Node3D=gate_views[gate.id]
 		view.show()
 		sample_animation(view,"BridgeLower",clampf((run.elapsed-gate.opened_at)/0.6,0,1) if gate.open else 0)
@@ -1354,6 +1364,14 @@ func hazard_asset_paths(index:int)->Array:
 	match run.kinds[index]:
 		"drone":return ["res://assets/props/Eagle_Flying.glb"]
 		"stone_ball":return [TRIPO_BOULDER]
+		"iron_ball":return [MECH_SPIKED_BALL]
+		"pillar":return [MECH_STONE_POST]
+		"active_spikes":return [MECH_SPIKE_TRAP]
+		"rocket":return [MECH_FIRE_BOLT]
+		"fly_low","fly_body":return [MECH_FLYING_ROCK]
+		"steam":return [MECH_STEAM_VENT]
+		"sweeper":return [MECH_SPIKED_LOG,MECH_PIVOT]
+		"lift":return [MECH_LIFT]
 		"rail":return [TRIPO_TIMBER]
 		"jump_bar":return [MECH_PIVOT]
 		"barrel":return [BARREL_MODEL]
@@ -1375,12 +1393,13 @@ func tripo_model(parent:Node3D,path:String,size:Vector3,center:Vector3)->Node3D:
 
 func build_ball_model(chunk:Node3D,index:int)->void:
 	super.build_ball_model(chunk,index)
-	if run.kinds[index]!="stone_ball":return
+	if run.kinds[index] not in ["stone_ball","iron_ball"]:return
 	var body:MeshInstance3D=chunk.get_node("BallBody")
 	for child in body.get_children():child.free()
 	body.material_override=zone_material("hidden_tripo_ball",Color(0,0,0,0))
 	var diameter:float=run.obstacles[index].size.x/SCALE
-	tripo_model(body,TRIPO_BOULDER,Vector3.ONE*diameter,Vector3.ZERO)
+	# 铁球换成带刺铁锤球；刺尖略超出碰撞球体约 6%，对玩家从宽。
+	tripo_model(body,TRIPO_BOULDER if run.kinds[index]=="stone_ball" else MECH_SPIKED_BALL,Vector3.ONE*diameter*(1.0 if run.kinds[index]=="stone_ball" else 1.12),Vector3.ZERO)
 
 func prepare_hazard_views(deadline: int) -> bool:
 	var ready:=true
@@ -1431,7 +1450,9 @@ func sync_static_hazard(i: int) -> void:
 		road.add_child(view)
 		if kind=="rail":
 			tripo_model(view,TRIPO_TIMBER,Vector3(rect.size.x/SCALE,.6,rect.size.y/SCALE),Vector3(0,.3,0))
-		elif kind=="pillar":cylinder(view,Vector3(0,2.5,0),rect.size.x/SCALE/2,5.0,landscape.palette.Stone)
+		elif kind=="pillar":
+			# 立柱换成雕刻石界桩；方柱外接碰撞圆柱，高度与碰撞顶高（5 米）一致。
+			tripo_model(view,MECH_STONE_POST,Vector3(rect.size.x/SCALE*1.25,5.0,rect.size.x/SCALE*1.25),Vector3(0,2.5,0))
 		elif kind=="jump_bar":build_jump_bar(view,rect)
 		elif kind=="color_gate":build_color_gate(view,rect,int(run.hazard_specs[i].get("role",0)))
 		elif kind=="cargo" and run.hazard_specs[i].get("color_wall",false):
@@ -1447,26 +1468,23 @@ func sync_static_hazard(i: int) -> void:
 			for n in range(7):
 				var crack:=box(view,Vector3(-rect.size.x/SCALE/2+n*1.6,.027,0),Vector3(.08,.025,rect.size.y/SCALE),material("fragile_cracks",Color("25261d")));crack.rotation.y=.18 if n%2==0 else -.18
 		else:
-			box(view,Vector3(0,.03,0),Vector3(rect.size.x/SCALE,.06,rect.size.y/SCALE),material("trap_base",Color("524935")))
-			var spike_count:int=maxi(1,floori(rect.size.x/SCALE/.65))
-			for n in range(spike_count):
-				var spike:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=0;mesh.bottom_radius=.18;mesh.height=.8;mesh.radial_segments=5
-				spike.mesh=mesh;spike.material_override=material("trap_tip",Color("c0b89f"));spike.position=Vector3((float(n)+.5)/spike_count*rect.size.x/SCALE-rect.size.x/SCALE/2,.4,0);view.add_child(spike)
+			# 活动地刺：铁刺陷阱板模型（原模型竖放、刺尖朝 +X，绕 Z 轴放平使刺尖朝上），伸缩时整块升降。
+			var trap:=Node3D.new();trap.name="TrapModel";view.add_child(trap)
+			var holder:=Node3D.new();trap.add_child(holder);holder.rotation.z=PI/2
+			tripo_model(holder,MECH_SPIKE_TRAP,Vector3(.8,rect.size.x/SCALE,rect.size.y/SCALE*1.05),Vector3.ZERO)
+			holder.position.y=.4
 			var warning:=box(view,Vector3(0,.065,0),Vector3(rect.size.x/SCALE+.08,.025,rect.size.y/SCALE+.08),material("small_trap_warning",Color("e7ae43"),.25))
 			warning.name="SpikeWarning"
-		static_views[i]=view
+		static_views[i]=quiet_world_text(view)
 	static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 	static_views[i].visible=model_visible(rect.get_center().y)
 	if kind=="collapse":static_views[i].visible=static_views[i].visible and run.hazard_sample(i,run.elapsed).stage!="collapsed"
 	if kind=="jump_bar":sync_jump_bar(static_views[i],i)
 	if kind=="active_spikes":
 		var sample:Dictionary=run.hazard_sample(i,run.elapsed)
-		for n in range(1,static_views[i].get_child_count()):
-			var spike:Node3D=static_views[i].get_child(n)
-			if spike.name=="SpikeWarning":
-				spike.visible=sample.warning
-				continue
-			spike.scale.y=maxf(.01,sample.top/16);spike.position.y=sample.top/SCALE/2
+		static_views[i].get_node("SpikeWarning").visible=sample.warning
+		# 收回时刺板沉到路面以下，伸出量与模拟顶高同步。
+		static_views[i].get_node("TrapModel").position.y=(clampf(sample.top/16.0,0.0,1.0)-1.0)*.75
 
 # 两侧石质转轴柱 + 横贯全路的木杆；木杆绕 X 轴整圈旋转，最低点对齐模拟中贴地窗口的中点。
 func build_jump_bar(view:Node3D,rect:Rect2)->void:
@@ -1493,10 +1511,68 @@ func sync_jump_bar(view:Node3D,index:int)->void:
 	view.get_node("Axle/Arm").rotation.x=PI+TAU*(cycle-bottom_time)/period
 	view.get_node("Warning").visible=run.hazard_sample(index,run.elapsed).warning
 
+# ---- 预警表现：地面图形取代世界文字 ----
+# 机关说明、事件提示与合作门标题不在场景里渲染（顶部提示栏仍显示当前最近的危险与做法）；
+# 所有地面预警片统一为红橙斜纹、呼吸闪烁的着色器，按世界坐标铺纹，不随尺寸拉伸。
+const QUIET_LABELS := ["WarningLabel","Hint","GateTitle","TerrainSign"]
+const TELEGRAPH_NODES := ["WarningFootprint","FlightRoute","TrajectoryCorridor","Warning","HammerZone","SpikeWarning"]
+var telegraph_material:ShaderMaterial
+
+func telegraph()->ShaderMaterial:
+	if telegraph_material==null:
+		var shader:=Shader.new()
+		shader.code="""shader_type spatial;
+render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
+varying vec3 world;
+void vertex(){ world=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz; }
+void fragment(){
+	float stripe=step(0.5,fract((world.x+world.z)*0.55-TIME*0.9));
+	float pulse=0.62+0.38*sin(TIME*7.0);
+	ALBEDO=mix(vec3(0.95,0.18,0.07),vec3(1.0,0.6,0.12),stripe);
+	ALPHA=(0.30+0.32*stripe)*pulse;
+}"""
+		telegraph_material=ShaderMaterial.new();telegraph_material.shader=shader
+	return telegraph_material
+
+func quiet_world_text(node:Node)->Node:
+	if node is Label3D and node.name in QUIET_LABELS:node.layers=0
+	elif node is MeshInstance3D and node.name in TELEGRAPH_NODES:node.material_override=telegraph()
+	for child in node.get_children():quiet_world_text(child)
+	return node
+
+func make_hazard_view(index:int)->Node3D:
+	var view:Node3D=super.make_hazard_view(index)
+	if run.kinds[index]=="rocket":dress_rocket(view,index)
+	return quiet_world_text(view)
+
+# 火箭的方块机身与尾翼换成火焰弩箭；箭头朝向镜头（+Z，迎面飞来），长度与危险盒一致。
+func dress_rocket(view:Node3D,index:int)->void:
+	for child in view.get_children():
+		if child is MeshInstance3D and child.name not in TELEGRAPH_NODES and child.name!="DangerVolume" and child.name!="ThreatShadow":child.visible=false
+		if child.name=="DangerVolume":child.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	var rect:Rect2=run.obstacles[index]
+	var spec:Dictionary=run.hazard_specs[index]
+	var holder:=Node3D.new();holder.name="Bolt";view.add_child(holder)
+	holder.position.y=(spec.bottom+run.obstacle_heights[index])/SCALE/2
+	tripo_model(holder,MECH_FIRE_BOLT,Vector3(rect.size.x/SCALE*.9,(run.obstacle_heights[index]-spec.bottom)/SCALE*1.2,rect.size.y/SCALE*1.1),Vector3.ZERO)
+
 # 压机、活塞、横移撞锤：保留同源碰撞尺寸与运动，只把纯色方块换成石块与木架材质，
 # 危险部件为花岗岩并保留黄色警示条，支架为木料，不再是橙色占位方块。
 func build_industrial_model(chunk:Node3D,index:int)->void:
 	super.build_industrial_model(chunk,index)
+	if run.kinds[index]=="steam":
+		# 地火喷口：贴地喷嘴平板换成石圈铁栅喷口模型，喷流保持原样。
+		var nozzle:MeshInstance3D=chunk.get_node("nozzle")
+		nozzle.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+		var rect:Rect2=run.obstacles[index]
+		var vent:=Node3D.new();vent.name="Vent";chunk.add_child(vent)
+		tripo_model(vent,MECH_STEAM_VENT,Vector3(minf(rect.size.x,rect.size.y*2.2)/SCALE,.5,rect.size.y/SCALE*1.1),Vector3(0,.2,0))
+		return
+	if run.kinds[index]=="hammer":
+		# 摆锤门架的钢柱、横梁改为木料，与村庄与林地的木构一致。
+		for name in ["PostLeft","PostRight","Beam"]:
+			if chunk.has_node(name):chunk.get_node(name).material_override=landscape.palette.Wood
+		return
 	if run.kinds[index] not in ["press","piston","shuttle"]:return
 	for child in chunk.get_children():
 		if not child is MeshInstance3D:continue
@@ -1517,6 +1593,35 @@ func build_color_gate(view:Node3D,rect:Rect2,role:int)->void:
 	lane.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	add_sign(view,"01" if role==0 else "02",Vector3(0,5.8,0),40).modulate=color
 
+# 升降平台：木板拼的台面换成带护栏的木质升降台模型，挂在随模拟升降的 TerrainDeck 下。
+func build_terrain_model(view:Node3D,index:int)->void:
+	super.build_terrain_model(view,index)
+	if run.kinds[index]!="lift":return
+	var deck:MeshInstance3D=view.get_node("TerrainDeck")
+	deck.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	for child in deck.get_children():
+		if child is MeshInstance3D:child.visible=false
+	var rect:Rect2=run.obstacles[index]
+	var platform:=Node3D.new();deck.add_child(platform)
+	tripo_model(platform,MECH_LIFT,Vector3(rect.size.x/SCALE,.9,rect.size.y/SCALE),Vector3(0,-.3,0))
+
+# 旋转扫杆：立柱换成石质转轴，橙色杆体换成带刺圆木（模型长轴沿 Z，转 90° 对齐杆体 X 轴）。
+func build_surface_hazard(chunk:Node3D,index:int)->void:
+	super.build_surface_hazard(chunk,index)
+	if run.kinds[index]!="sweeper":return
+	var post:MeshInstance3D=chunk.get_node("SweeperPost")
+	var arm:MeshInstance3D=chunk.get_node("SweeperArm")
+	var post_size:Vector3=Vector3(post.mesh.top_radius*2,post.mesh.height,post.mesh.top_radius*2)
+	post.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	var pivot:=Node3D.new();chunk.add_child(pivot)
+	tripo_model(pivot,MECH_PIVOT,Vector3(post_size.x*1.6,post_size.y,post_size.z*1.6),Vector3(0,post_size.y/2,0))
+	var size:Vector3=arm.mesh.size
+	arm.material_override=zone_material("hidden_volume",Color(0,0,0,0))
+	for child in arm.get_children():
+		if child is MeshInstance3D:child.visible=false
+	var log:=Node3D.new();log.rotation.y=PI/2;arm.add_child(log)
+	tripo_model(log,MECH_SPIKED_LOG,Vector3(size.y*1.6,size.y*1.6,size.x),Vector3.ZERO)
+
 # 两个横躺木桶并排组成 4.5 米宽的滚桶；只替换外观，危险体仍按模拟矩形判定。
 func build_barrel_row(view:Node3D,rect:Rect2,sample:Dictionary)->void:
 	view.get_node("DangerVolume").visible=false
@@ -1526,9 +1631,9 @@ func build_barrel_row(view:Node3D,rect:Rect2,sample:Dictionary)->void:
 	var piece:float=rect.size.x/SCALE/2
 	for n in range(2):
 		var holder:=Node3D.new();row.add_child(holder);holder.position.x=(n-.5)*piece
-		# 原模型直立，绕 Z 轴放倒后桶轴沿 X；高度（桶长）略短于每段宽度留出缝隙。
-		var barrel:=tripo_model(holder,BARREL_MODEL,Vector3(diameter,piece*.94,diameter),Vector3.ZERO)
-		holder.rotation.z=PI/2
+		# 模型桶轴沿 Z，绕 Y 轴转 90° 后沿 X；桶长略短于每段宽度留出缝隙。
+		tripo_model(holder,BARREL_MODEL,Vector3(diameter,diameter,piece*.94),Vector3.ZERO)
+		holder.rotation.y=PI/2
 
 func sync_barrel_row(view:Node3D,index:int,sample:Dictionary)->void:
 	var row:Node3D=view.get_node("BarrelRow")
@@ -1555,7 +1660,9 @@ func sync_moving_threat(index:int)->void:
 		if kind.begins_with("fly_"):
 			var volume:MeshInstance3D=created.get_node("DangerVolume")
 			volume.material_override=zone_material("hidden_flying_stone",Color(0,0,0,0))
-			CombatView.EnemyView.volume(volume,Vector3.ZERO,Vector3(rect.size.x/SCALE,(sample.top-sample.bottom)/SCALE,rect.size.y/SCALE),landscape.palette.Stone)
+			var rock_size:=Vector3(rect.size.x/SCALE,(sample.top-sample.bottom)/SCALE,rect.size.y/SCALE)
+			var spin:=Node3D.new();spin.name="Spin";volume.add_child(spin)
+			tripo_model(spin,MECH_FLYING_ROCK,Vector3.ONE*maxf(rock_size.x,rock_size.y)*1.05,Vector3.ZERO)
 		if kind=="barrel":build_barrel_row(created,rect,sample)
 		static_views[index]=created
 	var view:Node3D=static_views[index]
@@ -1578,6 +1685,7 @@ func sync_moving_threat(index:int)->void:
 		var volume:Node3D=view.get_node("DangerVolume")
 		volume.position.y=(sample.bottom+sample.top)/SCALE/2
 		volume.visible=sample.active
+		if volume.has_node("Spin"):volume.get_node("Spin").rotation=Vector3(run.elapsed*5.0,run.elapsed*2.0,0)
 		view.get_node("WarningFootprint").visible=sample.warning
 
 func choose_mode(value:String)->void:
