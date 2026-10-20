@@ -273,7 +273,15 @@ func villager_material(source:Material) -> ShaderMaterial:
 		mat.set_shader_parameter("albedo_color",Color("cfc5b0"))
 	return mat
 
+# 带骨骼动作的村民（build-tools/journey/rig_npcs.py 生成）；不存在时退回 MultiMesh + 顶点摆动。
+static func rigged_villager(path:String)->String:
+	return path.replace("/landscape/","/landscape/rigged/") if path.get_file().begins_with("villager_") else ""
+
 func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)->void:
+	var rigged:=rigged_villager(path)
+	if not rigged.is_empty() and ResourceLoader.exists(rigged):
+		spawn_villagers(parent,rigged,transforms,end)
+		return
 	if transforms.size()>8:
 		# MultiMesh 整批剔除；世界坐标大批次既画满远处林地，也让距离 LOD 参考错误的原点。
 		var cells:={}
@@ -286,6 +294,30 @@ func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)
 			batch_cell(parent,path,cells[cell],end,begin,center)
 		return
 	batch_cell(parent,path,transforms,end,begin,Vector3.ZERO)
+
+# 村民逐个实例化：每个区块只有几个人。按位置散列在待机、说话、张望中挑一个循环动作并错开起始帧，
+# 避免整排同步；动作随时间自然播放，只是路边布景，不参与玩法。
+const VILLAGER_CLIPS:=["Idle","Talk","Look","Idle","Talk"]
+func spawn_villagers(parent:Node3D,path:String,transforms:Array,end:float)->void:
+	var scene:PackedScene=load(path)
+	for transform:Transform3D in transforms:
+		var node:Node3D=scene.instantiate()
+		node.name="Villager"
+		parent.add_child(node)
+		node.transform=transform
+		for mesh:MeshInstance3D in node.find_children("*","MeshInstance3D",true,false):
+			mesh.visibility_range_end=end
+			mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_ON if not mobile else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var players:=node.find_children("*","AnimationPlayer",true,false)
+		if players.is_empty():continue
+		var player:AnimationPlayer=players[0]
+		var seed:=absi(int(transform.origin.x*7.31+transform.origin.z*3.17))
+		var clip:String=VILLAGER_CLIPS[seed%VILLAGER_CLIPS.size()]
+		for name in player.get_animation_list():
+			player.get_animation(name).loop_mode=Animation.LOOP_LINEAR
+			if name.get_slice("|",name.get_slice_count("|")-1)==clip:
+				player.play(name)
+				player.seek(fposmod(seed*0.37,player.current_animation_length),true)
 
 func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float,center:Vector3)->void:
 	for part in load_parts(path):

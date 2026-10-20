@@ -91,6 +91,8 @@ static func paths(items: Array) -> Array:
 			continue
 		if item[0]=="landscape_batch":
 			var asset_path:="res://assets/landscape/%s.glb"%item[1]
+			var rigged:String=preload("res://scripts/journey_landscape.gd").rigged_villager(asset_path)
+			if not rigged.is_empty() and ResourceLoader.exists(rigged):asset_path=rigged
 			if not result.has(asset_path):result.append(asset_path)
 			if item[1] in ["natural_oak_7","natural_oak_17","natural_birch"]:result.append("res://assets/landscape/%s_lod.glb"%item[1])
 			continue
