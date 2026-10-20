@@ -372,6 +372,15 @@ func add_lamp(parent: Node3D,pos: Vector3,kind: String) -> void:
 	if torch:
 		var lights:Array=parent.get_meta("flicker_lights",[]);lights.append(light);parent.set_meta("flicker_lights",lights)
 
+var water_shader_material:ShaderMaterial
+func water_material()->Material:
+	if water_shader_material==null:
+		water_shader_material=ShaderMaterial.new()
+		water_shader_material.shader=preload("res://scripts/journey_water.gdshader")
+		water_shader_material.set_shader_parameter("bank_near",Run.EDGE/SCALE+3.0)
+		water_shader_material.set_shader_parameter("bank_far",Run.EDGE/SCALE+29.0)
+	return water_shader_material
+
 const CRYSTAL_COLORS:=[Color("6fe9ff"),Color("b48cff"),Color("7dffc4")]
 func add_crystals(parent: Node3D,pos: Vector3,seed_value: int) -> void:
 	# 路缘外的一簇发光矿晶：六棱锥，HDR 自发光晕开，配一盏不投影的小灯。只作展示。
@@ -480,11 +489,14 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 			var mesh:Mesh=rock_mesh("ridge_spire",44,8,2.8,70,.2) if item[3] else rock_mesh("ridge_buttress",60,3.6,1.8,24,.24)
 			rock(chunk,mesh,cliff,item[1],item[2],item[4])
 		"land":
-			var surface:Material=landscape.terrain if item[3] in ["village","farm"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			var surface:Material=landscape.terrain if item[3] in ["village","farm","river"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
 			# 矿道与设施两侧原是纯色平面，夜里像一片灰板；改为碎石岩面。
 			if item[3] in ["mine","ruins","facility"]:surface=tex_material("night_gravel","rock_boulder_dry",.22,Color("6e675f"))
 			box(chunk,item[1],item[2],surface)
-		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
+		"water":
+			var surface:=box(chunk,item[1],item[2],water_material())
+			surface.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		"riverbed": box(chunk,item[1],item[2],tex_material("riverbed","rock_boulder_dry",.3,Color("3c3a32")))
 		"model":
 			var node := model("res://assets/decor/%s.glb"%item[1],chunk,item[2],item[3],item[4],item[5])
 			if item.size()>6 and node:

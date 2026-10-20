@@ -109,6 +109,16 @@ func build_horizon(parent:Node3D) -> void:
 	parent.add_child(horizon)
 	ground_material=StandardMaterial3D.new()
 	ground_material.roughness=1.0
+	# 远处原野：世界坐标三平面采样一张大尺度噪声色块，像田块与林斑；环带随镜头平移时纹理不跟着走。
+	var noise:=FastNoiseLite.new();noise.noise_type=FastNoiseLite.TYPE_CELLULAR;noise.frequency=0.02;noise.seed=7
+	var ramp:=Gradient.new()
+	ramp.set_color(0,Color(0.72,0.74,0.62));ramp.set_color(1,Color(1.12,1.08,0.92))
+	ramp.add_point(0.5,Color(0.9,0.95,0.82))
+	var fields:=NoiseTexture2D.new();fields.width=512;fields.height=512;fields.seamless=true
+	fields.noise=noise;fields.color_ramp=ramp
+	ground_material.albedo_texture=fields
+	ground_material.uv1_world_triplanar=true;ground_material.uv1_triplanar=true
+	ground_material.uv1_scale=Vector3.ONE*0.004
 	var ground:=MeshInstance3D.new();ground.name="HorizonGround"
 	ground.mesh=ring_mesh();ground.material_override=ground_material
 	ground.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
