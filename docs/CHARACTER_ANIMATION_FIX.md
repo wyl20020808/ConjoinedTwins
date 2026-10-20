@@ -40,9 +40,13 @@
 | 生产入口 headless 启动 | 退出码 0 |
 | 实际帧时间（M4 / 720p / 关垂直同步 / 180 帧） | 森林 14.97 ms、村庄 8.74 ms、设施 5.87 ms（冷却后） |
 
+## 主角 clip 检查
+
+27 个 clip 在 `builds/anim-review/sheets/hero_01-sheet.png` 与 `hero_02-sheet.png` 中逐个渲染；Idle、Run、Jump、HitRecieve_1、Death、Gun_Shoot 另取 10/65/90% 三帧。没有发现 T 姿势、肢体爆开或头部塌陷；Death 结尾倒地、Jump 有屈膝/腾空帧、Run 有交替步。
+
 ## 未完成
 
-- **NPC 动画**：村民、商贩、怪物没有在本轮逐个处理；怪物已有程序化腿动画，静态 NPC 仍需单独盘点。
+- **NPC 动画**：村民已加待机摆动，见 [NPC_ANIMATION_IDLE.md](NPC_ANIMATION_IDLE.md)；走/转身/手势未做。怪物已有程序化腿动画。
 - `Climb`/`RopePull` 的 `PT.L`/`PT.R` 轨道已改写到 `LeftToes`/`RightToes`；仍需真人试玩确认攀爬脚位。
 - Jump 是合成的 31 帧，起跳/落地没有脚部 IK；需要试玩确认节奏。
 - 只在 M4 / Metal / 720p 测过；没有真人试玩。

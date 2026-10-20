@@ -229,7 +229,7 @@ func load_parts(path:String)->Array:
 	if parts.has(path):return parts[path]
 	var scene:Node3D=load(path).instantiate()
 	var result:Array=[]
-	collect(scene,Transform3D.IDENTITY,result)
+	collect(scene,Transform3D.IDENTITY,result,path)
 	scene.free()
 	if path.get_file().get_basename() in SURFACE_KINDS:
 		for part in result:
@@ -241,7 +241,7 @@ func load_parts(path:String)->Array:
 	parts[path]=result
 	return result
 
-func collect(node:Node3D,transform:Transform3D,result:Array)->void:
+func collect(node:Node3D,transform:Transform3D,result:Array,path:String="")->void:
 	transform=transform*node.transform
 	if node is MeshInstance3D:
 		# 保留导入网格的索引和 LOD，不重新读取、上传整份顶点数组。
@@ -249,10 +249,28 @@ func collect(node:Node3D,transform:Transform3D,result:Array)->void:
 		for surface in range(mesh.get_surface_count()):
 			var source:Material=mesh.surface_get_material(surface)
 			var mat:Material=palette.get(source.resource_name,source) if source else palette.Leaf
+			if path.get_file().contains("villager_"):
+				mat=villager_material(source)
 			mesh.surface_set_material(surface,mat)
 		result.append({"mesh":mesh,"transform":transform})
 	for child in node.get_children():
-		if child is Node3D:collect(child,transform,result)
+		if child is Node3D:collect(child,transform,result,path)
+
+func villager_material(source:Material) -> ShaderMaterial:
+	var mat:=ShaderMaterial.new()
+	mat.shader=preload("res://scripts/villager_sway.gdshader")
+	if source is BaseMaterial3D:
+		var base:=source as BaseMaterial3D
+		mat.set_shader_parameter("albedo_color",base.albedo_color)
+		if base.albedo_texture:
+			mat.set_shader_parameter("albedo_tex",base.albedo_texture)
+			mat.set_shader_parameter("has_albedo",true)
+		if base.normal_enabled and base.normal_texture:
+			mat.set_shader_parameter("normal_tex",base.normal_texture)
+			mat.set_shader_parameter("has_normal",true)
+	else:
+		mat.set_shader_parameter("albedo_color",Color("cfc5b0"))
+	return mat
 
 func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)->void:
 	if transforms.size()>8:
@@ -271,11 +289,14 @@ func batch(parent:Node3D,path:String,transforms:Array,end:float,begin:float=0.0)
 func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float,center:Vector3)->void:
 	for part in load_parts(path):
 		var multi:=MultiMesh.new();multi.transform_format=MultiMesh.TRANSFORM_3D
+		var villagers:=path.get_file().contains("villager_")
+		multi.use_custom_data=villagers
 		multi.mesh=part.mesh;multi.instance_count=transforms.size()
 		for i in range(transforms.size()):
 			var local:Transform3D=transforms[i]*part.transform
 			local.origin-=center
 			multi.set_instance_transform(i,local)
+			if villagers:multi.set_instance_custom_data(i,Color(fposmod(float(i)*0.371,1.0),0,0,1))
 		var view:=MultiMeshInstance3D.new();view.multimesh=multi
 		view.position=center
 		view.visibility_range_begin=begin
