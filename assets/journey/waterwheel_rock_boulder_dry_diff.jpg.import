@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bnm81p31e2qox"
-path.s3tc="res://.godot/imported/waterwheel_rock_boulder_dry_diff.jpg-7690e05d54d80cfb9893658fe6e3beb7.s3tc.ctex"
-path.etc2="res://.godot/imported/waterwheel_rock_boulder_dry_diff.jpg-7690e05d54d80cfb9893658fe6e3beb7.etc2.ctex"
+path="res://.godot/imported/waterwheel_rock_boulder_dry_diff.jpg-7690e05d54d80cfb9893658fe6e3beb7.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "070172a6f2750d21c4b84d9214c14341"
@@ -16,15 +14,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/waterwheel_rock_boulder_dry_diff.jpg"
-dest_files=["res://.godot/imported/waterwheel_rock_boulder_dry_diff.jpg-7690e05d54d80cfb9893658fe6e3beb7.s3tc.ctex", "res://.godot/imported/waterwheel_rock_boulder_dry_diff.jpg-7690e05d54d80cfb9893658fe6e3beb7.etc2.ctex"]
+dest_files=["res://.godot/imported/waterwheel_rock_boulder_dry_diff.jpg-7690e05d54d80cfb9893658fe6e3beb7.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

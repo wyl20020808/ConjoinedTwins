@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bqkcnw2f7ee2b"
-path.s3tc="res://.godot/imported/Pine_Bark_NormalTree_Normal.png-941c081e5156d5ea80d7d98187ed870b.s3tc.ctex"
-path.etc2="res://.godot/imported/Pine_Bark_NormalTree_Normal.png-941c081e5156d5ea80d7d98187ed870b.etc2.ctex"
+path="res://.godot/imported/Pine_Bark_NormalTree_Normal.png-941c081e5156d5ea80d7d98187ed870b.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "915ca8ab57f57b40c8c65b872ce57b9f"
@@ -16,15 +14,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/decor/Pine_Bark_NormalTree_Normal.png"
-dest_files=["res://.godot/imported/Pine_Bark_NormalTree_Normal.png-941c081e5156d5ea80d7d98187ed870b.s3tc.ctex", "res://.godot/imported/Pine_Bark_NormalTree_Normal.png-941c081e5156d5ea80d7d98187ed870b.etc2.ctex"]
+dest_files=["res://.godot/imported/Pine_Bark_NormalTree_Normal.png-941c081e5156d5ea80d7d98187ed870b.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

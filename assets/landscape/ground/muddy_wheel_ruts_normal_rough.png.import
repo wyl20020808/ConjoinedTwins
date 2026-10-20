@@ -3,25 +3,23 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d2qb7y42xj1ka"
-path.s3tc="res://.godot/imported/muddy_wheel_ruts_normal_rough.png-9d5ee0b66b3116a369496910c809a742.s3tc.ctex"
-path.etc2="res://.godot/imported/muddy_wheel_ruts_normal_rough.png-9d5ee0b66b3116a369496910c809a742.etc2.ctex"
+path="res://.godot/imported/muddy_wheel_ruts_normal_rough.png-9d5ee0b66b3116a369496910c809a742.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://assets/landscape/ground/muddy_wheel_ruts_normal_rough.png"
-dest_files=["res://.godot/imported/muddy_wheel_ruts_normal_rough.png-9d5ee0b66b3116a369496910c809a742.s3tc.ctex", "res://.godot/imported/muddy_wheel_ruts_normal_rough.png-9d5ee0b66b3116a369496910c809a742.etc2.ctex"]
+dest_files=["res://.godot/imported/muddy_wheel_ruts_normal_rough.png-9d5ee0b66b3116a369496910c809a742.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

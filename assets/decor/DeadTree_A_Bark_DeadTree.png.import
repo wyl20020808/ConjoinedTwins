@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b1flds26wqx4e"
-path.s3tc="res://.godot/imported/DeadTree_A_Bark_DeadTree.png-0d9e3f102e9cde0a66d598eca3cd03ab.s3tc.ctex"
-path.etc2="res://.godot/imported/DeadTree_A_Bark_DeadTree.png-0d9e3f102e9cde0a66d598eca3cd03ab.etc2.ctex"
+path="res://.godot/imported/DeadTree_A_Bark_DeadTree.png-0d9e3f102e9cde0a66d598eca3cd03ab.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "eae9b5ef1194b73f5278668bc17df5a3"
@@ -16,15 +14,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/decor/DeadTree_A_Bark_DeadTree.png"
-dest_files=["res://.godot/imported/DeadTree_A_Bark_DeadTree.png-0d9e3f102e9cde0a66d598eca3cd03ab.s3tc.ctex", "res://.godot/imported/DeadTree_A_Bark_DeadTree.png-0d9e3f102e9cde0a66d598eca3cd03ab.etc2.ctex"]
+dest_files=["res://.godot/imported/DeadTree_A_Bark_DeadTree.png-0d9e3f102e9cde0a66d598eca3cd03ab.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

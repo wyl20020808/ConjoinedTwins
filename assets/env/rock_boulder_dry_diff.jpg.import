@@ -3,25 +3,23 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b1ocx44us5ph5"
-path.s3tc="res://.godot/imported/rock_boulder_dry_diff.jpg-7b1aac9e0dba4fb27dbdd87433036f21.s3tc.ctex"
-path.etc2="res://.godot/imported/rock_boulder_dry_diff.jpg-7b1aac9e0dba4fb27dbdd87433036f21.etc2.ctex"
+path="res://.godot/imported/rock_boulder_dry_diff.jpg-7b1aac9e0dba4fb27dbdd87433036f21.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://assets/env/rock_boulder_dry_diff.jpg"
-dest_files=["res://.godot/imported/rock_boulder_dry_diff.jpg-7b1aac9e0dba4fb27dbdd87433036f21.s3tc.ctex", "res://.godot/imported/rock_boulder_dry_diff.jpg-7b1aac9e0dba4fb27dbdd87433036f21.etc2.ctex"]
+dest_files=["res://.godot/imported/rock_boulder_dry_diff.jpg-7b1aac9e0dba4fb27dbdd87433036f21.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://pek7xua85dbx"
-path.s3tc="res://.godot/imported/house_1_wood_planks_rough.png-9f4a2e2b9bb89c6ca8c0c1d1e95962bf.s3tc.ctex"
-path.etc2="res://.godot/imported/house_1_wood_planks_rough.png-9f4a2e2b9bb89c6ca8c0c1d1e95962bf.etc2.ctex"
+path="res://.godot/imported/house_1_wood_planks_rough.png-9f4a2e2b9bb89c6ca8c0c1d1e95962bf.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "d7b763bb28e8f5907bb9b21cd891166d"
@@ -16,15 +14,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/house_1_wood_planks_rough.png"
-dest_files=["res://.godot/imported/house_1_wood_planks_rough.png-9f4a2e2b9bb89c6ca8c0c1d1e95962bf.s3tc.ctex", "res://.godot/imported/house_1_wood_planks_rough.png-9f4a2e2b9bb89c6ca8c0c1d1e95962bf.etc2.ctex"]
+dest_files=["res://.godot/imported/house_1_wood_planks_rough.png-9f4a2e2b9bb89c6ca8c0c1d1e95962bf.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0

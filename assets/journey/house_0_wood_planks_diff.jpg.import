@@ -3,11 +3,9 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://brx32ucxja45u"
-path.s3tc="res://.godot/imported/house_0_wood_planks_diff.jpg-74e7067e5b2345d849fa19af0c20cc1e.s3tc.ctex"
-path.etc2="res://.godot/imported/house_0_wood_planks_diff.jpg-74e7067e5b2345d849fa19af0c20cc1e.etc2.ctex"
+path="res://.godot/imported/house_0_wood_planks_diff.jpg-74e7067e5b2345d849fa19af0c20cc1e.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
+"vram_texture": false
 }
 generator_parameters={
 "md5": "e9043d62b5b1f4771bb0bcedf5a0e171"
@@ -16,15 +14,15 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/journey/house_0_wood_planks_diff.jpg"
-dest_files=["res://.godot/imported/house_0_wood_planks_diff.jpg-74e7067e5b2345d849fa19af0c20cc1e.s3tc.ctex", "res://.godot/imported/house_0_wood_planks_diff.jpg-74e7067e5b2345d849fa19af0c20cc1e.etc2.ctex"]
+dest_files=["res://.godot/imported/house_0_wood_planks_diff.jpg-74e7067e5b2345d849fa19af0c20cc1e.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=4
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
-compress/rdo_quality_loss=0.0
+compress/rdo_quality_loss=2.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
