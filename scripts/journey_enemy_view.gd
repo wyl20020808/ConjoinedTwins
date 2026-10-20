@@ -209,6 +209,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 			view.set_meta("fx_hit_at",event.hit_at);fx.burst("spark",location+Vector3(0,body_height*.6,0))
 		if died and not view.get_meta("fx_dead",false):
 			view.set_meta("fx_dead",true);fx.burst("dust",location+Vector3(0,.1,0))
+			fx.impact(location,Color("ffb35a"),3.2,3.5)
 	var flashing:bool=hit_age<.09
 	if flashing!=view.get_meta("hit_flash",false):
 		var flash:Material=game.material("enemy_hit_flash",Color("ffe2ad"),.9) if flashing else null

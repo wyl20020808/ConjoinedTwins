@@ -103,6 +103,9 @@ var drop_requested := false
 var frame_costs := {}
 var view_pending:=false
 var journey_camera_returning:=false
+const UNDERSTORY:=["fern","shrub","grass","detail_fern_bed"]
+const DESKTOP_NATIVE_HEIGHT:=800.0
+const DESKTOP_RENDER_HEIGHT:=800.0
 
 func create_run():
 	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
@@ -139,6 +142,9 @@ func _ready() -> void:
 	elif landscape.mobile:
 		get_viewport().scaling_3d_scale=.75
 		get_viewport().msaa_3d=Viewport.MSAA_DISABLED
+	elif Atmosphere.forward_plus():
+		apply_desktop_quality()
+		get_viewport().size_changed.connect(apply_desktop_quality)
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
@@ -230,6 +236,22 @@ func apply_web_quality() -> void:
 	get_viewport().scaling_3d_scale=minf(1.0,minf(960.0/maxf(size.x,1.0),540.0/maxf(size.y,1.0)))
 	get_viewport().msaa_3d=Viewport.MSAA_DISABLED
 
+func apply_desktop_quality() -> void:
+	# 桌面 Forward+ 的森林段受像素填充限制（茂密双面树叶 + 全屏后期）：
+	# 720p 以下保持原生 + MSAA；更高分辨率改用时间性超分，内部渲染高度约 800 像素，
+	# 同时获得时间性抗锯齿，压住树叶与细绳的闪烁。macOS 用 MetalFX，其余平台用 FSR2。
+	var viewport:=get_viewport()
+	# canvas_items 拉伸下可见矩形固定为 1280×720，3D 实际按窗口像素渲染，故取窗口尺寸。
+	var height:=float(get_window().size.y)
+	if height<=DESKTOP_NATIVE_HEIGHT:
+		viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_BILINEAR
+		viewport.scaling_3d_scale=1.0
+		viewport.msaa_3d=Viewport.MSAA_2X
+		return
+	viewport.msaa_3d=Viewport.MSAA_DISABLED
+	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_METALFX_TEMPORAL if OS.get_name()=="macOS" else Viewport.SCALING_3D_MODE_FSR2
+	viewport.scaling_3d_scale=clampf(DESKTOP_RENDER_HEIGHT/height,0.34,1.0)
+
 func _exit_tree() -> void:
 	if is_instance_valid(net):net.disconnect_from()
 	chunk_assets.dispose()
@@ -310,6 +332,114 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 			var crack:=box(floor_node,Vector3((rect.position.x+k*rect.size.x/6)/SCALE,0.025,-rect.get_center().y/SCALE),Vector3(0.09,0.025,rect.size.y/SCALE),material("crack",Color("351f16")))
 			crack.rotation.y=0.17 if k%2==0 else -0.17
 
+func add_lamp(parent: Node3D,pos: Vector3,kind: String) -> void:
+	# 木杆 + 铁臂 + 发光灯芯；灯芯 HDR 超过 1 才会晕开。灯光不投影，远处淡出。
+	var level:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
+	if level<=0.0:return
+	var root:=Node3D.new();root.name="Lamp";root.position=pos;parent.add_child(root)
+	var inward:=-signf(pos.x)
+	var torch:=kind=="torch"
+	var height:=2.3 if torch else 3.4
+	var wood:=material("lamp_post",Color("4a3828"))
+	cylinder(root,Vector3(0,height*.5,0),0.075 if torch else 0.09,height,wood)
+	var head:=Vector3(0,height+.12,0)
+	if not torch:
+		box(root,Vector3(inward*.32,height-.05,0),Vector3(.7,.06,.06),material("lamp_iron",Color("2b2b2c")))
+		head=Vector3(inward*.62,height-.36,0)
+		box(root,head+Vector3(0,.2,0),Vector3(.32,.06,.32),material("lamp_iron",Color("2b2b2c")))
+	else:
+		cylinder(root,head+Vector3(0,-.12,0),.13,.16,material("lamp_iron",Color("2b2b2c")))
+	var flame_color:=Color("ff8a3c") if torch else Color("ffc77a")
+	var flame:=MeshInstance3D.new();var sphere:=SphereMesh.new()
+	sphere.radius=.17 if torch else .15;sphere.height=sphere.radius*(2.6 if torch else 2.0)
+	sphere.radial_segments=10;sphere.rings=6
+	flame.mesh=sphere;flame.position=head;flame.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.material_override=material("lamp_flame_"+kind,flame_color,6.0)
+	root.add_child(flame)
+	var light:=OmniLight3D.new()
+	light.position=head+Vector3(0,.15,0)
+	light.light_color=flame_color
+	light.light_energy=(4.2 if torch else 2.6)*level
+	light.omni_range=11.0 if torch else 9.0
+	light.omni_attenuation=1.4
+	light.shadow_enabled=false
+	light.light_volumetric_fog_energy=2.5
+	light.distance_fade_enabled=true
+	light.distance_fade_begin=70.0
+	light.distance_fade_length=20.0
+	if torch:light.set_meta("flicker",pos.z*.37)
+	root.add_child(light)
+	if torch:
+		var lights:Array=parent.get_meta("flicker_lights",[]);lights.append(light);parent.set_meta("flicker_lights",lights)
+
+var water_shader_material:ShaderMaterial
+func water_material()->Material:
+	if water_shader_material==null:
+		water_shader_material=ShaderMaterial.new()
+		water_shader_material.shader=preload("res://scripts/journey_water.gdshader")
+		water_shader_material.set_shader_parameter("bank_near",Run.EDGE/SCALE+3.0)
+		water_shader_material.set_shader_parameter("bank_far",Run.EDGE/SCALE+29.0)
+	return water_shader_material
+
+const CRYSTAL_COLORS:=[Color("6fe9ff"),Color("b48cff"),Color("7dffc4")]
+func add_crystals(parent: Node3D,pos: Vector3,seed_value: int) -> void:
+	# 路缘外的一簇发光矿晶：六棱锥，HDR 自发光晕开，配一盏不投影的小灯。只作展示。
+	var rng:=RandomNumberGenerator.new();rng.seed=seed_value*977+int(pos.z)
+	var tint:Color=CRYSTAL_COLORS[seed_value%CRYSTAL_COLORS.size()]
+	var root:=Node3D.new();root.name="Crystals";root.position=pos;parent.add_child(root)
+	var glow:=material("crystal_%s"%tint.to_html(false),tint.darkened(.35),5.0)
+	glow.emission=tint;glow.roughness=.15;glow.metallic_specular=.9
+	for n in range(rng.randi_range(4,7)):
+		var shard:=MeshInstance3D.new();var cone:=CylinderMesh.new()
+		cone.top_radius=0.0;cone.bottom_radius=rng.randf_range(.12,.26);cone.height=rng.randf_range(.6,1.7)
+		cone.radial_segments=6;cone.rings=1
+		shard.mesh=cone;shard.material_override=glow
+		shard.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		shard.position=Vector3(rng.randf_range(-.5,.5),cone.height*.42,rng.randf_range(-.6,.6))
+		shard.rotation=Vector3(rng.randf_range(-.45,.45),rng.randf()*TAU,rng.randf_range(-.45,.45))
+		root.add_child(shard)
+	var light:=OmniLight3D.new()
+	light.position=Vector3(0,1.0,0);light.light_color=tint
+	light.light_energy=2.2;light.omni_range=7.0;light.omni_attenuation=1.5
+	light.shadow_enabled=false;light.light_volumetric_fog_energy=1.8
+	light.distance_fade_enabled=true;light.distance_fade_begin=70.0;light.distance_fade_length=20.0
+	root.add_child(light)
+
+func light_building(chunk: Node3D,building: Node3D,side: float) -> void:
+	# 夜间厂房：朝路一面加两排窗灯（冷白为主、少量暖黄、部分熄灭），屋顶一盏红色航空信标。
+	var bounds:=model_bounds(chunk,building)
+	if bounds.size==Vector3.ZERO:return
+	var face_x:=bounds.position.x-.05 if side>0 else bounds.end.x+.05
+	var rng:=RandomNumberGenerator.new();rng.seed=int(bounds.position.z*13.0)
+	var cool:=material("window_cool",Color("1c2a33"),2.0);cool.emission=Color("a9d6ff")
+	var warm:=material("window_warm",Color("332616"),2.2);warm.emission=Color("ffc07a")
+	var columns:=maxi(3,int(bounds.size.z/2.4))
+	for row in range(2):
+		for column in range(columns):
+			if rng.randf()<.4:continue
+			var z:=bounds.position.z+(column+.5)*bounds.size.z/columns
+			var y:=bounds.position.y+bounds.size.y*(.28+row*.3)
+			var pane:=box(chunk,Vector3(face_x,y,z),Vector3(.06,bounds.size.y*.08,bounds.size.z/columns*.4),warm if rng.randf()<.22 else cool)
+			pane.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var beacon_pos:=Vector3(bounds.get_center().x,bounds.end.y+.25,bounds.get_center().z)
+	var beacon:=MeshInstance3D.new();var orb:=SphereMesh.new();orb.radius=.22;orb.height=.44;orb.radial_segments=8;orb.rings=4
+	beacon.mesh=orb;beacon.position=beacon_pos;beacon.material_override=material("beacon_red",Color("ff2a1a"),8.0)
+	beacon.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	chunk.add_child(beacon)
+	var light:=OmniLight3D.new();light.position=beacon_pos;light.light_color=Color("ff3020")
+	light.omni_range=6.0;light.light_energy=1.6;light.shadow_enabled=false;light.light_volumetric_fog_energy=2.0
+	light.distance_fade_enabled=true;light.distance_fade_begin=90.0;light.distance_fade_length=20.0
+	chunk.add_child(light)
+	var beacons:Array=chunk.get_meta("beacons",[]);beacons.append([beacon,light,rng.randf()]);chunk.set_meta("beacons",beacons)
+	# 路侧一盏冷白泛光灯打在墙面上，给厂房一个可读的轮廓。
+	var flood:=SpotLight3D.new()
+	flood.position=Vector3(face_x-side*3.5,.6,bounds.get_center().z)
+	flood.light_color=Color("cfe2ff");flood.light_energy=3.0;flood.spot_range=16.0;flood.spot_angle=38.0
+	flood.shadow_enabled=false;flood.light_volumetric_fog_energy=1.2
+	flood.distance_fade_enabled=true;flood.distance_fade_begin=80.0;flood.distance_fade_length=20.0
+	chunk.add_child(flood)
+	flood.look_at(Vector3(face_x,bounds.position.y+bounds.size.y*.65,bounds.get_center().z),Vector3.UP)
+
 func add_sign(parent: Node3D,text: String,position: Vector3,size: int=32) -> Label3D:
 	var sign:=Label3D.new()
 	sign.text=text
@@ -350,23 +480,37 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 				var split:=45.0 if landscape.mobile or OS.has_feature("web") else 70.0
 				landscape.batch(chunk,path,item[2],split)
 				landscape.batch(chunk,"res://assets/landscape/%s_lod.glb"%item[1],item[2],220,split)
+			elif item[1] in UNDERSTORY:
+				# 蕨类每株约千面、灌木约五百面，70 米外被树干与林雾遮住，不再远距离整批绘制。
+				landscape.batch(chunk,path,item[2],60 if landscape.mobile or OS.has_feature("web") else 75)
 			else:landscape.batch(chunk,path,item[2],110 if landscape.mobile or OS.has_feature("web") else 170)
 		"landscape_rock":
 			var cliff:Material=tex_material("cliff_face","rock_face_03",.11,Color("a89a90"))
 			var mesh:Mesh=rock_mesh("ridge_spire",44,8,2.8,70,.2) if item[3] else rock_mesh("ridge_buttress",60,3.6,1.8,24,.24)
 			rock(chunk,mesh,cliff,item[1],item[2],item[4])
 		"land":
-			var surface:Material=landscape.terrain if item[3] in ["village","farm"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			var surface:Material=landscape.terrain if item[3] in ["village","farm","river"] else material("land_"+item[3],Color("48513b") if item[4] else Color("77765b"))
+			# 矿道与设施两侧原是纯色平面，夜里像一片灰板；改为碎石岩面。
+			if item[3] in ["mine","ruins","facility"]:surface=tex_material("night_gravel","rock_boulder_dry",.22,Color("6e675f"))
 			box(chunk,item[1],item[2],surface)
-		"water": box(chunk,item[1],item[2],material("water",Color("345f67")))
+		"water":
+			var surface:=box(chunk,item[1],item[2],water_material())
+			surface.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		"riverbed": box(chunk,item[1],item[2],tex_material("riverbed","rock_boulder_dry",.3,Color("3c3a32")))
 		"model":
 			var node := model("res://assets/decor/%s.glb"%item[1],chunk,item[2],item[3],item[4],item[5])
 			if item.size()>6 and node:
 				node.set_meta("wind",item[6])
 				var moving:Array=chunk.get_meta("wind_nodes",[]);moving.append(node);chunk.set_meta("wind_nodes",moving)
-		"rock": rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),ground_material("ruins"),item[2],item[3])
+		"rock":
+			# 原用铺地石材质，大石块上出现方砖纹；改为三平面岩面。每三块配一簇发光矿晶。
+			rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),tex_material("mine_rock","rock_face_03",.16,Color("958a80")),item[2],item[3])
+			if run.level_index==2 and item[1]%3==0:add_crystals(chunk,Vector3(signf(item[2].x)*17.9,0,item[2].z),item[1])
 		"asset": asset(chunk,item[1],item[2],item[3],item[4])
-		"building": model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+		"building":
+			var building:=model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+			if run.level_index==2:light_building(chunk,building,signf(item[1].x))
+		"lamp": add_lamp(chunk,item[1],item[2])
 		"farm": box(chunk,item[1],Vector3(12,0.1,1.2),material("farmland",Color("51412c")))
 		"sign": add_sign(chunk,item[1],item[2],38)
 
@@ -1140,8 +1284,11 @@ func sync_view() -> void:
 	var zs:PackedFloat32Array=run.rope.physical_heights()
 	for n in range(points.size()): path.append(Vector3(points[n].x/SCALE,zs[n]/SCALE,-points[n].y/SCALE))
 	if path.size()>1:
-		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time())
+		var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
+		rope_view.energy_level=1.0+night*0.6
+		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time() if run.state=="running" else 0.0)
 		rope_view.simulate(path,0,Color.WHITE,0)
+		sync_rope_light(path,night)
 	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
 	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
@@ -1157,14 +1304,70 @@ func sync_view() -> void:
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
 	var middle:Vector2=(run.a.position+run.b.position)*.5
 	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
+	var lamp:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
 			node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
+		for entry in chunk.get_meta("beacons",[]):
+			var on:bool=fmod(run.elapsed*.8+float(entry[2]),1.0)<.18
+			entry[0].visible=on;entry[1].visible=on
+		for light:OmniLight3D in chunk.get_meta("flicker_lights",[]):
+			var seed:float=light.get_meta("flicker")
+			light.light_energy=4.2*lamp*(0.86+0.1*sin(run.elapsed*13.0+seed)+0.06*sin(run.elapsed*29.0+seed*2.3))
+	sync_hero_lights(float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0)
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 	publish_web_verification()
+
+var rope_light:OmniLight3D
+func sync_rope_light(path:Array[Vector3],night:float)->void:
+	if OS.has_feature("web") or landscape.mobile:return
+	if rope_light==null:
+		rope_light=OmniLight3D.new();rope_light.name="RopeLight"
+		rope_light.shadow_enabled=false;rope_light.omni_range=4.5;rope_light.omni_attenuation=1.3
+		rope_light.light_volumetric_fog_energy=0.0
+		add_child(rope_light)
+	var total:=0.0
+	for n in range(1,path.size()):total+=path[n-1].distance_to(path[n])
+	rope_light.position=RopeView.along(path,total*.5)+Vector3(0,.25,0)
+	var tension:=clampf(run.rope_tension(),0.0,1.0)
+	var blocked:bool=run.rope_status() in ["blocked","unwinding","failed"]
+	rope_light.light_color=Color("ff4a3a") if blocked else Color("9fe8ff").lerp(Color("ffc58a"),.5)
+	rope_light.light_energy=(0.35+0.5*tension+night*0.6)*(1.6 if blocked else 1.0)
+
+# 夜间随身灯：两人头顶各一盏暖/冷色小灯照亮自身与绳索，
+# 再各绑一盏朝前方路面的头灯（聚光），把前方约 20 米内的机关照出来。
+var hero_lights:Array[OmniLight3D]=[]
+var head_lamps:Array[SpotLight3D]=[]
+func sync_hero_lights(level:float)->void:
+	if hero_lights.is_empty():
+		if level<=0.0:return
+		for i in range(2):
+			var light:=OmniLight3D.new()
+			light.light_color=Color("bfeaff") if i==0 else Color("ffe2c4")
+			light.omni_range=9.0;light.omni_attenuation=1.0
+			light.shadow_enabled=false
+			light.light_volumetric_fog_energy=0.6
+			add_child(light);hero_lights.append(light)
+			var lamp:=SpotLight3D.new()
+			lamp.light_color=Color("e6f4ff") if i==0 else Color("fff0dc")
+			lamp.spot_range=22.0;lamp.spot_angle=32.0;lamp.spot_angle_attenuation=0.7;lamp.spot_attenuation=0.45
+			lamp.shadow_enabled=false;lamp.light_volumetric_fog_energy=1.4
+			add_child(lamp);head_lamps.append(lamp)
+	for i in range(2):
+		var light:=hero_lights[i]
+		light.visible=level>0.0 and is_instance_valid(robots[i])
+		head_lamps[i].visible=light.visible
+		if not light.visible:continue
+		light.light_energy=0.75*level
+		light.global_position=robots[i].global_position+Vector3(0,3.6,1.6)
+		var lamp:=head_lamps[i]
+		lamp.visible=true;lamp.light_energy=10.0*level
+		var head:=robots[i].global_position+Vector3(0,2.0,0.2)
+		lamp.global_position=head
+		lamp.look_at(robots[i].global_position+Vector3(0,0,-9.0),Vector3.UP)
 
 # 旅程使用固定世界坐标；沿用道路版动作与腰部旋转，身体仍由真实物理位置驱动。
 func sync_journey_character(i:int)->void:
@@ -1388,7 +1591,12 @@ func update_journey_ui() -> void:
 	# 受击红边与低血量暗角：只读取同步后的真实血量，不参与判定。
 	var top_health: int = run.combat.health[role]
 	var second_health: int = run.combat.health[1-role]
-	if top_health<last_health[0] or second_health<last_health[1]:damage_flash=1.0
+	if top_health<last_health[0] or second_health<last_health[1]:
+		damage_flash=1.0
+		for hurt_role in range(2):
+			var before:int=last_health[0] if hurt_role==role else last_health[1]
+			if run.combat.health[hurt_role]<before and is_instance_valid(fx):
+				fx.impact(robots[hurt_role].global_position,Color("ff3b2a"),1.8,2.6)
 	last_health[0]=top_health;last_health[1]=second_health
 	low_health=clampf((35.0-minf(top_health,second_health))/35.0,0.0,1.0)
 	var role_color:=Color("8fe3d2") if role==0 else Color("f0c089")

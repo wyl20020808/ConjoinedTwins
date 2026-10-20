@@ -12,6 +12,15 @@ var leaves: GPUParticles3D
 var motes: GPUParticles3D
 var embers: GPUParticles3D
 var scale_amount := 1.0
+# 冲击波环与瞬时闪光：固定容量轮换，逐帧推进；只表现，不读写玩法状态。
+const RING_POOL := 6
+const FLASH_POOL := 3
+var rings: Array[MeshInstance3D] = []
+var ring_state: Array = []
+var flashes: Array[OmniLight3D] = []
+var flash_state: Array = []
+var ring_cursor := 0
+var flash_cursor := 0
 
 func _ready() -> void:
 	name = "JourneyFx"
@@ -32,6 +41,30 @@ func _ready() -> void:
 	leaves = make_leaves()
 	motes = make_motes()
 	embers = make_embers()
+	for n in range(RING_POOL):
+		var ring := MeshInstance3D.new()
+		var plane := PlaneMesh.new()
+		plane.size = Vector2.ONE
+		ring.mesh = plane
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://scripts/journey_shockwave.gdshader")
+		ring.material_override = mat
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ring.visible = false
+		add_child(ring)
+		rings.append(ring)
+		ring_state.append({"age": 1.0, "life": 0.4})
+	# 网页与移动端不建闪光灯，避免额外的动态光。
+	if scale_amount >= 1.0:
+		for n in range(FLASH_POOL):
+			var light := OmniLight3D.new()
+			light.shadow_enabled = false
+			light.omni_range = 6.0
+			light.light_volumetric_fog_energy = 1.0
+			light.visible = false
+			add_child(light)
+			flashes.append(light)
+			flash_state.append({"age": 1.0, "life": 0.25, "energy": 0.0})
 
 # 柔边圆点贴图，所有粒子共用。
 static func dot_texture() -> Texture2D:
@@ -215,6 +248,46 @@ func make_embers() -> GPUParticles3D:
 	particles.preprocess = 5.0
 	particles.visibility_aabb = AABB(Vector3(-26, -8, -30), Vector3(52, 18, 60))
 	return particles
+
+# 冲击：贴地扩散环 + 火花 + 瞬时补光。radius 为环的最终半径（米）。
+func impact(point: Vector3, color: Color, radius: float, light_energy: float, sparks: bool = true) -> void:
+	var ring := rings[ring_cursor]
+	ring_cursor = (ring_cursor + 1) % rings.size()
+	ring.global_position = Vector3(point.x, point.y + 0.06, point.z)
+	ring.scale = Vector3(radius * 2.0, 1.0, radius * 2.0)
+	(ring.material_override as ShaderMaterial).set_shader_parameter("tint", color)
+	(ring.material_override as ShaderMaterial).set_shader_parameter("progress", 0.0)
+	ring.visible = true
+	ring_state[rings.find(ring)] = {"age": 0.0, "life": 0.42}
+	if sparks: burst("spark", point + Vector3(0, 0.8, 0))
+	if flashes.is_empty(): return
+	var light := flashes[flash_cursor]
+	flash_state[flash_cursor] = {"age": 0.0, "life": 0.22, "energy": light_energy}
+	flash_cursor = (flash_cursor + 1) % flashes.size()
+	light.global_position = point + Vector3(0, 1.2, 0)
+	light.light_color = color
+	light.light_energy = light_energy
+	light.visible = true
+
+func _process(delta: float) -> void:
+	for n in range(rings.size()):
+		if not rings[n].visible: continue
+		var state: Dictionary = ring_state[n]
+		state.age += delta
+		var progress: float = state.age / state.life
+		if progress >= 1.0:
+			rings[n].visible = false
+			continue
+		(rings[n].material_override as ShaderMaterial).set_shader_parameter("progress", 1.0 - pow(1.0 - progress, 2.2))
+	for n in range(flashes.size()):
+		if not flashes[n].visible: continue
+		var state: Dictionary = flash_state[n]
+		state.age += delta
+		var left: float = 1.0 - state.age / state.life
+		if left <= 0.0:
+			flashes[n].visible = false
+			continue
+		flashes[n].light_energy = state.energy * left * left
 
 func burst(kind: String, point: Vector3) -> void:
 	var list: Array = pools[kind]

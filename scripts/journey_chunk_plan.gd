@@ -12,15 +12,23 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 	var village := theme in ["village","farm"]
 	var dressing:={}
 	items.append(["landscape_surface",number,level,theme])
+	var road_half:=edge/20.0
 	for side in [-1.0,1.0]:
-		items.append(["land",Vector3(side*(edge/20.0+24),-0.65,-start-40),Vector3(48,1,80),theme,forest])
-		if theme=="river": items.append(["water",Vector3(side*30,-2.2,-start-40),Vector3(26,0.15,80)])
+		# 河道只在右侧：原来整块地面压在水面上方，水从未露出。现在右侧拆成近岸 3 米 + 26 米河面 + 远岸。
+		var river:bool=theme=="river" and side>0
+		if river:
+			items.append(["land",Vector3(road_half+1.5,-0.65,-start-40),Vector3(3,1,80),theme,forest])
+			items.append(["land",Vector3(road_half+29+12,-0.65,-start-40),Vector3(24,1,80),theme,forest])
+			items.append(["riverbed",Vector3(road_half+16,-2.4,-start-40),Vector3(26,0.2,80)])
+			items.append(["water",Vector3(road_half+16,-0.78,-start-40),Vector3(26,0.06,80)])
+		else:
+			items.append(["land",Vector3(side*(road_half+24),-0.65,-start-40),Vector3(48,1,80),theme,forest])
 		for n in range(8):
 			var z := -start-n*10-rng.randf_range(0,4)
-			var x: float = side*rng.randf_range(18,36)
+			var x: float = side*(rng.randf_range(46,58) if river else rng.randf_range(18,36))
 			if forest or theme in ["farm","river"]:
 				items.append(["model","Pine",Vector3(x,0,z),rng.randf_range(8,15),rng.randf()*TAU,12.0,rng.randf()*TAU])
-				if n%2==0: items.append(["model","Bush",Vector3(side*rng.randf_range(16.5,22),0,z+3),rng.randf_range(1,2.3),rng.randf()*TAU,0.0])
+				if n%2==0: items.append(["model","Bush",Vector3(side*rng.randf_range(16.5,18.2 if river else 22.0),0,z+3),rng.randf_range(1,2.3),rng.randf()*TAU,0.0])
 				if n%2==1: items.append(["model","TallGrass",Vector3(side*rng.randf_range(16,19),0,z),rng.randf_range(0.7,1.6),rng.randf()*TAU,0.0])
 			elif theme in ["mine","ruins"]:
 				items.append(["rock",n,Vector3(x,-1,z),rng.randf_range(0.8,2)])
@@ -35,6 +43,16 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 			for n in range(3): items.append(["building",Vector3(side*27,0,-start-n*28),side*PI/2])
 	if theme=="farm":
 		for n in range(12): items.append(["farm",Vector3(25,-0.05,-start-n*6)])
+	# 第二章两侧草地：风动草丛（每株约 32 面，每区块约 500 株）铺满路缘外，避开右侧河面与农田垄。
+	if level==1:
+		var LMG=preload("res://scripts/journey_landscape.gd")
+		for n in range(600):
+			var gside:=-1.0 if n%2==0 else 1.0
+			var gx:=rng.randf_range(road_half+0.8,road_half+30.0)
+			if gside>0 and theme=="river" and gx>road_half+2.6 and gx<road_half+29.5:continue
+			if gside>0 and theme=="farm" and gx>18.5 and gx<31.5:continue
+			var kind:="shrub" if n%23==0 else "grass"
+			LMG.add_instance(dressing,kind,Vector3(gside*gx,0,-start-rng.randf()*80.0),rng.randf_range(1.1,2.3),rng.randf()*TAU)
 	if theme=="river": items.append(["asset","waterwheel",Vector3(19,-1,-start-40),8.0,PI/2])
 	if theme=="river":
 		preload("res://scripts/journey_landscape.gd").add_instance(dressing,"tripo_riverside_house",Vector3(-28,0,-start-40),1,PI/2)
@@ -46,6 +64,13 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 		LM.add_instance(dressing,"landmark_headframe",Vector3(-19.5,0,-start-40),18.0,PI/2)
 	if level>0 and posmod(number,4)==3:
 		LM.add_instance(dressing,"landmark_shrine",Vector3(17.8,0,-start-40),3.0,-PI/2)
+	# 二章黄昏路灯、三章夜间火把：两侧交错，二章每侧约 40 米、三章约 27 米一盏，只作展示与照明，不参与碰撞。
+	if level>0:
+		var lamp_kind:="torch" if level==2 else "lantern"
+		var lamp_count:=6 if level==2 else 4
+		for n in range(lamp_count):
+			var lamp_side:=-1.0 if n%2==0 else 1.0
+			items.append(["lamp",Vector3(lamp_side*(edge/20.0+1.4),0,-start-n*80.0/lamp_count-4.0),lamp_kind])
 	for kind in dressing:items.append(["landscape_batch",kind,dressing[kind]])
 	var zone_length: float = chapter.length/6.0
 	for zone in range(6):
