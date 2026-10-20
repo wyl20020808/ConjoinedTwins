@@ -1683,7 +1683,7 @@ func update_journey_ui() -> void:
 			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
 			if touch_device: subtitle.text="左侧摇杆移动 · 右侧跳跃、射击、换弹、丢枪\n金币 %d · 奖品 %d"%[run.coins,run.prizes]
 			primary.text="继续旅程"
-		"failed": title.text="两人共同重试";subtitle.text=run.reason+"\n回到本区域的安全存档点，危险与奖励恢复原状态。";primary.text="从存档点继续"
+		"failed": title.text="两人共同重试";subtitle.text=run.reason+"\n回到最近的安全存档点，危险与奖励恢复原状态。";primary.text="从存档点继续"
 		"settlement":
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
 			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n点击按钮或松开后按跳跃键，进入下一关。"%[run.elapsed,run.coins,run.prizes]
