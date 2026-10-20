@@ -1195,8 +1195,9 @@ func build_robots() -> void:
 		var robot := Node3D.new()
 		add_child(robot)
 		robots.append(robot)
-		# Tripo 导出的 Armature 与 Adventurer 原生朝向相反，这里不再额外转半圈，角色仍背对镜头。
-		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.8, 0.0)
+		# 主角 GLB 由 build-tools/journey/retarget_heroes.py 烘焙，动作按动作源的世界朝向生成，
+		# 导出后角色面朝 +Z（正对镜头）；转半圈让角色背对镜头、朝道路前方。
+		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.8, PI)
 		if animation_player(character) == null:
 			var player := AnimationPlayer.new()
 			player.name = "AnimationPlayer"
@@ -1205,9 +1206,6 @@ func build_robots() -> void:
 			player.add_animation_library("", hero_animation_library())
 		register_animation(character)
 		ground_character(character)
-		var head_skeleton := skeleton_of(character)
-		if head_skeleton != null:
-			head_skeleton.add_child(preload("res://scripts/hero_head_level.gd").new())
 		character.set_meta("base_scale",character.scale)
 		character_models.append(character)
 		# 识别灯保持两人辨识度；阴影固定在地面，角色独立腾空。
