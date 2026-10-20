@@ -2427,11 +2427,22 @@ func rescue_body_position(role: int) -> Vector3:
 	if rescue.is_empty() or role != rescue.role: return Vector3(point.x,foot_height(role),point.y)
 	var body:Vector3=rescue.get("body",Vector3(rescue.hang.x,-40,rescue.hang.y))
 	if rescue.has("climb"):
+		# 先顺着绳子竖直爬到崖沿高度（水平只微调到崖沿外侧），再翻过崖沿走到落脚点。
 		var t := clampf(rescue.climb/RESCUE_CLIMB_TIME,0,1)
 		var anchor: Vector2=rescue.anchor
 		var surface := surface_at(anchor,elapsed)
-		body = body.lerp(Vector3(anchor.x,surface.height,anchor.y),smoothstep(0.0,1.0,t))
-		body.y += sin(t*PI)*10.0
+		if not rescue.has("rim") or not rescue.has("normal"):
+			# 缺少崖沿信息（旧数据或测试构造）时沿用原直线插值。
+			body = body.lerp(Vector3(anchor.x,surface.height,anchor.y),smoothstep(0.0,1.0,t))
+			body.y += sin(t*PI)*10.0
+			return body
+		var edge:=rescue_edge()
+		var lip:=Vector3(edge.x,edge.y,edge.z)+Vector3(rescue.normal.x,0,rescue.normal.y)*2.0
+		var rise:=smoothstep(0.0,1.0,clampf(t/0.55,0,1))
+		var over:=smoothstep(0.0,1.0,clampf((t-0.55)/0.45,0,1))
+		body=body.lerp(Vector3(lip.x,lip.y,lip.z),rise)
+		body=body.lerp(Vector3(anchor.x,surface.height,anchor.y),over)
+		body.y+=sin(over*PI)*6.0
 	return body
 
 func advance_rescue_rope() -> void:
@@ -2446,10 +2457,12 @@ func advance_rescue_rope() -> void:
 		var body:Vector3=rescue.body
 		velocity.y-=GRAVITY*FIXED_STEP
 		body+=velocity*FIXED_STEP
-		var offset:=body-hinge
+		# 绳子挂在腰上：长度约束作用于腰部挂点，绳在崖沿处正好拉直。
+		var waist:=Vector3(0,ROPE_HEIGHT,0)
+		var offset:=body+waist-hinge
 		if offset.length()>remaining:
 			var direction:=offset.normalized()
-			body=hinge+direction*remaining
+			body=hinge+direction*remaining-waist
 			velocity-=direction*maxf(0,velocity.dot(direction))
 		# 崖壁的半平面碰撞，不让吊挂者摆入石壁。
 		var normal:Vector2=rescue.normal
@@ -2468,7 +2481,19 @@ func advance_rescue_rope() -> void:
 	var first := rescue_body_position(0)+Vector3(0,ROPE_HEIGHT,0)
 	var last := rescue_body_position(1)+Vector3(0,ROPE_HEIGHT,0)
 	if rope.physical.is_empty(): rope.physical=RopePhysics.create(first,last,LINK_LIMIT)
-	RopePhysics.advance(rope.physical,first,last,FIXED_STEP,rope_floor_query(),rope_colliders(),PackedVector3Array([first,last]))
+	# 吊挂者腰部低于崖沿时，绳子从腰部竖直上到崖沿、再沿地面到队友；拉直时质点直接贴合这条折线。
+	var guide:=PackedVector3Array([first,last])
+	if rescue.has("rim"):
+		var edge:=rescue_edge()
+		var hanging_waist:Vector3=first if rescue.role==0 else last
+		if hanging_waist.y<edge.y-1.0:guide=PackedVector3Array([first,edge,last])
+	RopePhysics.advance(rope.physical,first,last,FIXED_STEP,rope_floor_query(),rope_colliders(),guide)
+
+# 绳子翻过的崖沿点（地面高度）。
+func rescue_edge() -> Vector3:
+	var rim:Vector2=rescue.rim
+	var floor:=rope_floor(rim)
+	return Vector3(rim.x,floor if is_finite(floor) else floor_heights[1-rescue.role],rim.y)
 
 # 高于正常台阶的侧面必须跳上或等平台降下，禁止把角色直接抬到高台上。
 func terrain_move(from: Vector2, to: Vector2, foot: float, time: float) -> Vector2:

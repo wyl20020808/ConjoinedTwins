@@ -1318,8 +1318,33 @@ func sync_view() -> void:
 	sync_hero_lights(float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0)
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
+	if path.size()>1:sync_rescue_hands(path)
 	update_journey_ui()
 	publish_web_verification()
+
+# 救援时双手握绳：被救者双手握在头顶上方的绳段并交替倒手，拉绳者双手握在身前的绳段。
+# 必须在战斗视图之后调用（它每帧清除骨骼覆盖）；只改表现，不改模拟。
+func sync_rescue_hands(path:Array[Vector3])->void:
+	if run.rescue.is_empty() or not (run.state=="rescue" or (run.state=="paused" and run.paused_from=="rescue")):return
+	var hanging:int=run.rescue.role
+	var total:=0.0
+	for n in range(1,path.size()):total+=path[n-1].distance_to(path[n])
+	var phase:float=float(run.rescue.progress)*TAU*3.0+float(run.rescue.get("climb",0.0))*TAU*1.6
+	for role in range(2):
+		hand_point(role)
+		var skeleton:Skeleton3D=hand_skeletons.get(role)
+		if not is_instance_valid(skeleton):continue
+		# 从本人一端沿绳子量取握点；被救者握在腰部以上 0.5–1.0 米，拉绳者握在身前 0.45–0.8 米。
+		var near:=0.0 if role==0 else total
+		var sign:=1.0 if role==0 else -1.0
+		var grips:Array[float]
+		if role==hanging:
+			grips=[0.75+0.22*sin(phase),0.75+0.22*sin(phase+PI)]
+		else:
+			grips=[0.45+0.08*sin(phase*0.5),0.8+0.08*sin(phase*0.5)]
+		for k in range(2):
+			var target:=RopeView.along(path,clampf(near+sign*grips[k],0.0,total))
+			combat_view.reach_hand(skeleton,"L" if k==0 else "R",target)
 
 var rope_light:OmniLight3D
 func sync_rope_light(path:Array[Vector3],night:float)->void:
