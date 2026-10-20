@@ -46,6 +46,10 @@ const JUMP_BAR_AXLE := 1.75
 const JUMP_BAR_RADIUS := 1.6
 var landscape
 const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
+const HazardFx = preload("res://scripts/journey_hazard_fx.gd")
+const CoopFx = preload("res://scripts/journey_coop_fx.gd")
+var hazard_fx
+var coop_fx
 var atmosphere
 const Fx = preload("res://scripts/journey_fx.gd")
 var fx
@@ -173,6 +177,8 @@ func _ready() -> void:
 	camera_home=camera.transform
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
 	fx=Fx.new();add_child(fx)
+	hazard_fx=HazardFx.new(self,fx);add_child(hazard_fx)
+	coop_fx=CoopFx.new(self,fx,hazard_fx);add_child(coop_fx)
 	if incremental_loading:
 		set_physics_process(false)
 		set_process_unhandled_key_input(false)
@@ -1307,6 +1313,7 @@ func sync_view() -> void:
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
 	var middle:Vector2=(run.a.position+run.b.position)*.5
 	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
+	fx.sync_time_of_day(Vector3(middle.x/SCALE,0,-middle.y/SCALE),run.level_index,forest_weight)
 	var lamp:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
@@ -1322,6 +1329,7 @@ func sync_view() -> void:
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
 	if path.size()>1:sync_rescue_hands(path)
+	if coop_fx:coop_fx.sync(path)
 	update_journey_ui()
 	publish_web_verification()
 
@@ -1822,6 +1830,8 @@ func sync_static_hazards()->void:
 	for index in visual_hazard_candidates():
 		if incremental_loading and not static_views.has(index):continue
 		sync_static_hazard(index)
+		if hazard_fx and static_views.has(index):hazard_fx.track(index,run.kinds[index],run.hazard_sample(index,run.elapsed),static_views[index])
+	if hazard_fx:hazard_fx.release_missing()
 
 func sync_static_hazard(i: int) -> void:
 	var kind:String=run.kinds[i]

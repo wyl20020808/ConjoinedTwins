@@ -25,8 +25,16 @@ func make_gun(parent: Node3D) -> Node3D:
 	game.box(gun,Vector3(0,-0.41,-0.37),Vector3(0.19,0.04,0.23),metal).name="MagazineLip"
 	game.box(gun,Vector3(0.13,0.04,-0.15),Vector3(0.12,0.06,0.08),metal).name="ChargingHandle"
 	game.box(gun,Vector3(0,0.13,-0.2),Vector3(0.05,0.1,0.12),game.material("gun_sight",Color("71e9cf"),0.7))
-	var flash: Node3D=game.box(gun,Vector3(0,0,-0.94),Vector3(0.22,0.22,0.3),game.material("gun_flash",Color("ffe7a0"),2.0))
-	flash.name="Flash"
+	# 枪口焰：两片十字交叉的加色火焰面片加一片朝后的星形，每次射击随机旋转缩放。
+	var flash:=Node3D.new();flash.name="Flash";flash.position=Vector3(0,0,-1.02);gun.add_child(flash)
+	for n in range(3):
+		var quad:=MeshInstance3D.new();var plane:=QuadMesh.new()
+		plane.size=Vector2(0.55,0.9) if n<2 else Vector2(0.6,0.6)
+		quad.mesh=plane;quad.material_override=muzzle_material()
+		quad.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		quad.rotation=Vector3(-PI/2,n*PI/2,0) if n<2 else Vector3(0,0,0)
+		if n<2:quad.position.z=-0.25
+		flash.add_child(quad)
 	flash.hide()
 	var flash_light:=OmniLight3D.new()
 	flash_light.name="FlashLight"
@@ -38,6 +46,41 @@ func make_gun(parent: Node3D) -> Node3D:
 	flash_light.visible=false
 	gun.add_child(flash_light)
 	return gun
+
+static var muzzle_mat:StandardMaterial3D
+static func muzzle_material()->StandardMaterial3D:
+	if muzzle_mat:return muzzle_mat
+	var gradient:=Gradient.new()
+	gradient.set_color(0,Color(1.0,0.97,0.85,1.0));gradient.add_point(0.35,Color(1.0,0.75,0.3,0.85));gradient.set_color(gradient.get_point_count()-1,Color(1.0,0.4,0.05,0.0))
+	var texture:=GradientTexture2D.new();texture.gradient=gradient
+	texture.fill=GradientTexture2D.FILL_RADIAL;texture.fill_from=Vector2(0.5,0.5);texture.fill_to=Vector2(0.5,0.0)
+	muzzle_mat=StandardMaterial3D.new()
+	muzzle_mat.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	muzzle_mat.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	muzzle_mat.blend_mode=BaseMaterial3D.BLEND_MODE_ADD
+	muzzle_mat.cull_mode=BaseMaterial3D.CULL_DISABLED
+	muzzle_mat.albedo_texture=texture
+	muzzle_mat.albedo_color=Color(2.4,1.9,1.2,1.0)
+	return muzzle_mat
+
+# 抛弹壳：每次开枪从枪右侧抛出一枚黄铜弹壳，带旋转与重力。
+var casings:Array[GPUParticles3D]=[]
+func make_casings()->GPUParticles3D:
+	var process:=ParticleProcessMaterial.new()
+	process.direction=Vector3(1,0.8,0.2);process.spread=18.0
+	process.initial_velocity_min=2.2;process.initial_velocity_max=3.2
+	process.gravity=Vector3(0,-14,0)
+	process.angular_velocity_min=-900.0;process.angular_velocity_max=900.0
+	var shell:=CylinderMesh.new();shell.top_radius=0.022;shell.bottom_radius=0.022;shell.height=0.07;shell.radial_segments=6;shell.rings=1
+	var brass:=StandardMaterial3D.new();brass.albedo_color=Color("c99a3c");brass.metallic=0.9;brass.roughness=0.3
+	shell.material=brass
+	var particles:=GPUParticles3D.new()
+	particles.amount=6;particles.lifetime=0.8;particles.one_shot=false;particles.explosiveness=0.0
+	particles.emitting=false;particles.local_coords=false
+	particles.process_material=process;particles.draw_pass_1=shell
+	particles.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(particles)
+	return particles
 
 func _ready() -> void:
 	for role in range(2):
@@ -56,14 +99,16 @@ func _ready() -> void:
 		game.robots[role].add_child(shield)
 		var beam := MeshInstance3D.new()
 		var mesh := CylinderMesh.new()
-		mesh.top_radius=0.018
-		mesh.bottom_radius=0.018
+		mesh.top_radius=0.03
+		mesh.bottom_radius=0.03
 		mesh.radial_segments=6
 		beam.mesh=mesh
-		beam.material_override=game.material("bullet_trail",Color("ffdc8c"),1.2)
+		# 曳光：HDR 超出 1 会在 Screen 晕光里晕开。
+		beam.material_override=game.material("bullet_trail",Color("ffdc8c"),4.0)
 		beam.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(beam)
 		beams.append(beam)
+		casings.append(make_casings())
 
 var pillar_materials:={}
 func pillar_material(kind:String)->Material:
@@ -104,6 +149,7 @@ func sync() -> void:
 			var fx=game.get("fx")
 			if fx!=null and is_instance_valid(collected) and collected.visible and collected.global_position.distance_to(game.robots[0].global_position)<60.0:
 				fx.burst("spark",collected.global_position+Vector3(0,0.4,0))
+				if game.get("coop_fx")!=null:game.coop_fx.pickup(collected.global_position)
 			collected.queue_free()
 			pickup_views.erase(id)
 	for pickup in nearby.values():
@@ -174,8 +220,17 @@ func sync() -> void:
 			if from.distance_to(to)>0.001: beams[role].quaternion=Quaternion(Vector3.UP,(to-from).normalized())
 			# 光束拓扑固定，长度由变换表达，避免每次射击销毁并重建渲染表面。
 			beams[role].scale.y=maxf(.001,from.distance_to(to)/beams[role].mesh.height)
-			if shot.id!=last_shots[role]: game.sfx.play("gunshot",-13.0)
+			if shot.id!=last_shots[role]:
+				game.sfx.play("gunshot",-13.0)
+				var flash_node:Node3D=guns[role].get_node("Flash")
+				flash_node.rotation.z=randf()*TAU
+				flash_node.scale=Vector3.ONE*randf_range(0.8,1.25)
+				casings[role].global_transform=guns[role].global_transform
+				casings[role].emitting=true
+				casings[role].amount_ratio=1.0
+				casings[role].set_meta("until",run.elapsed+0.05)
 		if not shot.is_empty(): last_shots[role]=shot.id
+		if casings[role].emitting and run.elapsed>float(casings[role].get_meta("until",0.0)):casings[role].emitting=false
 		if run.combat.health[role]<previous_health[role]: game.sfx.play("hit",-9.0)
 		previous_health[role]=run.combat.health[role]
 	if run.shield_uses>previous_shield_uses: game.sfx.play("shield_break",-6.0)

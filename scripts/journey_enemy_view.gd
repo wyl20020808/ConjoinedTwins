@@ -15,6 +15,9 @@ const SCANNED := {
 # 狼与树精的模型原生朝 +Z（其余朝 +X）。原先统一转 -90°，导致它们一直侧身朝玩家移动。
 const NATIVE_FORWARD_Z := ["wolf","briar"]
 const LOOPING := ["Idle","Walk","Run"]
+# 命中碎屑颜色：树精木屑、石卫石粉、狼灰毛，其他怪物溅土。
+const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86")}
+static var charge_material:ShaderMaterial
 
 static func model_path(archetype: String) -> String:
 	return SCANNED[archetype][0] if SCANNED.has(archetype) else ""
@@ -249,13 +252,33 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		var body_height:float=actor.get_meta("figure_height",2.9)
 		if event.get("hit_at",-10.0)>view.get_meta("fx_hit_at",-10.0) and hit_age<.1:
 			view.set_meta("fx_hit_at",event.hit_at);fx.burst("spark",location+Vector3(0,body_height*.6,0))
+			var hazard_fx=game.get("hazard_fx")
+			if hazard_fx!=null:hazard_fx.burst_debris(location+Vector3(0,body_height*.55,0),HIT_CHIPS.get(event.archetype,Color("6b5843")),0.3)
 		if died and not view.get_meta("fx_dead",false):
 			view.set_meta("fx_dead",true);fx.burst("dust",location+Vector3(0,.1,0))
 			fx.impact(location,Color("ffb35a"),3.2,3.5)
+			var coop_fx=game.get("coop_fx")
+			if coop_fx!=null:
+				coop_fx.shard_burst(location+Vector3(0,body_height*.5,0),0.6)
+				coop_fx.shard_burst(location+Vector3(0,body_height*.9,0),0.5)
 	var flashing:bool=hit_age<.09
-	if flashing!=view.get_meta("hit_flash",false):
-		var flash:Material=game.material("enemy_hit_flash",Color("ffe2ad"),.9) if flashing else null
-		for mesh in view.get_meta("enemy_meshes"): mesh.material_overlay=flash
+	# 蓄力预警：预警阶段叠暖红边缘光，强度随蓄力进度上升；命中闪白优先。
+	var windup:=0.0
+	if event.kind=="monster" and event.get("phase","")=="warning" and not died:
+		windup=clampf((run.elapsed-event.trigger)/run.Monsters.profile(event).windup,0,1)
+	var overlay_state:=2 if flashing else (1 if windup>0.0 else 0)
+	if overlay_state==1:
+		if charge_material==null:
+			charge_material=ShaderMaterial.new();charge_material.shader=preload("res://scripts/enemy_charge.gdshader")
+		if not view.has_meta("charge_mat"):
+			var own:ShaderMaterial=charge_material.duplicate();view.set_meta("charge_mat",own)
+		view.get_meta("charge_mat").set_shader_parameter("charge",windup)
+	if overlay_state!=view.get_meta("overlay_state",0):
+		var overlay:Material=null
+		if overlay_state==2:overlay=game.material("enemy_hit_flash",Color("ffe2ad"),.9)
+		elif overlay_state==1:overlay=view.get_meta("charge_mat")
+		for mesh in view.get_meta("enemy_meshes"): mesh.material_overlay=overlay
+		view.set_meta("overlay_state",overlay_state)
 		view.set_meta("hit_flash",flashing)
 	if hit_age<.2: actor.rotation.x-=sin(hit_age/.2*PI)*.22
 	if died:
