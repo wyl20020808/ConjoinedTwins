@@ -12,6 +12,9 @@ var leaves: GPUParticles3D
 var motes: GPUParticles3D
 var embers: GPUParticles3D
 var scale_amount := 1.0
+var fireflies: GPUParticles3D
+var mist: GPUParticles3D
+var pollen: GPUParticles3D
 # 冲击波环与瞬时闪光：固定容量轮换，逐帧推进；只表现，不读写玩法状态。
 const RING_POOL := 6
 const FLASH_POOL := 3
@@ -41,6 +44,9 @@ func _ready() -> void:
 	leaves = make_leaves()
 	motes = make_motes()
 	embers = make_embers()
+	fireflies = make_fireflies()
+	mist = make_mist()
+	pollen = make_pollen()
 	for n in range(RING_POOL):
 		var ring := MeshInstance3D.new()
 		var plane := PlaneMesh.new()
@@ -288,6 +294,106 @@ func _process(delta: float) -> void:
 			flashes[n].visible = false
 			continue
 		flashes[n].light_energy = state.energy * left * left
+
+# 黄昏萤火虫：路边低空的黄绿色光点，缓慢游走、明灭闪烁。
+func make_fireflies() -> GPUParticles3D:
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	process.emission_box_extents = Vector3(26, 1.4, 30)
+	process.direction = Vector3(0, 1, 0)
+	process.spread = 180.0
+	process.initial_velocity_min = 0.1
+	process.initial_velocity_max = 0.4
+	process.gravity = Vector3.ZERO
+	process.turbulence_enabled = true
+	process.turbulence_noise_strength = 1.2
+	process.turbulence_noise_scale = 3.0
+	process.scale_min = 0.6
+	process.scale_max = 1.0
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(0.75, 1.25, 0.12, 0.0))
+	for n in range(1, 6):
+		gradient.add_point(n / 6.0, Color(0.75, 1.25, 0.12, 0.95 if n % 2 == 1 else 0.15))
+	gradient.set_color(gradient.get_point_count() - 1, Color(0.75, 1.25, 0.12, 0.0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	process.color_ramp = ramp
+	var dot := billboard(0.3, true)
+	(dot.material as StandardMaterial3D).blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var particles := emitter(150, 6.0, process, dot)
+	particles.one_shot = false
+	particles.explosiveness = 0.0
+	particles.preprocess = 6.0
+	particles.visibility_aabb = AABB(Vector3(-32, -6, -36), Vector3(64, 14, 72))
+	return particles
+
+# 夜间贴地薄雾：大而淡的雾团贴着路面缓慢横移。
+func make_mist() -> GPUParticles3D:
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	process.emission_box_extents = Vector3(30, 0.3, 34)
+	process.direction = Vector3(1, 0, 0.2)
+	process.spread = 30.0
+	process.initial_velocity_min = 0.3
+	process.initial_velocity_max = 0.8
+	process.gravity = Vector3.ZERO
+	process.scale_min = 0.8
+	process.scale_max = 1.4
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(0.55, 0.62, 0.8, 0.0))
+	gradient.add_point(0.5, Color(0.55, 0.62, 0.8, 0.09))
+	gradient.set_color(gradient.get_point_count() - 1, Color(0.55, 0.62, 0.8, 0.0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	process.color_ramp = ramp
+	var particles := emitter(70, 9.0, process, billboard(9.0, false))
+	particles.one_shot = false
+	particles.explosiveness = 0.0
+	particles.preprocess = 9.0
+	particles.visibility_aabb = AABB(Vector3(-34, -4, -38), Vector3(68, 10, 76))
+	return particles
+
+# 清晨林间花粉：比村庄浮尘更大更稀，受光时在光柱里发亮。
+func make_pollen() -> GPUParticles3D:
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	process.emission_box_extents = Vector3(22, 5, 26)
+	process.direction = Vector3(0.2, 1, 0)
+	process.spread = 180.0
+	process.initial_velocity_min = 0.05
+	process.initial_velocity_max = 0.2
+	process.gravity = Vector3(0, -0.05, 0)
+	process.turbulence_enabled = true
+	process.turbulence_noise_strength = 0.6
+	process.turbulence_noise_scale = 5.0
+	process.scale_min = 0.5
+	process.scale_max = 1.1
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1.4, 1.3, 0.9, 0.0))
+	gradient.add_point(0.5, Color(1.4, 1.3, 0.9, 0.7))
+	gradient.set_color(gradient.get_point_count() - 1, Color(1.4, 1.3, 0.9, 0.0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = gradient
+	process.color_ramp = ramp
+	var mote := billboard(0.2, true)
+	(mote.material as StandardMaterial3D).blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var particles := emitter(120, 8.0, process, mote)
+	particles.one_shot = false
+	particles.explosiveness = 0.0
+	particles.preprocess = 8.0
+	particles.visibility_aabb = AABB(Vector3(-30, -8, -34), Vector3(60, 18, 68))
+	return particles
+
+# 按章节时段开关：0 清晨林间花粉，1 黄昏萤火虫，2 夜间贴地薄雾。
+func sync_time_of_day(center: Vector3, chapter: int, forest: float) -> void:
+	var anchor := center + Vector3(0, 0, -14.0)
+	fireflies.global_position = anchor + Vector3(0, 1.3, 0)
+	mist.global_position = anchor + Vector3(0, 0.4, 0)
+	pollen.global_position = anchor + Vector3(0, 4.0, 0)
+	fireflies.emitting = chapter == 1
+	mist.emitting = chapter == 2
+	pollen.emitting = chapter == 0 and forest > 0.2
+	pollen.amount_ratio = clampf(forest, 0.0, 1.0)
 
 func burst(kind: String, point: Vector3) -> void:
 	var list: Array = pools[kind]

@@ -1310,6 +1310,7 @@ func sync_view() -> void:
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
 	var middle:Vector2=(run.a.position+run.b.position)*.5
 	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
+	fx.sync_time_of_day(Vector3(middle.x/SCALE,0,-middle.y/SCALE),run.level_index,forest_weight)
 	var lamp:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
