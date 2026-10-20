@@ -43,6 +43,8 @@ const JUMP_BAR_AXLE := 1.75
 const JUMP_BAR_RADIUS := 1.6
 var landscape
 const Atmosphere = preload("res://scripts/journey_atmosphere.gd")
+const HazardFx = preload("res://scripts/journey_hazard_fx.gd")
+var hazard_fx
 var atmosphere
 const Fx = preload("res://scripts/journey_fx.gd")
 var fx
@@ -170,6 +172,7 @@ func _ready() -> void:
 	camera_home=camera.transform
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
 	fx=Fx.new();add_child(fx)
+	hazard_fx=HazardFx.new(self,fx);add_child(hazard_fx)
 	if incremental_loading:
 		set_physics_process(false)
 		set_process_unhandled_key_input(false)
@@ -1819,6 +1822,8 @@ func sync_static_hazards()->void:
 	for index in visual_hazard_candidates():
 		if incremental_loading and not static_views.has(index):continue
 		sync_static_hazard(index)
+		if hazard_fx and static_views.has(index):hazard_fx.track(index,run.kinds[index],run.hazard_sample(index,run.elapsed),static_views[index])
+	if hazard_fx:hazard_fx.release_missing()
 
 func sync_static_hazard(i: int) -> void:
 	var kind:String=run.kinds[i]
