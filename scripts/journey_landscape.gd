@@ -37,6 +37,7 @@ func _init(owner_game)->void:
 	game=owner_game
 	mobile=OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
 	terrain=ShaderMaterial.new();terrain.shader=SHADER
+	terrain.set_shader_parameter("road_macro",load("res://assets/landscape/ground/road_macro.png"))
 	terrain.set_shader_parameter("stone",load("res://assets/env/monastery_stone_floor_diff.jpg"))
 	terrain.set_shader_parameter("soil",load("res://assets/journey/forest_leaves_02_diff.jpg"))
 	terrain.set_shader_parameter("rock",load("res://assets/env/rock_face_03_diff.jpg"))
@@ -119,6 +120,16 @@ static func surface_plan(pieces:Array,number:int,chapter:int,theme:String,gaps:A
 			var border:="tripo_grass_soil_border" if p.x<.5 else "tripo_stone_road_curb"
 			var x:=side*16.6
 			add_instance(batches,border,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1,PI/2 if border=="tripo_stone_road_curb" else 0.0)
+			# 路缘草簇：打碎 16 米的几何直边，也遮住铺装与泥土的硬接缝。
+			if border=="tripo_grass_soil_border":
+				var edge_seed:=meters*3.7+side*9.1
+				var edge_roll:=fposmod(sin(edge_seed)*17343.21,1.0)
+				if edge_roll>0.42:
+					var gx:=side*(14.55+edge_roll*0.45)
+					var gy:=meters+(fposmod(sin(edge_seed*1.7)*9871.3,1.0)-0.5)*2.4
+					var grass_foot:=Rect2(Vector2(gx-0.85,gy-0.85)*20,Vector2(1.7,1.7)*20)
+					if contained(pieces,grass_foot):
+						add_instance(batches,"grass",Vector3(gx,.02,-gy),0.55+edge_roll*0.5,fposmod(sin(edge_seed*2.1)*3571.7,1.0)*TAU)
 			if row%2==0 and p.y>.25:
 				var litter_x:=side*12.5
 				# 同一模型原本每 8 米完全复制一次；用坐标散列打散间距、朝向和大小，
@@ -367,6 +378,16 @@ static func decorate(batches:Dictionary,number:int,chapter:int,village_only:bool
 			add_instance(batches,"tripo_forester_cabin",Vector3(side*31,height_at(side*31,middle,chapter),-middle),.9,-side*PI/2)
 		if (village_only or region.z>.7) and posmod(number,3)==1 and side>0:
 			add_instance(batches,"tripo_village_windmill",Vector3(65,height_at(65,middle,chapter) if not village_only else 0.0,-middle),1,-PI/2)
+	# 路缘生活带：在 17–19.6 米空地填入木桶、倒木与苔石，遮住道路直边。
+	for side:float in [-1.0,1.0]:
+		for n in range(6):
+			var meters:=start+n*6.6+3.3
+			var seed_value:=meters*5.3+side*17.2
+			var roll:=fposmod(sin(seed_value)*24634.6,1.0)
+			if roll<0.24:continue
+			var x:=side*(17.1+roll*1.7)
+			var kind:String=["barrel","detail_deadwood","detail_moss_rocks"][posmod(n+int(side+1),3)]
+			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),0.7+roll*0.45,fposmod(sin(seed_value*1.9)*7314.2,1.0)*TAU)
 	# 新住宅自带门廊；院门和货物只跟随实际住宅，不在过渡带孤立生成。
 	for kind in batches.keys():
 		if kind in TRIPO_HOUSES:

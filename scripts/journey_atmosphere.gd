@@ -67,8 +67,8 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	env.ssao_enabled=true
 	env.ssao_radius=1.4;env.ssao_intensity=2.6;env.ssao_power=1.6
 	env.ssao_detail=0.6;env.ssao_light_affect=0.25
-	env.ssil_enabled=true
-	env.ssil_radius=4.0;env.ssil_intensity=0.7
+	# SSIL 实测森林段约 1 毫秒，只提很轻的间接色；为 60 帧余量关闭，保留 SSAO。
+	env.ssil_enabled=false
 	env.glow_enabled=true
 	env.glow_intensity=0.55;env.glow_strength=0.9;env.glow_bloom=0.04
 	env.glow_hdr_threshold=1.1
