@@ -1578,7 +1578,12 @@ func update_journey_ui() -> void:
 	# 受击红边与低血量暗角：只读取同步后的真实血量，不参与判定。
 	var top_health: int = run.combat.health[role]
 	var second_health: int = run.combat.health[1-role]
-	if top_health<last_health[0] or second_health<last_health[1]:damage_flash=1.0
+	if top_health<last_health[0] or second_health<last_health[1]:
+		damage_flash=1.0
+		for hurt_role in range(2):
+			var before:int=last_health[0] if hurt_role==role else last_health[1]
+			if run.combat.health[hurt_role]<before and is_instance_valid(fx):
+				fx.impact(robots[hurt_role].global_position,Color("ff3b2a"),1.8,2.6)
 	last_health[0]=top_health;last_health[1]=second_health
 	low_health=clampf((35.0-minf(top_health,second_health))/35.0,0.0,1.0)
 	var role_color:=Color("8fe3d2") if role==0 else Color("f0c089")
