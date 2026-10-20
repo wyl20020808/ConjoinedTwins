@@ -17,6 +17,8 @@ uniform float cloud_scale = 1.0;
 uniform float cloud_speed = 0.0035;
 uniform float haze = 0.45;
 uniform float saturation = 1.0;
+uniform float star_amount = 0.0;
+uniform float disk_size = 0.99972;
 
 float hash21(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -63,9 +65,19 @@ void sky() {
 	col += sun_color * azimuth * 0.18 * (1.0 - up);
 
 	float sun_dot = max(dot(dir, light), 0.0);
-	float disk = smoothstep(0.99972, 0.99992, sun_dot);
+	float disk = smoothstep(disk_size, disk_size + 0.0002, sun_dot);
 	float glow = pow(sun_dot, 28.0) * 0.45 + pow(sun_dot, 5.0) * 0.10;
 	col += sun_color * sun_energy * (disk * 6.0 + glow);
+
+	// 夜空星点：投影到高空平面取格子散列，靠近地平线淡出，轻微闪烁。
+	if (star_amount > 0.001) {
+		vec2 sp = dir.xz / max(dir.y, 0.08) * 220.0;
+		vec2 cell = floor(sp);
+		float h = hash21(cell);
+		float d = length(fract(sp) - 0.5);
+		float star = step(0.985, h) * smoothstep(0.32, 0.0, d) * (0.6 + 0.4 * sin(TIME * (1.5 + h * 3.0) + h * 40.0));
+		col += vec3(0.85, 0.9, 1.0) * star * star_amount * smoothstep(0.08, 0.35, up) * 1.6;
+	}
 
 	// 云层投影到高空平面；在地平线附近淡出，避免径向拉丝。
 	float cloud_fade = smoothstep(0.02, 0.22, up);

@@ -19,16 +19,27 @@ var ground_material: StandardMaterial3D
 var near_ridge: StandardMaterial3D
 var far_ridge: StandardMaterial3D
 var sky_material: ShaderMaterial
-# 每章一套主光/补光/雾色/调色；森林冷绿、村庄暖金、矿道冷蓝。
-# sun_energy 已包含 AgX 的亮度补偿，直接作为 DirectionalLight3D 能量使用。
+# 每章一个时段：森林清晨逆光（林间光柱）、村庄与河岸黄昏（低角度长影）、矿道与设施夜晚（月光 + 火光）。
+# energy 已包含 AgX 的亮度补偿；pitch/yaw 是主光朝向，yaw≈180 为正对镜头逆光。
+# lamp 是路灯/火把与角色随身灯的亮度系数，stars 为夜空星点。
 var palettes := [
-	{"sun":Color("ffe0b8"),"energy":2.05,"fill":Color("6f9ec6"),"fill_energy":0.30,"fog":Color("a4ab97"),"fog_scale":0.85,"contrast":1.20,"saturation":1.16,"ambient":0.52,"ambient_color":Color("7f9496"),
-		"sky_zenith":Color("2b5a72"),"sky_low":Color("4f7f96"),"sky_horizon":Color("c9c3a6"),"cloud_lit":Color("faf6ea"),"cloud_shadow":Color("5f6f74"),"cloud":0.42,"haze":0.35,"sky_saturation":1.0,"cloud_scale":1.1},
-	{"sun":Color("ffd09a"),"energy":1.95,"fill":Color("7f95b4"),"fill_energy":0.30,"fog":Color("c9b08c"),"fog_scale":0.80,"contrast":1.16,"saturation":1.14,"ambient":0.58,"ambient_color":Color("a08d7c"),
-		"sky_zenith":Color("4a6f96"),"sky_low":Color("7a9dbb"),"sky_horizon":Color("f2cf98"),"cloud_lit":Color("ffeed2"),"cloud_shadow":Color("8d7c72"),"cloud":0.40,"haze":0.30,"sky_saturation":1.05,"cloud_scale":0.9},
-	{"sun":Color("cbd9e8"),"energy":1.45,"fill":Color("5f7fa4"),"fill_energy":0.42,"fog":Color("8b98a3"),"fog_scale":0.75,"contrast":1.24,"saturation":0.90,"ambient":0.50,"ambient_color":Color("61717f"),
-		"sky_zenith":Color("2b3a46"),"sky_low":Color("4a5b69"),"sky_horizon":Color("9aa6ad"),"cloud_lit":Color("d7dee3"),"cloud_shadow":Color("4f5b64"),"cloud":0.58,"haze":0.40,"sky_saturation":0.90,"cloud_scale":0.8},
+	{"sun":Color("ffd39c"),"energy":2.3,"pitch":-24.0,"yaw":152.0,"fill":Color("6f9ec6"),"fill_energy":0.30,"fog":Color("b4ae95"),"fog_scale":0.85,"vol_scale":1.45,"anisotropy":0.72,"contrast":1.18,"saturation":1.14,"ambient":0.50,"ambient_color":Color("7c9092"),
+		"sky_zenith":Color("2f5c78"),"sky_low":Color("6f93a6"),"sky_horizon":Color("efd6a6"),"cloud_lit":Color("fff2dc"),"cloud_shadow":Color("6a7378"),"cloud":0.40,"haze":0.45,"sky_saturation":1.0,"cloud_scale":1.1,
+		"lamp":0.0,"stars":0.0,"disk":0.99972,"sky_sun":0.85,"hero_light":0.0,"land_tint":Color(1,1,1)},
+	{"sun":Color("ffa262"),"energy":2.15,"pitch":-13.0,"yaw":112.0,"fill":Color("6c7fb8"),"fill_energy":0.38,"fog":Color("c99f84"),"fog_scale":0.85,"vol_scale":1.2,"anisotropy":0.65,"contrast":1.16,"saturation":1.16,"ambient":0.50,"ambient_color":Color("9a8080"),
+		"sky_zenith":Color("33507e"),"sky_low":Color("8a95b8"),"sky_horizon":Color("ffb27a"),"cloud_lit":Color("ffcf9e"),"cloud_shadow":Color("7a6274"),"cloud":0.42,"haze":0.40,"sky_saturation":1.08,"cloud_scale":0.9,
+		"lamp":0.8,"stars":0.0,"disk":0.99965,"sky_sun":1.0,"hero_light":0.0,"land_tint":Color("e8b8a0")},
+	{"sun":Color("a8c0ea"),"energy":0.62,"pitch":-36.0,"yaw":205.0,"fill":Color("39558c"),"fill_energy":0.30,"fog":Color("27324a"),"fog_scale":0.9,"vol_scale":1.4,"anisotropy":0.5,"contrast":1.12,"saturation":1.02,"ambient":0.42,"ambient_color":Color("40527a"),
+		"sky_zenith":Color("05080f"),"sky_low":Color("0e1729"),"sky_horizon":Color("2a3654"),"cloud_lit":Color("53627e"),"cloud_shadow":Color("10151f"),"cloud":0.32,"haze":0.30,"sky_saturation":1.0,"cloud_scale":0.8,
+		"lamp":1.0,"stars":1.0,"disk":0.99935,"sky_sun":1.6,"hero_light":1.0,"land_tint":Color("27304a")},
 ]
+
+func palette_for(chapter:int) -> Dictionary:
+	return palettes[clampi(chapter,0,palettes.size()-1)]
+
+# 路灯与随身灯亮度：网页/移动端没有本层调色，也按章节给出同一时段。
+func lamp_level(chapter:int) -> float:
+	return float(palette_for(chapter).lamp)
 
 static func forward_plus() -> bool:
 	return RenderingServer.get_current_rendering_method()=="forward_plus"
@@ -71,10 +82,12 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	RenderingServer.environment_set_ssao_quality(RenderingServer.ENV_SSAO_QUALITY_LOW,true,0.5,2,50.0,300.0)
 	# SSIL 实测森林段约 1 毫秒，只提很轻的间接色；为 60 帧余量关闭，保留 SSAO。
 	env.ssil_enabled=false
+	# 发光改为 Screen 混合：只有 HDR 超过 1 的灯芯、火焰、能量体会晕开，暗部不被整体抬灰。
 	env.glow_enabled=true
-	env.glow_intensity=0.55;env.glow_strength=0.9;env.glow_bloom=0.04
-	env.glow_hdr_threshold=1.1
-	env.glow_blend_mode=Environment.GLOW_BLEND_MODE_SOFTLIGHT
+	env.glow_intensity=0.75;env.glow_strength=1.0;env.glow_bloom=0.0
+	env.glow_hdr_threshold=1.0;env.glow_hdr_scale=2.2
+	env.glow_blend_mode=Environment.GLOW_BLEND_MODE_SCREEN
+	for level in range(7):env.set_glow_level(level,level in [2,3,4,5])
 	# 远处雾色取自同方向天空，地平线与晚霞自然衔接。
 	env.fog_aerial_perspective=0.6
 	env.volumetric_fog_enabled=true
@@ -159,8 +172,15 @@ func sync(camera:Camera3D,meters:float,chapter:int,forest_weight:float) -> void:
 	far_ridge.albedo_color=Color("9b95ad").lerp(Color("b3a9bb"),cliff).lerp(haze,forest_weight*0.9)
 	if not enabled:return
 	var palette:Dictionary=palettes[clampi(chapter,0,palettes.size()-1)]
+	# 远景环带与山脊是不受光的展示层，需要按时段直接压色，否则夜里会像一圈雪地。
+	var tint:Color=palette.land_tint
+	ground_material.albedo_color*=tint
+	near_ridge.albedo_color*=tint
+	far_ridge.albedo_color*=tint.lerp(Color.WHITE,0.15)
 	sun.light_color=palette.sun
 	sun.light_energy=float(palette.energy)*(1.0-forest_weight*0.08)
+	sun.rotation_degrees=Vector3(palette.pitch,palette.yaw,0)
+	env.volumetric_fog_anisotropy=palette.anisotropy
 	fill.light_color=palette.fill
 	fill.light_energy=float(palette.fill_energy)
 	env.ambient_light_energy=palette.ambient
@@ -169,10 +189,11 @@ func sync(camera:Camera3D,meters:float,chapter:int,forest_weight:float) -> void:
 	env.fog_sky_affect=0.0
 	env.fog_light_color=palette.fog.lerp(Color("b9c4bd"),forest_weight*0.35)
 	env.fog_density=float(palette.fog_scale)*lerpf(0.0021,0.0042,forest_weight)
-	env.volumetric_fog_density=float(palette.fog_scale)*lerpf(0.0008,0.0022,forest_weight)
+	# 低角度逆光穿过林冠阴影，在体积雾里形成光柱；林中雾更厚，光柱更明显。
+	env.volumetric_fog_density=float(palette.fog_scale)*float(palette.vol_scale)*lerpf(0.0008,0.0022,forest_weight)
 	env.adjustment_contrast=palette.contrast
 	env.adjustment_saturation=palette.saturation
-	env.volumetric_fog_albedo=Color("f2dfc4").lerp(Color("e4e8e0"),forest_weight)
+	env.volumetric_fog_albedo=Color("f2dfc4").lerp(Color("e4e8e0"),forest_weight) if chapter<2 else Color("b8c4dc")
 	sky_material.set_shader_parameter("horizon_color",palette.sky_horizon)
 	sky_material.set_shader_parameter("sky_color",palette.sky_low)
 	sky_material.set_shader_parameter("zenith_color",palette.sky_zenith)
@@ -183,5 +204,7 @@ func sync(camera:Camera3D,meters:float,chapter:int,forest_weight:float) -> void:
 	sky_material.set_shader_parameter("haze",palette.haze)
 	sky_material.set_shader_parameter("saturation",palette.sky_saturation)
 	sky_material.set_shader_parameter("sun_color",palette.sun)
-	sky_material.set_shader_parameter("sun_energy",float(palette.energy)*0.85)
+	sky_material.set_shader_parameter("sun_energy",float(palette.energy)*float(palette.sky_sun))
+	sky_material.set_shader_parameter("star_amount",palette.stars)
+	sky_material.set_shader_parameter("disk_size",palette.disk)
 	sky_material.set_shader_parameter("sun_dir",sun.global_transform.basis.z.normalized())

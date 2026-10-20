@@ -46,6 +46,13 @@ static func make(number: int, level: int, chapter: Dictionary, edge: float) -> A
 		LM.add_instance(dressing,"landmark_headframe",Vector3(-19.5,0,-start-40),18.0,PI/2)
 	if level>0 and posmod(number,4)==3:
 		LM.add_instance(dressing,"landmark_shrine",Vector3(17.8,0,-start-40),3.0,-PI/2)
+	# 二章黄昏路灯、三章夜间火把：两侧交错，二章每侧约 40 米、三章约 27 米一盏，只作展示与照明，不参与碰撞。
+	if level>0:
+		var lamp_kind:="torch" if level==2 else "lantern"
+		var lamp_count:=6 if level==2 else 4
+		for n in range(lamp_count):
+			var lamp_side:=-1.0 if n%2==0 else 1.0
+			items.append(["lamp",Vector3(lamp_side*(edge/20.0+1.4),0,-start-n*80.0/lamp_count-4.0),lamp_kind])
 	for kind in dressing:items.append(["landscape_batch",kind,dressing[kind]])
 	var zone_length: float = chapter.length/6.0
 	for zone in range(6):

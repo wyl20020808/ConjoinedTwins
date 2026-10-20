@@ -332,6 +332,46 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 			var crack:=box(floor_node,Vector3((rect.position.x+k*rect.size.x/6)/SCALE,0.025,-rect.get_center().y/SCALE),Vector3(0.09,0.025,rect.size.y/SCALE),material("crack",Color("351f16")))
 			crack.rotation.y=0.17 if k%2==0 else -0.17
 
+func add_lamp(parent: Node3D,pos: Vector3,kind: String) -> void:
+	# 木杆 + 铁臂 + 发光灯芯；灯芯 HDR 超过 1 才会晕开。灯光不投影，远处淡出。
+	var level:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
+	if level<=0.0:return
+	var root:=Node3D.new();root.name="Lamp";root.position=pos;parent.add_child(root)
+	var inward:=-signf(pos.x)
+	var torch:=kind=="torch"
+	var height:=2.3 if torch else 3.4
+	var wood:=material("lamp_post",Color("4a3828"))
+	cylinder(root,Vector3(0,height*.5,0),0.075 if torch else 0.09,height,wood)
+	var head:=Vector3(0,height+.12,0)
+	if not torch:
+		box(root,Vector3(inward*.32,height-.05,0),Vector3(.7,.06,.06),material("lamp_iron",Color("2b2b2c")))
+		head=Vector3(inward*.62,height-.36,0)
+		box(root,head+Vector3(0,.2,0),Vector3(.32,.06,.32),material("lamp_iron",Color("2b2b2c")))
+	else:
+		cylinder(root,head+Vector3(0,-.12,0),.13,.16,material("lamp_iron",Color("2b2b2c")))
+	var flame_color:=Color("ff8a3c") if torch else Color("ffc77a")
+	var flame:=MeshInstance3D.new();var sphere:=SphereMesh.new()
+	sphere.radius=.17 if torch else .15;sphere.height=sphere.radius*(2.6 if torch else 2.0)
+	sphere.radial_segments=10;sphere.rings=6
+	flame.mesh=sphere;flame.position=head;flame.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	flame.material_override=material("lamp_flame_"+kind,flame_color,6.0)
+	root.add_child(flame)
+	var light:=OmniLight3D.new()
+	light.position=head+Vector3(0,.15,0)
+	light.light_color=flame_color
+	light.light_energy=(4.2 if torch else 2.6)*level
+	light.omni_range=11.0 if torch else 9.0
+	light.omni_attenuation=1.4
+	light.shadow_enabled=false
+	light.light_volumetric_fog_energy=2.5
+	light.distance_fade_enabled=true
+	light.distance_fade_begin=70.0
+	light.distance_fade_length=20.0
+	if torch:light.set_meta("flicker",pos.z*.37)
+	root.add_child(light)
+	if torch:
+		var lights:Array=parent.get_meta("flicker_lights",[]);lights.append(light);parent.set_meta("flicker_lights",lights)
+
 func add_sign(parent: Node3D,text: String,position: Vector3,size: int=32) -> Label3D:
 	var sign:=Label3D.new()
 	sign.text=text
@@ -392,6 +432,7 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 		"rock": rock(chunk,rock_mesh("journey_rock_%d"%item[1],item[1]+31,3,1.8,8,0.5),ground_material("ruins"),item[2],item[3])
 		"asset": asset(chunk,item[1],item[2],item[3],item[4])
 		"building": model("res://assets/industrial/building-k.glb",chunk,item[1],14,item[2],15)
+		"lamp": add_lamp(chunk,item[1],item[2])
 		"farm": box(chunk,item[1],Vector3(12,0.1,1.2),material("farmland",Color("51412c")))
 		"sign": add_sign(chunk,item[1],item[2],38)
 
@@ -1182,14 +1223,38 @@ func sync_view() -> void:
 	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
 	var middle:Vector2=(run.a.position+run.b.position)*.5
 	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
+	var lamp:float=atmosphere.lamp_level(run.level_index) if atmosphere else 0.0
 	for chunk in world_chunks.values():
 		if not chunk.visible:continue
 		for node in chunk.get_meta("wind_nodes",[]):
 			node.rotation.z=sin(run.elapsed*1.1+float(node.get_meta("wind")))*0.008
+		for light:OmniLight3D in chunk.get_meta("flicker_lights",[]):
+			var seed:float=light.get_meta("flicker")
+			light.light_energy=4.2*lamp*(0.86+0.1*sin(run.elapsed*13.0+seed)+0.06*sin(run.elapsed*29.0+seed*2.3))
+	sync_hero_lights(float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0)
 	sync_journey_rewards()
 	if is_instance_valid(combat_view): combat_view.sync()
 	update_journey_ui()
 	publish_web_verification()
+
+# 夜间随身灯：两人头顶各一盏暖/冷色小灯，保证夜景里角色、绳索与脚下机关可读。
+var hero_lights:Array[OmniLight3D]=[]
+func sync_hero_lights(level:float)->void:
+	if hero_lights.is_empty():
+		if level<=0.0:return
+		for i in range(2):
+			var light:=OmniLight3D.new()
+			light.light_color=Color("bfeaff") if i==0 else Color("ffe2c4")
+			light.omni_range=9.0;light.omni_attenuation=1.0
+			light.shadow_enabled=false
+			light.light_volumetric_fog_energy=0.6
+			add_child(light);hero_lights.append(light)
+	for i in range(2):
+		var light:=hero_lights[i]
+		light.visible=level>0.0 and is_instance_valid(robots[i])
+		if not light.visible:continue
+		light.light_energy=0.75*level
+		light.global_position=robots[i].global_position+Vector3(0,3.6,1.6)
 
 # 旅程使用固定世界坐标；沿用道路版动作与腰部旋转，身体仍由真实物理位置驱动。
 func sync_journey_character(i:int)->void:
