@@ -127,7 +127,7 @@ func validate_hud() -> void:
 		check(game.health_panel.position.x<viewport.x/2 and game.combat_health.value==64 and game.partner_health.value==28,"左上两人血条 "+str(size))
 		check(game.weapon_panel.position.x>viewport.x/2 and game.combat_status.text=="冲锋枪" and game.weapon_ammo.text=="07 / 72","右上枪名及弹药 "+str(size))
 		check(game.weapon_icon.visible and not game.combat_status.visible and game.weapon_icon.texture!=null,"枪形图标替代可见枪名 "+str(size))
-		check(game.health_panel.get_theme_stylebox("panel") is StyleBoxEmpty and game.weapon_panel.get_theme_stylebox("panel") is StyleBoxEmpty,"两角HUD无背景 "+str(size))
+		check(game.health_panel.get_theme_stylebox("panel") is StyleBoxFlat and game.weapon_panel.get_theme_stylebox("panel") is StyleBoxFlat,"两角HUD使用暗色玻璃底板 "+str(size))
 		check(game.health_panel.get_global_rect().end.x<game.pause_button.position.x and game.pause_button.get_global_rect().end.x<game.weapon_panel.position.x,"两角状态不与暂停控件重叠 "+str(size))
 		check(game.weapon_panel.get_global_rect().end.x<=viewport.x and game.health_panel.get_global_rect().end.y<viewport.y*.3,"HUD在视口内且高度收敛 "+str(size))
 		check(not game.journey_hint.visible and game.pause_button.text.is_empty(),"游玩无常驻说明和暂停文字 "+str(size))

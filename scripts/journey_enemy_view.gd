@@ -145,8 +145,8 @@ static func prepare(game, view: Node3D, event: Dictionary) -> void:
 	view.set_meta("last_hit_at",-1.0)
 	view.set_meta("hit_flash",false)
 	var health:=Node3D.new();health.name="EnemyHealth";view.add_child(health)
-	panel(game,health,"Back",Vector2(3.15,.34),Color("18262d"))
-	var fill:=panel(game,health,"Fill",Vector2(3.0,.22),Color("81d694"));fill.position.z=.02
+	panel(game,health,"Back",Vector2(3.35,.26),Color("0d1418"))
+	var fill:=panel(game,health,"Fill",Vector2(3.2,.13),Color("a9d39b"));fill.position.z=.02
 	var title:Label3D=game.add_sign(health,"",Vector3(0,.7,0),28);title.name="Title";title.pixel_size=.03
 	var damage:Label3D=game.add_sign(view,"",Vector3.ZERO,30);damage.name="HitNumber";damage.pixel_size=.03;damage.modulate=Color("fff1b5")
 	var burst:=Node3D.new();burst.name="HitBurst";view.add_child(burst)
@@ -220,19 +220,20 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		actor.scale*=maxf(.01,1.0-smoothstep(.18,.48,death_age))
 		view.get_node("Warning").hide();view.get_node("Hint").hide()
 	var health:Node3D=view.get_node("EnemyHealth")
-	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800
+	var locked:bool=run.combat.weapons.any(func(w):return not w.is_empty() and w.target==event.id)
+	# 满血且未被锁定时不挂血条，减少世界内文字与条状元素。
+	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800 and (event.hp<event.max_hp or locked or hit_age<1.0)
 	if health.visible:
 		health.global_position=location+Vector3(0,view.get_meta("bar_height",3.5)+event.get("ground_height",0.0)/20,0)
 		health.global_basis=game.camera.global_basis
 		var health_key:Vector2i=Vector2i(event.hp,event.max_hp)
 		if view.get_meta("health_key",Vector2i(-1,-1))!=health_key:
 			var ratio:=clampf(float(event.hp)/event.max_hp,0,1)
-			var fill:MeshInstance3D=health.get_node("Fill");fill.scale.x=maxf(.001,ratio);fill.position.x=-1.5*(1-ratio)
-			var color:=Color("81d694") if ratio>.5 else (Color("ffc36a") if ratio>.25 else Color("f17666"))
+			var fill:MeshInstance3D=health.get_node("Fill");fill.scale.x=maxf(.001,ratio);fill.position.x=-1.6*(1-ratio)
+			var color:=Color("a9d39b") if ratio>.5 else (Color("e8c07a") if ratio>.25 else Color("e08a7a"))
 			fill.material_override=game.material("enemy_ui_"+color.to_html(),color)
 			fill.material_override.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 			view.set_meta("health_key",health_key)
-	var locked:bool=run.combat.weapons.any(func(w):return not w.is_empty() and w.target==event.id)
 	var title:Label3D=health.get_node("Title")
 	var enemy_name:String=run.Monsters.NAMES[event.archetype] if event.kind=="monster" else ("野猪" if event.kind=="boar" else "投掷者")
 	title.visible=locked or hit_age<.4

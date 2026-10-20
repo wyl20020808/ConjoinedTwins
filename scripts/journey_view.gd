@@ -87,6 +87,11 @@ var weapon_detail: Label
 var weapon_icon: TextureRect
 var health_panel: PanelContainer
 var weapon_panel: PanelContainer
+var post_canvas: CanvasLayer
+var vignette_mat: ShaderMaterial
+var damage_flash := 0.0
+var low_health := 0.0
+var last_health := [100, 100]
 var training_button: Button
 var restart_button: Button
 var fire_blocked := true
@@ -722,6 +727,7 @@ func sync_gates() -> void:
 	road.get_node("JourneyFinish").position.z=-run.finish_distance()/SCALE
 
 func build_journey_ui() -> void:
+	build_post_fx()
 	var canvas:=CanvasLayer.new()
 	canvas.name="JourneyCanvas"
 	add_child(canvas)
@@ -730,20 +736,28 @@ func build_journey_ui() -> void:
 	column.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	column.add_theme_constant_override("separation",5)
 	health_panel.add_child(column)
-	hud=label("",18)
+	hud=label("",17,Color("8fe3d2"))
 	column.add_child(hud)
-	combat_health=health_bar(Color("9cdeb9"),12)
+	combat_health=health_bar(Color("9cdeb9"),10)
 	column.add_child(combat_health)
-	partner_status=label("",15,Color("e4c7a7"))
+	var divider:=ColorRect.new()
+	divider.custom_minimum_size=Vector2(0,1)
+	divider.color=Color(1,1,1,0.12)
+	divider.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	column.add_child(divider)
+	partner_status=label("",13,Color("e4c7a7"))
 	column.add_child(partner_status)
-	partner_health=health_bar(Color("e4b883"),6)
+	partner_health=health_bar(Color("e4b883"),5)
 	column.add_child(partner_health)
 	weapon_panel=hud_panel(canvas)
 	var weapon_column:=VBoxContainer.new()
 	weapon_column.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	weapon_column.add_theme_constant_override("separation",2)
 	weapon_panel.add_child(weapon_column)
-	combat_status=label("",18)
+	var weapon_caption:=label("武器",11,Color("9fb0a6"))
+	weapon_caption.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	weapon_column.add_child(weapon_caption)
+	combat_status=label("",15,Color("cfd6cc"))
 	weapon_column.add_child(combat_status)
 	weapon_icon=TextureRect.new()
 	weapon_icon.texture=preload("res://assets/ui/smg.svg")
@@ -754,9 +768,9 @@ func build_journey_ui() -> void:
 	weapon_icon.tooltip_text="冲锋枪"
 	weapon_icon.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	weapon_column.add_child(weapon_icon)
-	weapon_ammo=label("",30)
+	weapon_ammo=label("",34)
 	weapon_column.add_child(weapon_ammo)
-	weapon_detail=label("",15,Color("e4c7a7"))
+	weapon_detail=label("",13,Color("e4c7a7"))
 	weapon_column.add_child(weapon_detail)
 	for text_label in [combat_status,weapon_ammo,weapon_detail]:
 		text_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
@@ -773,8 +787,16 @@ func build_journey_ui() -> void:
 	touch.combat_buttons=true
 	canvas.add_child(touch)
 	pause_button=Button.new()
-	for state_name in ["normal","hover","pressed","disabled"]:
-		pause_button.add_theme_stylebox_override(state_name,StyleBoxEmpty.new())
+	var pause_normal:=glass_style(0.55,0.30,0,20)
+	pause_normal.content_margin_left=0;pause_normal.content_margin_right=0
+	pause_normal.content_margin_top=0;pause_normal.content_margin_bottom=0
+	var pause_hover:StyleBoxFlat=pause_normal.duplicate()
+	pause_hover.bg_color=Color(0.10,0.13,0.14,0.72)
+	pause_hover.border_color=Color(0.95,0.82,0.60,0.55)
+	pause_button.add_theme_stylebox_override("normal",pause_normal)
+	pause_button.add_theme_stylebox_override("hover",pause_hover)
+	pause_button.add_theme_stylebox_override("pressed",pause_normal)
+	pause_button.add_theme_stylebox_override("focus",StyleBoxEmpty.new())
 	pause_button.tooltip_text="暂停 · Esc"
 	pause_button.draw.connect(func():
 		for x in [14.0,24.0]:
@@ -790,18 +812,21 @@ func build_journey_ui() -> void:
 	panel.position=Vector2(240,170)
 	panel.size=Vector2(800,360)
 	canvas.add_child(panel)
+	panel.add_theme_stylebox_override("panel",glass_style(0.82,0.36,24,14))
 	var inner:=VBoxContainer.new()
-	inner.add_theme_constant_override("separation",10)
+	inner.add_theme_constant_override("separation",12)
 	panel.add_child(inner)
-	title=label("",32)
+	title=label("",38,Color("f7f2e6"))
 	inner.add_child(title)
-	subtitle=label("",17)
+	subtitle=label("",16,Color("cfd6cc"))
+	subtitle.add_theme_constant_override("line_spacing",4)
 	subtitle.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	inner.add_child(subtitle)
 	primary=Button.new()
-	primary.custom_minimum_size=Vector2(0,52)
+	primary.custom_minimum_size=Vector2(0,54)
 	primary.pressed.connect(journey_primary)
 	inner.add_child(primary)
+	style_button(primary,true)
 	training_button=Button.new()
 	training_button.text="战斗训练 · 持枪步行约 90 秒"
 	training_button.custom_minimum_size=Vector2(0,46)
@@ -810,14 +835,17 @@ func build_journey_ui() -> void:
 		run.new_campaign()
 		reset_journey_views())
 	inner.add_child(training_button)
+	style_button(training_button)
 	restart_button=Button.new()
 	restart_button.text="重新开始本关"
 	restart_button.custom_minimum_size=Vector2(0,42)
 	restart_button.pressed.connect(func():
 		command("retry"))
 	inner.add_child(restart_button)
+	style_button(restart_button)
 	touch.blockers.assign([panel,pause_button])
 	var modes:=HBoxContainer.new()
+	modes.add_theme_constant_override("separation",8)
 	inner.add_child(modes)
 	for entry in [["solo","单人＋搭档"],["online","远程双人"]]:
 		var button:=Button.new()
@@ -825,6 +853,7 @@ func build_journey_ui() -> void:
 		button.set_meta("mode",entry[0])
 		button.pressed.connect(func():choose_mode(entry[0]))
 		modes.add_child(button)
+		style_button(button,false,16,true)
 		mode_buttons.append(button)
 	online_row=HBoxContainer.new()
 	inner.add_child(online_row)
@@ -834,14 +863,19 @@ func build_journey_ui() -> void:
 	net_address.text=NetClient.page_default_address()
 	if net_address.text.is_empty():net_address.text="ws://127.0.0.1:24681"
 	online_row.add_child(net_address)
+	net_address.add_theme_stylebox_override("normal",glass_style(0.72,0.24,10,8))
+	net_address.add_theme_color_override("font_color",Color("f2ede0"))
+	net_address.add_theme_color_override("caret_color",Color("e8bd7d"))
 	net_button=Button.new()
 	net_button.text="连接队友"
 	net_button.pressed.connect(toggle_online)
 	online_row.add_child(net_button)
+	style_button(net_button,false,16,true)
 	net_status=label("远程双人：连接同一版本网页",16)
 	inner.add_child(net_status)
 	touch.blockers.append(net_button)
 	var choice:=HBoxContainer.new()
+	choice.add_theme_constant_override("separation",8)
 	inner.add_child(choice)
 	for name in ["简单","普通","困难"]:
 		var button:=Button.new()
@@ -849,12 +883,72 @@ func build_journey_ui() -> void:
 		button.pressed.connect(func():
 			command("difficulty",name))
 		choice.add_child(button)
+		style_button(button,false,16,true)
 		difficulty_buttons.append(button)
+
+func glass_style(alpha:float=0.72,border_alpha:float=0.30,pad:int=16,radius:int=10) -> StyleBoxFlat:
+	# 统一的暗色玻璃面板：深底、细暖边、圆角和轻微投影。
+	var style:=StyleBoxFlat.new()
+	style.bg_color=Color(0.045,0.06,0.07,alpha)
+	style.border_color=Color(0.92,0.78,0.52,border_alpha)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(radius)
+	style.content_margin_left=pad
+	style.content_margin_right=pad
+	style.content_margin_top=pad
+	style.content_margin_bottom=pad
+	style.shadow_color=Color(0,0,0,0.35)
+	style.shadow_size=10
+	return style
+
+func style_button(button:Button,accent:bool=false,font_size:int=19,compact:bool=false) -> void:
+	# 主按钮用暖金实心，其余用暗色玻璃；悬停和按下只改亮度和描边。
+	var normal:=glass_style(0.86 if not accent else 1.0,0.30,12 if compact else 16,8)
+	normal.bg_color=Color("e8bd7d") if accent else Color(0.06,0.08,0.09,0.80)
+	normal.border_color=Color("f4d9a6") if accent else Color(0.80,0.68,0.48,0.34)
+	normal.content_margin_top=8 if compact else 12
+	normal.content_margin_bottom=8 if compact else 12
+	var hover:StyleBoxFlat=normal.duplicate()
+	hover.bg_color=Color("f2cd90") if accent else Color(0.10,0.13,0.14,0.90)
+	hover.border_color=Color("fff0cd") if accent else Color(0.95,0.82,0.60,0.58)
+	var pressed:StyleBoxFlat=normal.duplicate()
+	pressed.bg_color=Color("d8ad6e") if accent else Color(0.035,0.045,0.05,0.94)
+	var disabled:StyleBoxFlat=normal.duplicate()
+	disabled.bg_color=Color(0.08,0.09,0.10,0.45)
+	disabled.border_color=Color(1,1,1,0.08)
+	button.add_theme_stylebox_override("normal",normal)
+	button.add_theme_stylebox_override("hover",hover)
+	button.add_theme_stylebox_override("pressed",pressed)
+	button.add_theme_stylebox_override("disabled",disabled)
+	button.add_theme_stylebox_override("focus",StyleBoxEmpty.new())
+	button.add_theme_color_override("font_color",Color("211d16") if accent else Color("f2ede0"))
+	button.add_theme_color_override("font_hover_color",Color("211d16") if accent else Color("ffffff"))
+	button.add_theme_color_override("font_pressed_color",Color("211d16") if accent else Color("efe6d4"))
+	button.add_theme_color_override("font_disabled_color",Color(0.7,0.7,0.7,0.5))
+	button.add_theme_font_size_override("font_size",font_size)
+	if compact:
+		button.custom_minimum_size=Vector2(0,36)
+
+func build_post_fx() -> void:
+	# HUD 在 CanvasLayer 1，后处理放在 0：只压 3D 画面，不压界面。
+	post_canvas=CanvasLayer.new()
+	post_canvas.name="PostFX"
+	post_canvas.layer=0
+	add_child(post_canvas)
+	var vignette:=ColorRect.new()
+	vignette.name="Vignette"
+	vignette.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	vignette_mat=ShaderMaterial.new()
+	vignette_mat.shader=preload("res://scripts/journey_vignette.gdshader")
+	vignette_mat.set_shader_parameter("damage",0.0)
+	vignette_mat.set_shader_parameter("low",0.0)
+	vignette.material=vignette_mat
+	post_canvas.add_child(vignette)
+	vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 func hud_panel(canvas: CanvasLayer) -> PanelContainer:
 	var result:=PanelContainer.new()
-	var style:=StyleBoxEmpty.new()
-	result.add_theme_stylebox_override("panel",style)
+	result.add_theme_stylebox_override("panel",glass_style(0.58,0.26,12,10))
 	result.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(result)
 	return result
@@ -865,9 +959,15 @@ func health_bar(color: Color, height: float) -> ProgressBar:
 	result.show_percentage=false
 	result.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	var back:=StyleBoxFlat.new()
-	back.bg_color=Color(0.92,0.96,0.91,0.18)
+	back.bg_color=Color(0.015,0.02,0.022,0.85)
+	back.set_corner_radius_all(int(height*0.5))
+	back.border_color=Color(1,1,1,0.10)
+	back.set_border_width_all(1)
 	var fill:=StyleBoxFlat.new()
 	fill.bg_color=color
+	fill.set_corner_radius_all(int(height*0.5))
+	fill.shadow_color=Color(color.r,color.g,color.b,0.40)
+	fill.shadow_size=5
 	result.add_theme_stylebox_override("background",back)
 	result.add_theme_stylebox_override("fill",fill)
 	return result
@@ -954,14 +1054,19 @@ func _physics_process(delta: float) -> void:
 			cost.samples+=1;cost.total_usec+=sample[1];cost.max_usec=maxi(cost.max_usec,sample[1])
 			frame_costs[sample[0]]=cost
 
-func _process(_delta:float)->void:
+func _process(delta:float)->void:
+	# 受击红边和低血量暗角先于视图更新，暂停时也自然衰减。
+	if is_instance_valid(vignette_mat):
+		damage_flash=maxf(0.0,damage_flash-delta*2.4)
+		vignette_mat.set_shader_parameter("damage",damage_flash)
+		vignette_mat.set_shader_parameter("low",low_health)
 	# 每个画面帧只提交一次最终状态，本地与网页使用同一规则。
 	if scene_prepared and view_pending:
 		view_pending=false
 		var started:=Time.get_ticks_usec()
-		frame_delta=_delta
+		frame_delta=delta
 		sync_view()
-		pump_ambience(_delta)
+		pump_ambience(delta)
 		if web_verify:
 			var cost:Dictionary=frame_costs.get("render_view",{"samples":0,"total_usec":0,"max_usec":0})
 			var duration:=Time.get_ticks_usec()-started
@@ -1229,13 +1334,27 @@ func update_journey_ui() -> void:
 	weapon_panel.position=Vector2(viewport.x-inset-hud_width,inset)
 	pause_button.position=Vector2(viewport.x/2-20,inset)
 	pause_button.size=Vector2(40,40)
-	panel.size.x=minf(800,viewport.x-32)
-	panel.position=Vector2((viewport.x-panel.size.x)/2,maxf(12,(viewport.y-panel.size.y)/2))
+	# 开始页和暂停页的按钮数量不同，面板高度跟内容走，避免底部留一大块空板。
+	var panel_width:=minf(800,viewport.x-32)
+	var panel_height:=maxf(260.0,panel.get_combined_minimum_size().y)
+	panel.size=Vector2(panel_width,panel_height)
+	panel.position=Vector2((viewport.x-panel_width)/2,maxf(12,(viewport.y-panel_height)/2))
 	var role: int=net.role if play_mode=="online" and net.in_match else 0
 	combat_health.value=run.combat.health[role]
 	partner_health.value=run.combat.health[1-role]
 	hud.text="%02d   %d / 100%s"%[role+1,run.combat.health[role],"  护盾" if run.shield else ""]
 	partner_status.text="%02d   %d / 100"%[2-role,run.combat.health[1-role]]
+	# 受击红边与低血量暗角：只读取同步后的真实血量，不参与判定。
+	var top_health: int = run.combat.health[role]
+	var second_health: int = run.combat.health[1-role]
+	if top_health<last_health[0] or second_health<last_health[1]:damage_flash=1.0
+	last_health[0]=top_health;last_health[1]=second_health
+	low_health=clampf((35.0-minf(top_health,second_health))/35.0,0.0,1.0)
+	var role_color:=Color("8fe3d2") if role==0 else Color("f0c089")
+	if hud.get_meta("role_color",Color(-1,-1,-1))!=role_color:
+		hud.set_meta("role_color",role_color)
+		hud.add_theme_color_override("font_color",role_color)
+		partner_status.add_theme_color_override("font_color",Color("f0c089") if role==0 else Color("8fe3d2"))
 	for entry in [[combat_health,role],[partner_health,1-role]]:
 		var fill: StyleBoxFlat=entry[0].get_theme_stylebox("fill")
 		fill.bg_color=Color("ef8078") if run.combat.health[entry[1]]<=30 else (Color("9cdeb9") if entry[1]==role else Color("e4b883"))
