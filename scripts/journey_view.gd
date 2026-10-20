@@ -2144,10 +2144,10 @@ func online_process(delta:float)->void:
 	var applied:=0
 	var start:=Time.get_ticks_usec()
 	# 服务器每秒固定发 60 帧；只消化 1 帧/物理帧时，加载或卡顿造成的积压会变成永久输入延迟。
-	# 积压时放宽单次帧数与时间预算追帧，只保留少量缓冲吸收抖动，不丢帧也不改变模拟结果。
+	# 稳态只留约 2 帧缓冲（实测隧道抖动 p99 约 22 毫秒）；积压时放宽单次帧数与时间预算追帧，不丢帧也不改变模拟结果。
 	var queued:int=net.frames.size()
-	var limit:int=1 if queued<=3 else (2 if queued<=8 else mini(ONLINE_CATCHUP_FRAMES,queued-2))
-	var budget:int=Run.PRELOAD_SLICE_USEC if queued<=3 else ONLINE_CATCHUP_USEC
+	var limit:int=1 if queued<=2 else (2 if queued<=8 else mini(ONLINE_CATCHUP_FRAMES,queued-2))
+	var budget:int=Run.PRELOAD_SLICE_USEC if queued<=2 else ONLINE_CATCHUP_USEC
 	while not net.frames.is_empty() and applied<limit:
 		var index:int=net.next_frame
 		var frame:Dictionary=net.frames[0]
