@@ -1054,6 +1054,34 @@ func skeleton_of(node: Node) -> Skeleton3D:
 		if found != null: return found
 	return null
 
+# Idle 站姿一整圈里骨骼的最低和最高点（世界坐标）。
+# 原先用 Run 姿势：两人跑姿不同（02 跑得更直立），会被缩成不同身高。站姿两人一致。
+func bone_span(player: AnimationPlayer, skeleton: Skeleton3D) -> Vector2:
+	var span := Vector2(INF, -INF)
+	for name in player.get_animation_list():
+		if not name.ends_with("|Idle"): continue
+		player.play(name)
+		for n in range(6):
+			player.seek(player.current_animation_length * n / 6.0, true)
+			for bone in range(skeleton.get_bone_count()):
+				var height: float = (skeleton.global_transform * skeleton.get_bone_global_pose(bone)).origin.y
+				span = Vector2(minf(span.x, height), maxf(span.y, height))
+		player.stop()
+	return span
+
+# 模型包围盒里混有脚下的附属网格，按包围盒落地和定身高会让 01 悬空、两人还不一样高。
+# 改按骨骼：头顶骨到脚趾骨统一成 3 米（与 2.9 米的碰撞身高一致），再让站姿最低的骨节贴地。
+func ground_character(character: Node3D) -> void:
+	var player := animation_player(character)
+	var skeleton := skeleton_of(character)
+	if player == null or skeleton == null: return
+	var span := bone_span(player, skeleton)
+	if span.y <= span.x: return
+	character.scale *= 3.0 / (span.y - span.x)
+	character.position *= 3.0 / (span.y - span.x)
+	# 最低的是脚趾骨节，鞋底在它下面约 6 厘米。
+	character.position.y -= bone_span(player, skeleton).x - 0.06
+
 func animation_player(node: Node) -> AnimationPlayer:
 	if node is AnimationPlayer: return node
 	for child in node.get_children():
@@ -1168,7 +1196,7 @@ func build_robots() -> void:
 		add_child(robot)
 		robots.append(robot)
 		# Tripo 导出的 Armature 与 Adventurer 原生朝向相反，这里不再额外转半圈，角色仍背对镜头。
-		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.45, 0.0)
+		var character := model(HERO_MODELS[index], robot, Vector3.ZERO, 3.8, 0.0)
 		if animation_player(character) == null:
 			var player := AnimationPlayer.new()
 			player.name = "AnimationPlayer"
@@ -1176,6 +1204,10 @@ func build_robots() -> void:
 			player.root_node = NodePath("..")
 			player.add_animation_library("", hero_animation_library())
 		register_animation(character)
+		ground_character(character)
+		var head_skeleton := skeleton_of(character)
+		if head_skeleton != null:
+			head_skeleton.add_child(preload("res://scripts/hero_head_level.gd").new())
 		character.set_meta("base_scale",character.scale)
 		character_models.append(character)
 		# 识别灯保持两人辨识度；阴影固定在地面，角色独立腾空。
