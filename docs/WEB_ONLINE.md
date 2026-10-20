@@ -49,6 +49,24 @@ python3 build-tools/prepare_web.py --engine /Applications/Godot.app/Contents/Mac
 
 更新网页版的步骤：拉取新代码 → 重新导出 → 把 `builds/web/` 同步到 `CT_WEB_ROOT` 目录 → 重启中继（协议有变时）。两人刷新页面即可拿到新版本。
 
+### 网页包体积（2026-10-20）
+
+网页版会把整个 `index.pck` 下载并读进内存，PCK 体积直接决定首访等待和手机内存。用户要求压缩不能降低画面质量，因此默认只做不改变画面的处理（e74af86 的 187 MB → 约 160 MB，brotli 147 MB → 135 MB）：
+
+- Web 预设排除确认运行时不加载的资源：未绑骨的怪物/村民原件（运行时只用 `rigged/`，原件与 rigged 各导入一份同样的贴图）、未引用的鹰与鸟模型、`Adventurer_B`、只被旧白盒 `build_road()` 使用的 DeadTree。
+- 28 件嵌入贴图的 Tripo 模型关闭 `create_shadow_meshes`。shadow mesh 只是同一几何的仅位置副本，用于加速阴影绘制，关闭后阴影形状不变。
+
+会降低画质或改变压缩格式的进一步瘦身做成可选清单，单独放在 `chore/web-pck-diet-lossy-options` 分支，每项一个提交，由用户看过对比后逐项决定是否采用。
+
+新增或删减资源后用下面两步检查，再部署：
+
+```
+python3 build-tools/pck_report.py builds/web/index.pck                          # 体积构成
+/Applications/Godot.app/Contents/MacOS/Godot --headless --main-pack builds/web/index.pck -s "$PWD/build-tools/verify_web_pack.gd"   # 资源完整性
+```
+
+`verify_web_pack.gd` 加载生产脚本常量里的全部资源路径与模型表，再按生产入口逐章、多种子扫过全程，输出 `VERIFY_WEB_PACK missing=0` 才算通过。它是桌面无头运行，不覆盖 `OS.has_feature("web")` 分支、GPU 渲染与浏览器内存，画质变化需要真机试玩确认。
+
 ## 本地自测
 
 1. `启动联机服务器.cmd`（同时开 UDP 24680 和 WebSocket 24681）。
