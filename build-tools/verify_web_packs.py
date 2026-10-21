@@ -1,17 +1,18 @@
-"""拆包后的网页数据巡检：本机 HTTP 提供 builds/web，逐章只挂载主包 + 该章数据包并整章流式加载。
+"""拆包后的网页数据巡检：用生产网页服务 deploy/windows/serve_web.py 提供 builds/web，
+逐章只挂载主包 + 该章数据包并整章流式加载。用生产服务而不是普通静态服务器，是为了覆盖
+预压缩、Content-Encoding 等真实响应头（曾因 .pck 被 br 编码导致下载截断）。
 
 用法：python build-tools/verify_web_packs.py [--web builds/web] [--engine 引擎路径]
 任一章出现资源缺失、读取失败或下载失败即返回非零；日志写到 <web>/../web-packs-verify/。
 通过只说明拆包没有漏掉桌面无头运行会读取的资源；浏览器内下载、缓存与渲染仍需真机试玩。
 """
 import argparse
-import functools
-import http.server
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
-import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ENGINE = "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe"
@@ -19,9 +20,10 @@ DEFAULT_ENGINE = "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe"
 MISSING = re.compile(r"(Resource file not found|Failed loading resource|Cannot open file|No loader found|VERIFY_WEB_PACKS (missing|asset error|stuck))")
 
 
-class Quiet(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
+def free_port():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
 
 def main():
@@ -32,9 +34,16 @@ def main():
     web = args.web.resolve()
     logs = web.parent / "web-packs-verify"
     logs.mkdir(exist_ok=True)
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(web)))
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    port = free_port()
+    server = subprocess.Popen([sys.executable, str(ROOT / "deploy/windows/serve_web.py"), "--root", str(web), "--port", str(port)],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
+            break
+        except OSError:
+            time.sleep(0.1)
+    url = f"http://127.0.0.1:{port}/"
     failed = 0
     try:
         for chapter in range(4):
@@ -52,7 +61,8 @@ def main():
             if code != 0 or problems:
                 failed += 1
     finally:
-        server.shutdown()
+        server.terminate()
+        server.wait()
     print(f"VERIFY_WEB_PACKS chapters_failed={failed}")
     return 1 if failed else 0
 

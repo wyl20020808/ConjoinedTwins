@@ -95,9 +95,11 @@ def export(engine):
     if code == 0 and required.issubset(files):
         if run([sys.executable, str(ROOT / "build-tools/split_web_pack.py"), str(OUTPUT)], evidence / "split.log", 600) != 0:
             raise RuntimeError("Chapter pack split failed; see split.log")
+        compress_packs(OUTPUT)
         finalize_shell(OUTPUT)
         # 预压缩可避免每次首访都在服务器上重新压缩引擎；PCK 默认也不会动态压缩。
-        targets = ["index.js", "index.wasm", "index.pck"] + [str(p.relative_to(OUTPUT)) for p in sorted((OUTPUT / "packs").glob("*.pck"))]
+        # 章节包不在这里：它们由 compress_packs 另存为 .pckz，不能有 .br/.gz 同名文件（见该函数说明）。
+        targets = ["index.js", "index.wasm", "index.pck"]
         for name in targets:
             path = OUTPUT / name
             compressed = gzip.compress(path.read_bytes(), compresslevel=6, mtime=0)
@@ -118,6 +120,37 @@ def short_hash(path):
     return sha(path)[:12]
 
 
+def compress_packs(output):
+    """章节包另存 brotli 压缩版 .pckz，并写入 packs.json 的 transfer 字段，由游戏下载后自行解压。
+
+    不能用 .pck.br 让服务器发 Content-Encoding：浏览器交给引擎的是解压后的数据，Godot 的 HTTPRequest
+    却按响应头里压缩后的 Content-Length 停止读取，文件被截断（实测“下载失败，状态 200，结果 0”）。
+    .pckz 没有同名预压缩文件，服务器按普通二进制原样发送；原 .pck 也保留不压缩，作解压失败时的后备。
+    """
+    brotli = shutil.which("brotli")
+    manifest_path = output / "packs.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for name, info in manifest["packs"].items():
+        source = output / info["file"]
+        for stale in (source.with_name(source.name + ".br"), source.with_name(source.name + ".gz")):
+            stale.unlink(missing_ok=True)
+        if not brotli:
+            continue
+        target = source.with_suffix(".pckz")
+        subprocess.run([brotli, "-q", "11", "-w", "22", "-f", "-o", str(target), str(source)], check=True)
+        # 压缩不划算（贴图本身已压缩）时只发原包。
+        if target.stat().st_size >= source.stat().st_size * 0.97:
+            target.unlink()
+            continue
+        info["transfer"] = str(target.relative_to(output)).replace("\\", "/")
+        info["transfer_size"] = target.stat().st_size
+        info["transfer_hash"] = short_hash(target)
+        print(f"Packed {info['file']}: {source.stat().st_size} -> {target.stat().st_size} bytes (.pckz)", flush=True)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    if not brotli:
+        print("brotli 命令不存在：章节包只发未压缩原包", flush=True)
+
+
 def finalize_shell(output):
     """拆包之后：修正启动页里主包的大小、写入启动背景图与 Service Worker 缓存清单。"""
     html = output / "index.html"
@@ -131,7 +164,11 @@ def finalize_shell(output):
     for name in ("index.js", "index.wasm", "index.pck", "index.audio.worklet.js", "index.audio.position.worklet.js", "loading_bg.jpg"):
         if (output / name).exists():
             files[name] = short_hash(output / name)
-    build = json.loads((output / "packs.json").read_text(encoding="utf-8"))["build"]
+    manifest = json.loads((output / "packs.json").read_text(encoding="utf-8"))
+    for info in manifest["packs"].values():
+        if "transfer" in info:
+            files[info["transfer"]] = info["transfer_hash"]
+    build = manifest["build"]
     worker = (ROOT / "web/sw.js").read_text(encoding="utf-8")
     worker = worker.replace("'__BUILD__'", json.dumps(build)).replace("__FILES__", json.dumps(files, indent=1))
     (output / "sw.js").write_text(worker, encoding="utf-8")
