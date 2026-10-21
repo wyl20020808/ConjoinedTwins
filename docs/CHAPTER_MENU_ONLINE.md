@@ -108,7 +108,7 @@
 
 ## 部署注意
 
-1. 在 Mac mini 上按 [网页版联机说明](WEB_ONLINE.md) 重新导出：`python3 build-tools/prepare_web.py --engine …`。导出后会自动拆包、生成 `packs.json`、`sw.js`、`loading_bg.jpg` 并预压缩全部 `.pck`。
+1. 在 Mac mini 上按 [网页版联机说明](WEB_ONLINE.md) 重新导出：`python3 build-tools/prepare_web.py --engine …`。导出后会自动拆包、生成 `packs.json`、`sw.js`、`loading_bg.jpg`；引擎与主包预压缩为 `.br/.gz`，章节包另存 brotli 压缩的 `.pckz` 由游戏下载后自行解压（章节包不能用 `.br/.gz` 让服务器加 Content-Encoding，否则浏览器里下载会被截断，见 2026-10-21 修复）。
 2. 把 `builds/web/` 整个目录（含 `packs/`）同步到 `CT_WEB_ROOT`。
 3. 协议从 6 升到 7，**中继也要用新代码重启**；两人都刷新页面。
 4. Caddyfile 不需要改：`precompressed br gzip` 同样适用于 `packs/*.pck`。
