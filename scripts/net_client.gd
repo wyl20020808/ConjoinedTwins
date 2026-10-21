@@ -7,6 +7,11 @@ signal match_stopped(reason: String)
 
 const Relay = preload("res://scripts/net_relay.gd")
 const HASH_INTERVAL := 60
+# 桌面版（发给朋友的 Windows 程序）默认连接的服务器：经 SakuraFrp TCP 隧道（自动 HTTPS）到主机电脑上的
+# deploy/windows/serve_web.py，再由 /ws 转给联机中继。可用启动参数 -- --server=地址 覆盖；
+# 玩家改过并成功连接的地址保存在 user://online.cfg，下次启动沿用。
+const DEFAULT_SERVER := "wss://www.u4139693.nyat.app:57412/ws"
+const ADDRESS_FILE := "user://online.cfg"
 # 输入只在变化时上传（服务器沿用上一份），另每秒补发一次以防万一；静止或按住方向时几乎没有上行流量。
 const INPUT_REFRESH_MSEC := 1000
 
@@ -18,6 +23,7 @@ var frames: Array = []
 var next_frame := 0
 var desynced := false
 var connected := false
+var last_address := ""
 var last_input := PackedByteArray()
 var last_input_msec := 0
 # 联机流量统计（字节，含本层负载，不含传输层头部），供测试与网页验证读取。
@@ -26,7 +32,10 @@ var bytes_received := 0
 
 func _ready() -> void:
 	get_tree().set_multiplayer(api, get_path())
-	api.connected_to_server.connect(func(): connected = true; status_changed.emit("已连上服务器，等待分配位置…"))
+	api.connected_to_server.connect(func():
+		connected = true
+		remember_address(last_address)
+		status_changed.emit("已连上服务器，等待分配位置…"))
 	api.connection_failed.connect(func(): stop("连接失败：检查服务器地址、端口和组网是否在线。"))
 	api.server_disconnected.connect(func(): stop("与服务器断开。"))
 	api.peer_packet.connect(_on_packet)
@@ -35,6 +44,7 @@ func _ready() -> void:
 # 原生客户端默认走 ENet（UDP）；网页版浏览器不能收发 UDP，一律走 WebSocket。
 func connect_to(address: String) -> void:
 	disconnect_from()
+	last_address = address
 	var target := parse_address(address, OS.has_feature("web"), page_is_secure())
 	if target.has("error"):
 		status_changed.emit(target.error)
@@ -100,6 +110,25 @@ static func page_is_secure() -> bool:
 
 # 网页版的默认服务器地址：网址里的 ?server= 优先；否则用网页所在主机的 /ws（网页与中继由同一台机器提供时免填）。
 # 原生客户端返回空字符串，沿用本地保存的地址。
+# 开始页地址框的初始值：网页用页面所在主机；桌面版依次取启动参数、上次连接成功的地址、默认服务器。
+static func default_address() -> String:
+	var page := page_default_address()
+	if not page.is_empty(): return page
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--server="): return arg.get_slice("=", 1)
+	var config := ConfigFile.new()
+	if config.load(ADDRESS_FILE) == OK:
+		var saved := str(config.get_value("online", "address", ""))
+		if not saved.is_empty(): return saved
+	return DEFAULT_SERVER
+
+static func remember_address(address: String) -> void:
+	# 无界面自动化测试连本机测试端口，不能把测试地址写进玩家的默认地址。
+	if OS.has_feature("web") or DisplayServer.get_name() == "headless": return
+	var config := ConfigFile.new()
+	config.set_value("online", "address", address.strip_edges())
+	config.save(ADDRESS_FILE)
+
 static func page_default_address() -> String:
 	if not OS.has_feature("web"): return ""
 	var server = JavaScriptBridge.eval("new URLSearchParams(location.search).get('server') || ''", true)
