@@ -28,6 +28,10 @@ function Stop-Recorded([string]$Name) {
 	$pidFile = Join-Path $State "$Name.pid"
 	if (Test-Path $pidFile) {
 		$id = [int](Get-Content $pidFile)
+		# Godot 控制台版会再启动一个真正的引擎子进程，端口由子进程占用，需一并停止。
+		Get-CimInstance Win32_Process -Filter "ParentProcessId=$id" -ErrorAction SilentlyContinue | ForEach-Object {
+			Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+		}
 		$process = Get-Process -Id $id -ErrorAction SilentlyContinue
 		if ($process) { Stop-Process -Id $id -Force; Write-Output "已停止 $Name (PID $id)" }
 		Remove-Item $pidFile
