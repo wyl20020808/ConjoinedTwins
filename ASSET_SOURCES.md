@@ -251,3 +251,9 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 | `assets/landscape/landmark_shrine.glb` | 25,000 | 2.5 MB | small medieval roadside stone shrine, wooden roof, glowing lantern | 全章路侧 x=17.8 米，缩放 3 |
 
 另生成但未接入：廊桥（缺少水面支撑）、橡树（纹理生成无贴图且下载截断）。原始导出与提示词保存工程外，不入库。许可同前：Tripo 生成内容的授权取决于账号套餐（免费套餐通常为公开且需署名，付费套餐归用户所有），正式发布前须由用户在账号中确认并按需补充署名。
+
+## 2026-10-20 新增枪械模型与图标
+
+- `assets/weapons/shotgun.glb`、`flamer.glb`、`launcher.glb`：本项目原创低模，由 `build-tools/journey/make_weapons.py` 在 Blender 5.2 后台用基本体拼装并导出，纯色 PBR 材质、无贴图、无外部下载，每个约 70 KB。
+- `assets/ui/shotgun.svg`、`flamer.svg`、`launcher.svg`：本项目手写 SVG 剪影，与原 `smg.svg` 同一画风。
+- 冲锋枪仍为 `scripts/journey_combat_view.gd` 内程序拼装的方块模型。

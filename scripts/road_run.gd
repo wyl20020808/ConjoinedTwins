@@ -105,6 +105,8 @@ var death_time := 0.0
 var death_positions := PackedVector3Array()
 var death_velocities := PackedVector3Array()
 var rope = Rope.new()
+# 滚球是否挂住绳索。旧道路玩法保留挂绳求解；连续旅程关闭，滚球直接压过绳索、只撞身体。
+var balls_snag_rope := true
 var rope_bound := false
 var rope_unwinding := false
 var rope_block_substeps := 0
@@ -1688,7 +1690,7 @@ func advance_threats(dt: float) -> Dictionary:
 		spec.blocked = false
 		if spec.get("tripped", false): continue
 		var move: Vector2 = spec.velocity * dt
-		if not Threats.is_ball(kinds[index]):
+		if not Threats.is_ball(kinds[index]) or not balls_snag_rope:
 			spec.offset += move
 			spec.travel += move.length()
 			continue
@@ -1806,7 +1808,7 @@ func assign_obstacle_ids() -> void:
 func rope_circles() -> Array:
 	assign_obstacle_ids()
 	var result: Array = []
-	for index in indexed_kinds(ROPE_BLOCKERS):
+	for index in indexed_kinds(ROPE_BLOCKERS if balls_snag_rope else ["pillar"]):
 		# 以球体最大截面和当前 offset 保守排除绳长不可及对象；已有接触不剔除。
 		if not rope.has_contact(obstacle_ids[index]):
 			var reach:=LINK_LIMIT+obstacles[index].size.x*0.5+ROPE_CLEARANCE+8.0
@@ -1988,7 +1990,7 @@ static func hazard_name(kind: String) -> String:
 	if kind == "rocket": return "弩箭：两人同侧避让"
 	if kind == "stone_ball": return "滚石：两人同侧避让"
 	if kind == "iron_ball": return "铁刺球：两人同侧避让"
-	return {"pillar": "高柱：两人同侧绕行", "cargo": "巨岩：左右绕行", "rail": "矮石栏：跳跃或绕行", "spikes": "固定地刺：跳跃或绕行", "active_spikes": "活动地刺：伸出期间跳跃或绕行", "jump_bar": "跳绳木杆：贴地瞬间两人同时起跳", "barrel": "横滚木桶：分站两侧拉紧绳子绊倒它，或一起侧身躲开", "color_gate": "专属颜色门：青门只放 01，橙门只放 02", "scanner": "高位扫描束：绕行或等待安全时窗", "fly_low": "低空飞石：跳跃或绕行", "fly_body": "飞石：四向避让", "fly_tall": "高大飞行物：四向避让"}.get(kind, "能量屏障")
+	return {"pillar": "高柱：两人同侧绕行", "cargo": "巨岩：左右绕行", "rail": "矮石栏：跳跃或绕行", "spikes": "固定地刺：跳跃或绕行", "active_spikes": "活动地刺：伸出期间跳跃或绕行", "jump_bar": "跳绳木杆：贴地瞬间两人同时起跳", "barrel": "横滚木桶：分站两侧拉紧绳子绊倒它，或一起侧身躲开", "color_gate": "专属颜色门：01 走青门、02 走橙门，站错边先交叉换位；绳子可穿过中间能量帘", "scanner": "高位扫描束：绕行或等待安全时窗", "fly_low": "低空飞石：跳跃或绕行", "fly_body": "飞石：四向避让", "fly_tall": "高大飞行物：四向避让"}.get(kind, "能量屏障")
 
 # 仅消费最后一次生产子步的条件；暂停冻结、重试和实例重建自然保留或清空提示。
 # 侧别由生产条件给出，与角色编号无关；HUD 和主题共用这份反馈。
@@ -2342,6 +2344,8 @@ func rope_colliders() -> Array:
 	var bounds := Rect2(a.position, Vector2.ZERO).expand(b.position).grow(LINK_LIMIT * 0.5)
 	for i in obstacles_in_bounds(bounds):
 		if kinds[i] not in ["pillar","stone_ball","iron_ball","cargo"]:continue
+		if not balls_snag_rope and Threats.is_ball(kinds[i]):continue
+		if hazard_specs[i].get("rope_passable",false):continue
 		if not hazard_specs[i].get("front",false) and not bounds.intersects(obstacles[i],true):continue
 		var sample := hazard_sample(i, elapsed)
 		if not bounds.intersects(sample.rect, true): continue

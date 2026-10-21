@@ -9,6 +9,11 @@ const ATTACK_RANGE := 300.0
 const NOTICE_RANGE := 900.0
 const BODY_RADIUS := 16.0
 const GRID := 40.0
+# 未警觉时在出生点附近巡逻：直线走向随机航点，到达后停顿再选下一个；
+# 远处（展示窗口内）也巡逻，只做一次航点直线检查，不建寻路网格。
+const PATROL_RANGE := 2800.0
+const PATROL_SPEED := 70.0
+const PATROL_SPAN := Vector2(150,100)
 const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"dasher":260.0,"wolf":270.0}
 const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼"}
 const PROFILES := {
@@ -118,15 +123,17 @@ static func sample(event: Dictionary, time: float) -> Dictionary:
 static func advance(run, event: Dictionary) -> void:
 	# 只更新附近敌人；远处保持出生数据，不把全地图寻路塞进每个固定步。
 	event.velocity=Vector2.ZERO
-	if absf(event.y-run.distance)>NOTICE_RANGE+200: return
+	if absf(event.y-run.distance)>NOTICE_RANGE+200:
+		if absf(event.y-run.distance)<PATROL_RANGE and event.hp>0: patrol(run,event)
+		return
 	var target:Vector2=run.a.position if event.id%2==0 else run.b.position
 	if event.origin.distance_to(target)<NOTICE_RANGE: event.alert=true
 	# 门的站位区保留合作空间，附近追兵仍会在外围行走。
 	var protected:bool=run.charge_gates.any(func(g):return absf(target.y-g.receiver.y)<180)
 	var data:=profile(event)
 	var age:float=run.elapsed-event.trigger if event.trigger>=0 else -1.0
-	if not event.alert or protected:
-		target=event.spawn+Vector2(sin(run.elapsed*.8+event.id)*60,cos(run.elapsed*.8+event.id)*40)
+	var patrolling:bool=not event.alert or protected
+	if patrolling: target=event.origin
 	elif event.origin.distance_to(target)>200:
 		target.x=clampf(target.x+(-90 if event.id%2==0 else 90),-run.EDGE+40,run.EDGE-40)
 	if event.archetype in ["dasher","wolf"] and age>=0 and age<data.windup+data.active:
@@ -135,6 +142,7 @@ static func advance(run, event: Dictionary) -> void:
 			if clear_path(run,event.origin,destination,blockers(run,event.origin,destination)):
 				place(run,event,destination)
 			else:event.attack_blocked=true
+	elif patrolling and age<0: patrol(run,event)
 	elif event.archetype!="archer" or age<0 or age>=data.windup+data.active:
 		move(run,event,target)
 	if event.trigger>=0 and age>=data.cycle: event.trigger=-1.0
@@ -247,6 +255,26 @@ static func move(run, event:Dictionary, target:Vector2) -> void:
 	var next:=from.move_toward(path[0],speed*run.FIXED_STEP)
 	if not clear_path(run,from,next,solids):
 		event.repath_at=minf(event.repath_at,run.elapsed+.1)
+		return
+	place(run,event,next)
+
+static func patrol(run,event:Dictionary)->void:
+	if run.elapsed<float(event.get("patrol_wait",0.0)): return
+	var goal:Vector2=event.get("patrol_goal",event.origin)
+	if event.origin.distance_to(goal)<2.0:
+		# 到达或受阻：停顿 0.8–2.6 秒后换航点；航点由事件编号与腿序确定，存档与联机一致。
+		var leg:int=int(event.get("patrol_leg",0))+1
+		var roll:=absi(hash([event.id,leg]))
+		var next_goal:Vector2=event.spawn+Vector2((float(roll%1001)/500.0-1.0)*PATROL_SPAN.x,(float(roll/1001%1001)/500.0-1.0)*PATROL_SPAN.y)
+		next_goal.x=clampf(next_goal.x,-run.EDGE+50,run.EDGE-50)
+		event.patrol_leg=leg
+		event.patrol_wait=run.elapsed+0.8+float(roll/1002001%19)*0.1
+		event.patrol_goal=next_goal if clear_path(run,event.origin,next_goal,blockers(run,event.origin,next_goal)) else event.origin
+		return
+	var next:Vector2=(event.origin as Vector2).move_toward(goal,PATROL_SPEED*run.FIXED_STEP)
+	# 航点整段已验证；途中只复核脚下，塌陷地面出现时原地停下换航点。
+	if not clear_path(run,next,next,[]):
+		event.patrol_goal=event.origin
 		return
 	place(run,event,next)
 

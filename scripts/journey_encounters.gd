@@ -167,11 +167,14 @@ static func narrow_terrain(run,route:Dictionary)->void:
 		left=center+22
 	if left<run.EDGE:run.add_hazard("road_gap",Rect2(left,route.start,run.EDGE-left,route.end-route.start))
 
-# 小型地刺、矮栏和碎石补充大机关；主通道外缘仍可走，窄桥内不塞障碍。
+# 小型地刺与矮栏补充大机关；主通道外缘仍可走，窄桥内不塞障碍。
 static func small_hazards(run,n:int,y:float,side:float,layout=null)->void:
 	var kinds:Array=layout.shuffled(["active_spikes","rail","cargo"]) if layout!=null else ["active_spikes","rail","cargo"]
 	for j in range(3):
 		var kind:String=kinds[j]
+		# 碎石块读起来像悬空的土块，试玩反馈要求去掉；原位改为贴地的活动地刺，
+		# 保留洗牌次序与小机关密度，其余小机关位置不变。
+		if kind=="cargo":kind="active_spikes"
 		# 最后一个小机关的完整身体碰撞包络必须早于 marker.y+110，
 		# 防止两人开始整理下一段站位时，仍横穿上一段的尾部危险。
 		var center:=Vector2(side*190 if j!=1 else -side*135,y+20+j*25)
@@ -184,7 +187,6 @@ static func small_hazards(run,n:int,y:float,side:float,layout=null)->void:
 		var index:int=run.add_hazard(kind,rect)
 		run.hazard_specs[index].small=true
 		run.hazard_specs[index].beat_end=y+110
-		if kind=="cargo":run.obstacle_heights[index]=14.0
 		if kind=="active_spikes":
 			run.hazard_specs[index].period=2.4
 			run.hazard_specs[index].warning=.65
@@ -241,6 +243,8 @@ static func color_gate(run,y:float,layout)->void:
 	for wall in [Rect2(-run.EDGE,y,run.EDGE-outer,depth),Rect2(-inner,y,COLOR_DIVIDER,depth),Rect2(outer,y,run.EDGE-outer,depth)]:
 		var index:int=run.add_hazard("cargo",wall)
 		run.hazard_specs[index].color_wall=true
+		# 中间隔墩是矮石座加能量帘：挡身体，不挡绳索，两人各过一门时绳子从帘中穿过。
+		if wall.position.x==-inner:run.hazard_specs[index].rope_passable=true
 	for side in [-1.0,1.0]:
 		var role:int=0 if (side<0)==teal_left else 1
 		var x0:float=-outer if side<0 else inner

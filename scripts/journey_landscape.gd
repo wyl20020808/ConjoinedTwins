@@ -315,9 +315,34 @@ func spawn_villagers(parent:Node3D,path:String,transforms:Array,end:float)->void
 		var clip:String=VILLAGER_CLIPS[seed%VILLAGER_CLIPS.size()]
 		for name in player.get_animation_list():
 			player.get_animation(name).loop_mode=Animation.LOOP_LINEAR
-			if name.get_slice("|",name.get_slice_count("|")-1)==clip:
-				player.play(name)
-				player.seek(fposmod(seed*0.37,player.current_animation_length),true)
+		play_villager_clip(player,clip)
+		player.seek(fposmod(seed*0.37,player.current_animation_length),true)
+		if seed%2==0:stroll(node,player,transform,seed)
+
+static func play_villager_clip(player:AnimationPlayer,clip:String)->void:
+	for name in player.get_animation_list():
+		if name.get_slice("|",name.get_slice_count("|")-1)==clip:
+			player.play(name,0.25)
+			return
+
+# 一半村民沿路边来回散步：走 4 米、停下张望/说话、转身走回。纯布景，不参与玩法与同步。
+# 模型正前方为本地 +X，朝 -Z 走取 yaw=PI/2，朝 +Z 走取 -PI/2。
+const STROLL_DISTANCE:=4.0
+const STROLL_SPEED:=1.1
+func stroll(node:Node3D,player:AnimationPlayer,transform:Transform3D,seed:int)->void:
+	var start:=transform.origin
+	var away:=start+Vector3(0,0,-STROLL_DISTANCE if seed%4==0 else STROLL_DISTANCE)
+	var face_away:=PI/2 if away.z<start.z else -PI/2
+	var rest:String=VILLAGER_CLIPS[(seed/2)%VILLAGER_CLIPS.size()]
+	var tween:=node.create_tween().set_loops()
+	tween.tween_interval(0.5+float(seed%7)*0.4)
+	tween.tween_callback(func():node.rotation.y=face_away;play_villager_clip(player,"Walk"))
+	tween.tween_property(node,"position",away,STROLL_DISTANCE/STROLL_SPEED)
+	tween.tween_callback(func():play_villager_clip(player,rest))
+	tween.tween_interval(2.0+float(seed%5)*0.5)
+	tween.tween_callback(func():node.rotation.y=face_away+PI;play_villager_clip(player,"Walk"))
+	tween.tween_property(node,"position",start,STROLL_DISTANCE/STROLL_SPEED)
+	tween.tween_callback(func():node.rotation.y=transform.basis.get_euler().y;play_villager_clip(player,rest))
 
 func batch_cell(parent:Node3D,path:String,transforms:Array,end:float,begin:float,center:Vector3)->void:
 	for part in load_parts(path):

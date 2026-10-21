@@ -74,17 +74,18 @@ func verify()->void:
 	weapon.ammo=5;game.run.Combat.start_reload(game.run,0)
 	game.sync_view()
 	var gun:Node3D=game.combat_view.guns[0]
+	var smg:Node3D=gun.get_node("smg")
 	var start:Transform3D=gun.transform
 	weapon.reload=84;game.sync_view()
 	check(not gun.transform.is_equal_approx(start),"reload raises and tilts gun")
-	check(gun.get_node("Magazine").position.y<-.6,"magazine visibly extracted mid-reload")
+	check(smg.get_node("Magazine").position.y<-.6,"magazine visibly extracted mid-reload")
 	var pose:Transform3D=gun.transform
 	game.run.state="paused";game.sync_view()
 	check(gun.transform.is_equal_approx(pose),"paused reload pose is stable")
 	weapon.reload=0;game.sync_view()
-	check(gun.get_node("Magazine").position.is_equal_approx(Vector3(0,-.22,-.37)),"magazine returns without accumulated transform")
+	check(smg.get_node("Magazine").position.is_equal_approx(Vector3(0,-.22,-.37)),"magazine returns without accumulated transform")
 	weapon.reload=84;game.sync_view();game.run.Combat.drop_weapon(game.run,0);game.sync_view()
-	check(not gun.visible and is_equal_approx(gun.get_node("Magazine").position.y,-.22),"drop hides weapon and clears reload pose")
+	check(not gun.visible and is_equal_approx(smg.get_node("Magazine").position.y,-.22),"drop hides weapon and clears reload pose")
 	var camera_before:Transform3D=game.camera.transform
 	game.run.a.position.y-=60;game.run.b.position.y-=60;game.run.update_stream();game.sync_view()
 	check(game.camera.transform==camera_before and game.road.position==Vector3.ZERO,"backward actors do not move map or camera")

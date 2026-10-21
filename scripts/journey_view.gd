@@ -42,6 +42,8 @@ const MECH_SPIKED_LOG := "res://assets/mechanisms/spiked_log.glb"
 const MECH_LIFT := "res://assets/mechanisms/lift_platform.glb"
 const BARREL_MODEL := "res://assets/mechanisms/barrel.glb"
 # 跳绳木杆：转轴高度与转动半径（米），最低点离地约 0.15 米。
+const THREAT_APPEAR_TIME := 0.45
+const THREAT_DROP_HEIGHT := 7.0
 const JUMP_BAR_AXLE := 1.75
 const JUMP_BAR_RADIUS := 1.6
 var landscape
@@ -83,6 +85,7 @@ var forest_birds:AudioStreamPlayer
 var sound_events := {}
 var sound_clock := 0.0
 const CombatView = preload("res://scripts/journey_combat_view.gd")
+const WEAPON_ICONS := {"smg":preload("res://assets/ui/smg.svg"),"shotgun":preload("res://assets/ui/shotgun.svg"),"flamer":preload("res://assets/ui/flamer.svg"),"launcher":preload("res://assets/ui/launcher.svg")}
 @export var training_entry := false
 var combat_view: Node3D
 var combat_status: Label
@@ -104,6 +107,8 @@ var visual_last_heights := [0.0, 0.0]
 var land_impact := [0.0, 0.0]
 var training_button: Button
 var restart_button: Button
+var checkpoint_button: Button
+var home_button: Button
 var fire_blocked := true
 var reload_requested := false
 var drop_requested := false
@@ -862,7 +867,15 @@ func sync_gates() -> void:
 			view.set_meta("relay_opening",current)
 			opening=maxf(opening,current)
 		sample_animation(view.get_node("Door"),"GateOpen",opening)
-		for side in [-1,1]:view.get_node("Door/SideBarrier%d"%side).position.y=2.4+opening*6.5
+		# 栅栏开门后沉入地面而不是升到半空，免得悬在镜头与角色之间挡住视线。
+		for side in [-1,1]:view.get_node("Door/SideBarrier%d"%side).position.y=2.4-opening*4.9
+		# 门开后，后面的人走近门前 8 米起整座门框逐渐淡出，穿过门洞时不再遮挡角色。
+		if gate.open:fade_passed_color_gate(view,gate.door.position.y-200.0)
+		elif view.has_meta("faded"):
+			view.remove_meta("faded")
+			for node in view.find_children("*","GeometryInstance3D",true,false):
+				if node is Label3D:node.modulate=node.get_meta("look_base_modulate",node.modulate)
+				else:(node as GeometryInstance3D).transparency=0.0
 		if gate.get("kind","")=="relay":
 			for n in range(2):
 				var plate:Node3D=view.get_node(["near","far"][n])
@@ -992,6 +1005,21 @@ func build_journey_ui() -> void:
 		reset_journey_views())
 	inner.add_child(training_button)
 	style_button(training_button)
+	checkpoint_button=Button.new()
+	checkpoint_button.text="回到存档点继续"
+	checkpoint_button.custom_minimum_size=Vector2(0,42)
+	checkpoint_button.pressed.connect(func():
+		command("checkpoint"))
+	checkpoint_button.visible=false
+	inner.add_child(checkpoint_button)
+	style_button(checkpoint_button)
+	home_button=Button.new()
+	home_button.text="回到主页 · 重新选择单人或联机"
+	home_button.custom_minimum_size=Vector2(0,42)
+	home_button.pressed.connect(return_home)
+	home_button.visible=false
+	inner.add_child(home_button)
+	style_button(home_button)
 	restart_button=Button.new()
 	restart_button.text="重新开始本关"
 	restart_button.custom_minimum_size=Vector2(0,42)
@@ -1644,7 +1672,13 @@ func update_journey_ui() -> void:
 		var fill: StyleBoxFlat=entry[0].get_theme_stylebox("fill")
 		fill.bg_color=Color("ef8078") if run.combat.health[entry[1]]<=30 else (Color("9cdeb9") if entry[1]==role else Color("e4b883"))
 	var weapon: Dictionary=run.combat.weapons[role]
-	combat_status.text="空手" if weapon.is_empty() else "冲锋枪"
+	combat_status.text="空手" if weapon.is_empty() else run.Combat.weapon_name(weapon)
+	if not weapon.is_empty():
+		var weapon_type:String=weapon.get("type","smg")
+		if weapon_icon.get_meta("weapon_type","smg")!=weapon_type:
+			weapon_icon.set_meta("weapon_type",weapon_type)
+			weapon_icon.texture=WEAPON_ICONS[weapon_type]
+			weapon_icon.tooltip_text=run.Combat.weapon_name(weapon)
 	combat_status.visible=weapon.is_empty()
 	weapon_icon.visible=not weapon.is_empty()
 	weapon_ammo.text="" if weapon.is_empty() else "%02d / %d"%[weapon.ammo,weapon.reserve]
@@ -1667,6 +1701,9 @@ func update_journey_ui() -> void:
 	training_button.visible=run.state=="start" and play_mode=="solo"
 	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
 	restart_button.visible=run.state in ["paused","failed"]
+	checkpoint_button.visible=run.state=="paused"
+	checkpoint_button.text="回到存档点继续" if not run.checkpoint.is_empty() else "从本关开头继续"
+	home_button.visible=run.state in ["paused","failed","complete"]
 	pause_button.visible=run.state in ["running","rescue"]
 	if is_instance_valid(touch): touch.set_enabled(touch_device and run.state in ["running","rescue","settlement"])
 	for button in difficulty_buttons: button.visible=run.state=="start" and play_mode!="online"
@@ -1865,14 +1902,23 @@ func sync_static_hazard(i: int) -> void:
 			tripo_model(view,MECH_STONE_POST,Vector3(rect.size.x/SCALE*1.25,5.0,rect.size.x/SCALE*1.25),Vector3(0,2.5,0))
 		elif kind=="jump_bar":build_jump_bar(view,rect)
 		elif kind=="color_gate":build_color_gate(view,rect,int(run.hazard_specs[i].get("role",0)))
+		elif kind=="cargo" and run.hazard_specs[i].get("rope_passable",false):
+			# 中间隔墩：矮石座低于绳高，上方是只挡身体的能量帘，绳索从帘中穿过。
+			box(view,Vector3(0,.25,0),Vector3(rect.size.x/SCALE,.5,rect.size.y/SCALE+.2),landscape.palette.Stone)
+			var curtain:=box(view,Vector3(0,1.75,0),Vector3(rect.size.x/SCALE*.9,2.5,.08),material("color_gate_curtain",Color(.78,.86,1.0,.28),1.4))
+			curtain.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+			curtain.material_override.cull_mode=BaseMaterial3D.CULL_DISABLED
+			curtain.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		elif kind=="cargo" and run.hazard_specs[i].get("color_wall",false):
-			# 颜色门两侧与中间的石墙：整齐砌石，与门拱同高同色。
+			# 颜色门两侧的石墙：整齐砌石，与门拱同高同色。
 			box(view,Vector3(0,1.5,0),Vector3(rect.size.x/SCALE,3.0,rect.size.y/SCALE+.2),landscape.palette.Stone)
 		elif kind=="cargo" and not run.hazard_specs[i].get("color_wall",false):
 			rock(view,rock_mesh("encounter_boulder",321,1,1,1,.25,"round"),ground_material("ruins"),Vector3.ZERO,1)
-			var half_height:float=run.obstacle_heights[i]/SCALE/2 if run.hazard_specs[i].get("small",false) else 1.5
-			view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,half_height,rect.size.y/SCALE/2)
-			view.get_child(0).position.y=half_height
+			# 圆石网格底部在 y=0、总高 1.5（含顶盖）；按碰撞高度缩放并下沉三成，
+			# 最宽处贴地，不再整块悬在路面上方。
+			var height:float=run.obstacle_heights[i]/SCALE if run.hazard_specs[i].get("small",false) else 3.0
+			view.get_child(0).scale=Vector3(rect.size.x/SCALE/2,height*1.3/1.5,rect.size.y/SCALE/2)
+			view.get_child(0).position.y=-height*0.3
 		elif kind=="collapse":
 			box(view,Vector3(0,.012,0),Vector3(rect.size.x/SCALE,.02,rect.size.y/SCALE),material("fragile_ground",Color("5e5943")))
 			for n in range(7):
@@ -1888,7 +1934,7 @@ func sync_static_hazard(i: int) -> void:
 		static_views[i]=quiet_world_text(view)
 	static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 	static_views[i].visible=model_visible(rect.get_center().y)
-	if kind=="color_gate":fade_passed_color_gate(static_views[i],rect.get_center().y)
+	if kind=="color_gate" or run.hazard_specs[i].get("color_wall",false):fade_passed_color_gate(static_views[i],rect.get_center().y)
 	if kind=="collapse":static_views[i].visible=static_views[i].visible and run.hazard_sample(i,run.elapsed).stage!="collapsed"
 	if kind=="jump_bar":sync_jump_bar(static_views[i],i)
 	if kind=="active_spikes":
@@ -2009,6 +2055,7 @@ func build_color_gate(view:Node3D,rect:Rect2,role:int)->void:
 func fade_passed_color_gate(view:Node3D,y:float)->void:
 	var behind: float = run.distance-y
 	var fade: float = clampf((behind-40.0)/180.0,0.0,1.0)
+	if fade>0:view.set_meta("faded",true)
 	view.visible=view.visible and fade<0.99
 	if not view.visible:return
 	for node in view.find_children("*","GeometryInstance3D",true,false):
@@ -2093,11 +2140,23 @@ func sync_moving_threat(index:int)->void:
 		static_views[index]=created
 	var view:Node3D=static_views[index]
 	view.position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
+	# 未启动的远处威胁不摆在路上；启动瞬间从空中落入/放大出现，碰撞仍只由模拟决定。
+	var dormant:=threat_dormant(index)
+	if dormant:view.remove_meta("appear_at")
+	elif not view.has_meta("appear_at"):view.set_meta("appear_at",run.elapsed)
+	var appear:=1.0 if dormant else clampf((run.elapsed-float(view.get_meta("appear_at")))/THREAT_APPEAR_TIME,0,1)
+	var ease_in:=1.0-pow(1.0-appear,3)
+	view.scale=Vector3.ONE*lerpf(0.35,1.0,ease_in)
+	# 落入偏移加在球体子节点上，节点本身始终与碰撞位置一致。
+	if Run.Threats.is_ball(kind):
+		var ball_body:Node3D=view.get_node("BallBody")
+		if not ball_body.has_meta("rest_y"):ball_body.set_meta("rest_y",ball_body.position.y)
+		ball_body.position.y=float(ball_body.get_meta("rest_y"))+(1.0-ease_in)*THREAT_DROP_HEIGHT
 	if kind=="drone":
-		view.visible=model_visible(rect.get_center().y)
+		view.visible=model_visible(rect.get_center().y) and not dormant
 		sync_industrial_model(view,index,sample)
 		return
-	view.visible=model_visible(rect.get_center().y)
+	view.visible=model_visible(rect.get_center().y) and not dormant
 	var route:MeshInstance3D=view.get_node("FlightRoute")
 	var length:float=clampf(absf(run.hazard_specs[index].velocity.y)*sample.ttc/SCALE,.05,80)
 	route.scale.z=length/route.mesh.size.z;route.position.z=length/2;route.visible=sample.warning
@@ -2113,6 +2172,12 @@ func sync_moving_threat(index:int)->void:
 		volume.visible=sample.active
 		if volume.has_node("Spin"):volume.get_node("Spin").rotation=Vector3(run.elapsed*5.0,run.elapsed*2.0,0)
 		view.get_node("WarningFootprint").visible=sample.warning
+
+# 迎面威胁在道路推进到启动距离前、飞鹰在触发前都处于休眠。
+func threat_dormant(index:int)->bool:
+	var spec:Dictionary=run.hazard_specs[index]
+	if run.kinds[index]=="drone":return float(spec.get("trigger",-1.0))<0
+	return spec.get("front",false) and run.distance<float(spec.get("start_distance",-INF))
 
 func choose_mode(value:String)->void:
 	if run.state!="start" or net.active():return
@@ -2138,6 +2203,8 @@ func apply_command(name:String,arg:="")->void:
 			clear_controls()
 		"retry":
 			if not fail_showing():run.retry(run.state=="failed");reset_journey_views()
+		"checkpoint":
+			if run.state=="paused":run.resume_from_checkpoint();reset_journey_views()
 		"difficulty":
 			if run.state=="start" and not net.active():run.set_difficulty(arg);reset_journey_views()
 
@@ -2203,6 +2270,19 @@ func stop_online_match(_reason:String)->void:
 
 func journey_net_status(message:String)->void:
 	if is_instance_valid(net_status):net_status.text=message
+
+# 回到开始页：联机时先断开（对方会收到断线提示），单人直接回到标题，可重新选择模式与难度。
+# 不重新加载游戏资源，已准备的场景继续复用。
+func return_home()->void:
+	if fail_showing():return
+	if net.active():
+		toggle_online()
+	else:
+		run.combat_trial=false
+		run.new_campaign()
+		reset_journey_views()
+	if is_instance_valid(net_status):net_status.text="远程双人：连接同一版本网页"
+	clear_controls()
 
 func toggle_online()->void:
 	if net.active():

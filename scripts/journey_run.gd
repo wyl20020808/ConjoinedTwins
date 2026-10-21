@@ -9,9 +9,11 @@ const CHAPTERS := [
 const WALK_SPEED := 320.0
 # 镜头只前进；允许在可见后沿前后调整，不把玩家夹回上一帧位置。
 const RETREAT_DISTANCE := 200.0
+const COLOR_GATE_LEASH := 10.0
 const Combat = preload("res://scripts/journey_combat.gd")
 const Monsters = preload("res://scripts/journey_monsters.gd")
 const Encounters = preload("res://scripts/journey_encounters.gd")
+const ZONE_WEAPONS := ["smg","shotgun","flamer","launcher"]
 const TRIAL_ZONES := ["拾取与射击","单只冲锋兽","换弹与补给","交替应敌","护盾与医疗","共同抵达"]
 var combat: Dictionary = {}
 # 模拟默认兼容既有双输入夹具；新生产界面仅向单人入口提供输入。
@@ -65,14 +67,17 @@ var last_floor := [0.0,0.0]
 
 func _init(randomize_layout:bool=false) -> void:
 	health_hazards=true
+	balls_snag_rope=false
 	random_seed=randomize_layout
 	super(false, false)
 
 func hazard_contact(index: int, role: int, _message: String) -> bool:
 	# 身体只扣命中的角色；绳段命中将伤害传给两端，共用同一机关冷却。
 	var amount: int=Combat.HAZARD_DAMAGE.get(kinds[index],25)
+	# 滚球是一次性重击：每颗球对每人只结算一次，随后照常滚走，不再贴身反复扣血。
+	var repeatable:=not Threats.is_ball(kinds[index])
 	for target in ([0,1] if role<0 else [role]):
-		Combat.hit(self,target,"trap:%d"%obstacle_ids[index],amount,true)
+		Combat.hit(self,target,"trap:%d"%obstacle_ids[index],amount,repeatable)
 		if state!="running": return true
 	return false
 
@@ -98,6 +103,14 @@ func bounded(point: Vector2, _floor: float = INF) -> Vector2:
 		# 接力踏板：门后踏板也在可达范围内；门关着时仍由门板本身挡住。
 		if charge_gate.get("kind","")=="relay":hold=charge_gate.far.end.y
 		forward=minf(forward,hold)
+	# 颜色门：后面的人还没进门洞时，先过门的人最多离开门 10 单位，绳子不会被拉满，
+	# 后者始终能横移对准自己的门，不会被拽进中间能量帘的转角两人一起卡死。
+	var trailing:=minf(a.position.y,b.position.y)
+	for i in indexed_kinds(["color_gate"]):
+		var door:Rect2=obstacles[i]
+		if trailing<door.position.y and maxf(a.position.y,b.position.y)>door.position.y-Motion.RADIUS:
+			# 已在更前方的人原地保持，不被拉回（无瞬移），只是不能继续前进。
+			forward=minf(forward,maxf(door.end.y+COLOR_GATE_LEASH,maxf(a.position.y,b.position.y)))
 	# 主动跑动也必须等桥板落平；父类只暂停自动推进，不能约束旅程的手动前进。
 	for gate in charge_gates:
 		if gate.get("bridge",false) and gate.open and elapsed-gate.opened_at<0.6:
@@ -130,7 +143,14 @@ func retry(count_failure: bool = false) -> void:
 			Combat.add_pickup(self,"ammo",Vector2(-65,gate.receiver.y-60))
 		for zone in range(6):
 			var start: float=zone*finish_distance()/6.0
-			Combat.add_pickup(self,"gun",Vector2(-42,start+200))
+			Combat.add_pickup(self,"gun",Vector2(-42,start+200),{},ZONE_WEAPONS[(zone+level_index)%ZONE_WEAPONS.size()])
+			# 第二把枪放在右侧，种类与左侧不同；单人时搭档也会去捡。落点避开实体与缺口。
+			var second: String=ZONE_WEAPONS[(zone+level_index+2)%ZONE_WEAPONS.size()]
+			for offset in [0.0,40.0,-40.0,80.0]:
+				var point:=Vector2(42,start+200+offset)
+				if Monsters.safe_supply(self,point):
+					Combat.add_pickup(self,"gun",point,{},second)
+					break
 			Combat.add_pickup(self,"ammo",Vector2(-42,start+550))
 			Combat.add_pickup(self,"medkit",Vector2(0,start+720))
 	checkpoint = {}
@@ -315,6 +335,14 @@ func update_checkpoint() -> void:
 		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return
 	region_checkpoint=zone
 	capture_checkpoint()
+
+# 暂停菜单「回到存档点继续」：与失败后的恢复同一路径；还没有存档时从本关开头重来。
+func resume_from_checkpoint() -> void:
+	if state!="paused": return
+	state="failed"
+	if not restore_checkpoint():
+		state="paused"
+		retry(false)
 
 func check_finish() -> void:
 	if charge_gates.any(func(gate): return not gate.open): return

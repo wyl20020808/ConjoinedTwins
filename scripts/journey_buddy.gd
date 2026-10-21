@@ -65,13 +65,22 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 			var zone:Rect2=gate.right if human_left else gate.left
 			target=Vector2(zone.get_center().x,gate.receiver.y+(46.0 if plates else 0.0))
 			feedback="站到另一侧踏板" if plates else "配合连接供能"
-	else:feedback="跟随" if human_move!=Vector2.ZERO else "等待你前进"
+	else:
+		feedback="跟随" if human_move!=Vector2.ZERO else "等待你前进"
+		# 没有合作机关时，顺路去捡枪、吃血包、补弹药；只选绳长够得着、不用回头的拾取物。
+		var pickup:=wanted_pickup(run,me,human)
+		if not pickup.is_empty():
+			target=pickup.position
+			feedback={"gun":"去捡"+run.Combat.WEAPONS[pickup.get("weapon_type","smg")].name,"medkit":"去吃血包","ammo":"补充弹药"}[pickup.kind]
 	# 专属颜色门：前方 12 米内有门时，搭档（02）对准自己的橙门通过。
 	for index in run.indexed_kinds(["color_gate"]):
 		if int(run.hazard_specs[index].get("role",-1))!=1:continue
 		var door:Rect2=run.obstacles[index]
-		if door.position.y-me.y<240 and door.end.y>me.y-20:
-			target=Vector2(door.get_center().x,maxf(target.y,door.end.y+40) if absf(me.x-door.get_center().x)<20 else door.position.y-30)
+		# 提前 18 米开始对准门洞中线；未对准前停在门前横移，对准后直线穿过。
+		if door.position.y-me.y<360 and door.end.y>me.y-20:
+			var center:float=door.get_center().x
+			var aligned:bool=absf(me.x-center)<door.size.x*0.5-run.Motion.RADIUS-4
+			target=Vector2(center,maxf(target.y,door.end.y+40) if aligned else minf(maxf(me.y,target.y),door.position.y-run.Motion.RADIUS-6))
 			feedback="走橙色门"
 	if not narrow_route.is_empty() and (minf(me.y,human.y)>narrow_route.narrow_end+65 or maxf(me.y,human.y)<narrow_route.narrow_start-320):narrow_route={}
 	if narrow_route.is_empty():
@@ -138,6 +147,24 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 	elif best!=desired:feedback="正在避险"
 	return {"move":best,"jump":best_jump}
 
+static func wanted_pickup(run,me:Vector2,human:Vector2)->Dictionary:
+	var weapon:Dictionary=run.combat.weapons[1]
+	var health:int=run.combat.health[1]
+	var best:Dictionary={}
+	var best_distance:=INF
+	for pickup:Dictionary in run.combat.pickups:
+		var point:Vector2=pickup.position
+		if point.y<me.y-10 or point.y>me.y+260 or point.distance_to(human)>run.LINK_LIMIT-30:continue
+		if pickup.blocked_role==1 and run.elapsed<pickup.blocked_until:continue
+		match pickup.kind:
+			"gun":if not weapon.is_empty():continue
+			"ammo":if weapon.is_empty() or weapon.reserve*2>=int(run.Combat.spec(weapon).max_reserve):continue
+			# 血包让给更需要的人：自己少于 100 且不比真人健康太多。
+			"medkit":if health>=100 or health>run.combat.health[0]+10:continue
+		var distance:=me.distance_to(point)
+		if distance<best_distance:best=pickup;best_distance=distance
+	return best
+
 static func axis(error:Vector2)->Vector2:
 	return Vector2(signf(error.x) if absf(error.x)>3 else 0.0,signf(error.y) if absf(error.y)>2 else 0.0)
 
@@ -163,6 +190,8 @@ func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2
 			var i:int=forecast.index
 			var kind:String=run.kinds[i]
 			if kind in run.Terrain.KINDS or kind in ["road_gap","collapse"]:continue
+			# 自己颜色的门洞是通路，不是危险体；只有对方的门会挡住搭档。
+			if kind=="color_gate" and int(run.hazard_specs[i].get("role",-1))==1:continue
 			var spec:Dictionary=forecast.samples[sample]
 			if not spec.active:continue
 			var old:Rect2=forecast.samples[sample-1].rect
