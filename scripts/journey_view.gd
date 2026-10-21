@@ -1252,8 +1252,7 @@ func build_journey_ui() -> void:
 	net_address=LineEdit.new()
 	net_address.custom_minimum_size=Vector2(300,42)
 	net_address.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	net_address.text=NetClient.page_default_address()
-	if net_address.text.is_empty():net_address.text="ws://127.0.0.1:24681"
+	net_address.text=NetClient.default_address()
 	online_row.add_child(net_address)
 	net_address.add_theme_stylebox_override("normal",glass_style(0.72,0.24,10,8))
 	net_address.add_theme_color_override("font_color",Color("f2ede0"))
