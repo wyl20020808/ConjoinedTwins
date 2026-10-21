@@ -4,6 +4,10 @@ config_version=5
 config/name="共生连线 · 连续旅程"
 run/main_scene="res://scenes/journey_boot.tscn"
 
+[autoload]
+
+ChapterPacks="*res://scripts/chapter_packs.gd"
+
 [display]
 window/size/viewport_width=1280
 window/size/viewport_height=720

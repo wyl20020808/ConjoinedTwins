@@ -4,6 +4,8 @@
   python build-tools/prepare_web.py --templates-only [--download-seconds N]   # 只准备/校验模板
   python build-tools/prepare_web.py [--engine 引擎路径]                        # 校验模板后导出到 builds/web/
 无线程模板不依赖 COOP/COEP 响应头；产物是静态文件，部署见 docs/WEB_ONLINE.md。
+导出后按章节拆包（split_web_pack.py），生成 packs.json、Service Worker（web/sw.js）与启动背景图，
+再对引擎、主包和全部章节包预压缩。章节拆包与缓存说明见 docs/CHAPTER_MENU_ONLINE.md。
 """
 import argparse
 import datetime
@@ -11,6 +13,7 @@ import hashlib
 import gzip
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -90,20 +93,61 @@ def export(engine):
     files = sorted(p.name for p in OUTPUT.iterdir())
     required = {"index.html", "index.js", "index.wasm", "index.pck"}
     if code == 0 and required.issubset(files):
+        if run([sys.executable, str(ROOT / "build-tools/split_web_pack.py"), str(OUTPUT)], evidence / "split.log", 600) != 0:
+            raise RuntimeError("Chapter pack split failed; see split.log")
+        finalize_shell(OUTPUT)
         # 预压缩可避免每次首访都在服务器上重新压缩引擎；PCK 默认也不会动态压缩。
-        for name in ("index.js", "index.wasm", "index.pck"):
+        targets = ["index.js", "index.wasm", "index.pck"] + [str(p.relative_to(OUTPUT)) for p in sorted((OUTPUT / "packs").glob("*.pck"))]
+        for name in targets:
             path = OUTPUT / name
             compressed = gzip.compress(path.read_bytes(), compresslevel=6, mtime=0)
-            path.with_name(name + ".gz").write_bytes(compressed)
+            (path.parent / (path.name + ".gz")).write_bytes(compressed)
             print(f"Precompressed {name}: {path.stat().st_size} -> {len(compressed)} bytes", flush=True)
             # brotli 比 gzip 再小约 20%，所有主流浏览器（含 iOS Safari）均支持；本机没有 brotli 命令时跳过。
             brotli = shutil.which("brotli")
             if brotli:
-                target = path.with_name(name + ".br")
+                target = path.parent / (path.name + ".br")
                 subprocess.run([brotli, "-q", "11", "-w", "22", "-f", "-o", str(target), str(path)], check=True)
                 print(f"Precompressed {name}: {path.stat().st_size} -> {target.stat().st_size} bytes (brotli)", flush=True)
+        fill_boot_size(OUTPUT)
     print(f"export exit={code}, files={files}, evidence={evidence}", flush=True)
     return code == 0 and required.issubset(files)
+
+
+def short_hash(path):
+    return sha(path)[:12]
+
+
+def finalize_shell(output):
+    """拆包之后：修正启动页里主包的大小、写入启动背景图与 Service Worker 缓存清单。"""
+    html = output / "index.html"
+    text = html.read_text(encoding="utf-8")
+    core = (output / "index.pck").stat().st_size
+    # 引擎按 fileSizes 计算启动进度；主包已拆小，必须改成拆分后的大小。
+    text = re.sub(r'"index\.pck":\s*\d+', f'"index.pck":{core}', text)
+    html.write_text(text, encoding="utf-8")
+    shutil.copyfile(ROOT / "assets/ui/covers/chapter_0.jpg", output / "loading_bg.jpg")
+    files = json.loads((output / "sw-files.json").read_text(encoding="utf-8"))
+    for name in ("index.js", "index.wasm", "index.pck", "index.audio.worklet.js", "index.audio.position.worklet.js", "loading_bg.jpg"):
+        if (output / name).exists():
+            files[name] = short_hash(output / name)
+    build = json.loads((output / "packs.json").read_text(encoding="utf-8"))["build"]
+    worker = (ROOT / "web/sw.js").read_text(encoding="utf-8")
+    worker = worker.replace("'__BUILD__'", json.dumps(build)).replace("__FILES__", json.dumps(files, indent=1))
+    (output / "sw.js").write_text(worker, encoding="utf-8")
+    (output / "sw-files.json").unlink()
+    print(f"Shell finalized: core {core} bytes, {len(files)} cached files, build {build}", flush=True)
+
+
+def fill_boot_size(output):
+    """启动页提示里的首次下载量：引擎与主包的实际压缩传输大小（优先 brotli，其次 gzip）。"""
+    total = 0
+    for name in ("index.wasm", "index.pck", "index.js"):
+        path = output / name
+        packed = [p for p in (path.parent / (name + ".br"), path.parent / (name + ".gz")) if p.exists()]
+        total += packed[0].stat().st_size if packed else path.stat().st_size
+    html = output / "index.html"
+    html.write_text(html.read_text(encoding="utf-8").replace("__BOOT_MB__", str(max(1, round(total / 1048576)))), encoding="utf-8")
 
 
 def main():
