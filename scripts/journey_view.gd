@@ -108,6 +108,7 @@ var forest_birds:AudioStreamPlayer
 var sound_events := {}
 var sound_clock := 0.0
 const CombatView = preload("res://scripts/journey_combat_view.gd")
+const PAD_HELP := "左摇杆 / 十字键移动 · A 跳跃 · RT 射击\nX 换弹 · Y 丢枪"
 const WEAPON_ICONS := {"smg":preload("res://assets/ui/smg.svg"),"shotgun":preload("res://assets/ui/shotgun.svg"),"flamer":preload("res://assets/ui/flamer.svg"),"launcher":preload("res://assets/ui/launcher.svg")}
 @export var training_entry := false
 var combat_view: Node3D
@@ -126,6 +127,27 @@ var damage_flash := 0.0
 var impact_flash := 0.0
 var impact_effects := true
 var impact_button: Button
+const Settings = preload("res://scripts/journey_settings.gd")
+const Gamepad = preload("res://scripts/journey_gamepad.gd")
+const ChapterBar = preload("res://scripts/journey_chapter_bar.gd")
+var settings = Settings.new()
+var damage_numbers := true
+var settings_open := false
+var settings_dirty := false
+var settings_button: Button
+var settings_panel: PanelContainer
+var settings_close: Button
+var volume_sliders := {}
+var volume_values := {}
+var quality_buttons: Array[Button] = []
+var fps_buttons: Array[Button] = []
+var damage_button: Button
+var chapter_bar: Control
+var gamepad_active := false
+var pad_blocked := true
+var reload_requested_b := false
+var drop_requested_b := false
+var focus_style: StyleBoxFlat
 var last_kills := 0
 var last_open_gates := 0
 var low_health := 0.0
@@ -149,8 +171,6 @@ var toasted_checkpoint := -INF
 var view_pending:=false
 var journey_camera_returning:=false
 const UNDERSTORY:=["fern","shrub","grass","detail_fern_bed"]
-const DESKTOP_NATIVE_HEIGHT:=800.0
-const DESKTOP_RENDER_HEIGHT:=800.0
 
 func create_run():
 	# 旅程直接建立自己的模拟，避免先生成一份马上丢弃的旧道路关卡。
@@ -168,7 +188,9 @@ func model_resident(y: float) -> bool:
 func _ready() -> void:
 	# 本地也限制长帧追赶，避免补算持续挤占输入和绘制。
 	Engine.max_physics_steps_per_frame=3
+	settings=Settings.new("web" if OS.has_feature("web") else ("mobile" if OS.has_feature("mobile") else "desktop"))
 	load_feel_settings()
+	Gamepad.ensure_ui_accept()
 	if OS.has_feature("web"):web_verify=bool(JavaScriptBridge.eval("new URLSearchParams(location.search).has('verify')",true))
 	ThemeDB.fallback_font=preload("res://assets/fonts/web_ui_font.tres")
 	finish_view.free()
@@ -186,11 +208,13 @@ func _ready() -> void:
 		apply_web_quality()
 		get_viewport().size_changed.connect(apply_web_quality)
 	elif landscape.mobile:
-		get_viewport().scaling_3d_scale=.75
+		get_viewport().scaling_3d_scale=Settings.MOBILE_SCALE[settings.quality]
 		get_viewport().msaa_3d=Viewport.MSAA_DISABLED
 	elif Atmosphere.forward_plus():
 		apply_desktop_quality()
 		get_viewport().size_changed.connect(apply_desktop_quality)
+	# 默认“不限”时不改引擎设置，保留启动入口或测试预设的上限。
+	if not OS.has_feature("web") and settings.fps_cap>0:Engine.max_fps=settings.fps_cap
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
@@ -215,6 +239,7 @@ func _ready() -> void:
 	camera.fov=57
 	camera_home=camera.transform
 	atmosphere=Atmosphere.new(self,world_environment,canopy_light,camera)
+	apply_quality_effects()
 	fx=Fx.new();add_child(fx)
 	hazard_fx=HazardFx.new(self,fx);add_child(hazard_fx)
 	coop_fx=CoopFx.new(self,fx,hazard_fx);add_child(coop_fx)
@@ -226,6 +251,7 @@ func _ready() -> void:
 	else: build_robots()
 	sfx=Sfx.new()
 	add_child(sfx)
+	apply_audio_settings()
 	net=NetClient.new()
 	add_child(net)
 	net.status_changed.connect(journey_net_status)
@@ -277,11 +303,12 @@ func warm_web_landscape()->void:
 
 func apply_web_quality() -> void:
 	# 只缩放 3D，文字与触屏控件仍按浏览器原始分辨率绘制。
-	Engine.max_fps=60
+	Engine.max_fps=settings.fps_cap
 	# 一次长帧后最多补算三帧，避免八帧追赶反过来持续堵住浏览器输入与绘制。
 	Engine.max_physics_steps_per_frame=3
 	var size:=get_viewport().get_visible_rect().size
-	get_viewport().scaling_3d_scale=minf(1.0,minf(960.0/maxf(size.x,1.0),540.0/maxf(size.y,1.0)))
+	var target:Vector2=Settings.WEB_RESOLUTION[settings.quality]
+	get_viewport().scaling_3d_scale=minf(1.0,minf(target.x/maxf(size.x,1.0),target.y/maxf(size.y,1.0)))
 	get_viewport().msaa_3d=Viewport.MSAA_DISABLED
 
 func apply_desktop_quality() -> void:
@@ -291,14 +318,41 @@ func apply_desktop_quality() -> void:
 	var viewport:=get_viewport()
 	# canvas_items 拉伸下可见矩形固定为 1280×720，3D 实际按窗口像素渲染，故取窗口尺寸。
 	var height:=float(get_window().size.y)
-	if height<=DESKTOP_NATIVE_HEIGHT:
+	# 画质预设只改内部渲染高度与 MSAA；高档即原有 800 像素。
+	var preset:Dictionary=Settings.DESKTOP[settings.quality]
+	var render_height:float=preset.height
+	if height<=render_height:
 		viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_BILINEAR
 		viewport.scaling_3d_scale=1.0
-		viewport.msaa_3d=Viewport.MSAA_2X
+		viewport.msaa_3d=Viewport.MSAA_2X if preset.msaa else Viewport.MSAA_DISABLED
 		return
 	viewport.msaa_3d=Viewport.MSAA_DISABLED
 	viewport.scaling_3d_mode=Viewport.SCALING_3D_MODE_METALFX_TEMPORAL if OS.get_name()=="macOS" else Viewport.SCALING_3D_MODE_FSR2
-	viewport.scaling_3d_scale=clampf(DESKTOP_RENDER_HEIGHT/height,0.34,1.0)
+	viewport.scaling_3d_scale=clampf(render_height/height,0.34,1.0)
+
+# 阴影、体积雾与 SSAO 只在桌面 Forward+ 可调；网页与移动端保持原有关闭状态。
+func apply_quality_effects() -> void:
+	if OS.has_feature("web") or landscape==null or landscape.mobile or not Atmosphere.forward_plus():return
+	var preset:Dictionary=Settings.DESKTOP[settings.quality]
+	if is_instance_valid(canopy_light):canopy_light.shadow_enabled=preset.shadows
+	if world_environment!=null:
+		world_environment.volumetric_fog_enabled=preset.fog
+		world_environment.ssao_enabled=preset.ssao
+
+func apply_render_quality() -> void:
+	if OS.has_feature("web"):apply_web_quality()
+	elif landscape!=null and landscape.mobile:get_viewport().scaling_3d_scale=Settings.MOBILE_SCALE[settings.quality]
+	elif Atmosphere.forward_plus():apply_desktop_quality()
+	apply_quality_effects()
+
+# 用户音量按线性乘到各总线；环境声在 pump_ambience 里再乘战斗压低，二者不互相覆盖。
+func apply_audio_settings() -> void:
+	Sfx.ensure_buses()
+	Sfx.set_bus_level("Master",settings.volumes.master)
+	Sfx.set_bus_level("Music",settings.volumes.music)
+	Sfx.set_bus_level("SFX",settings.volumes.sfx)
+	Sfx.set_bus_level("UI",settings.volumes.sfx)
+	Sfx.set_bus_level("Ambience",ambience_level*settings.volumes.ambience)
 
 func _exit_tree() -> void:
 	if is_instance_valid(net):net.disconnect_from()
@@ -315,6 +369,7 @@ func _exit_tree() -> void:
 		if is_instance_valid(player):player.stream_paused=false;player.stop();player.stream=null
 	ambience_streams.clear()
 	if landscape!=null:landscape.game=null
+	if settings_dirty:save_feel_settings()
 	run.dispose()
 
 func ground_material(theme: String) -> Material:
@@ -1079,15 +1134,17 @@ func build_journey_ui() -> void:
 	restart_button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	secondary_row.add_child(restart_button)
 	style_button(restart_button)
-	impact_button=Button.new()
-	impact_button.custom_minimum_size=Vector2(0,40)
-	impact_button.pressed.connect(func():
-		impact_effects=not impact_effects
-		save_feel_settings()
-		update_journey_ui())
-	inner.add_child(impact_button)
-	style_button(impact_button)
-	touch.blockers.assign([panel,pause_button])
+	settings_button=Button.new()
+	settings_button.text="设置 · 音量、画质、手柄"
+	settings_button.custom_minimum_size=Vector2(0,40)
+	settings_button.pressed.connect(open_settings)
+	inner.add_child(settings_button)
+	style_button(settings_button)
+	build_settings_panel(canvas)
+	chapter_bar=ChapterBar.new()
+	canvas.add_child(chapter_bar)
+	canvas.move_child(chapter_bar,0)
+	touch.blockers.assign([panel,pause_button,settings_panel])
 	restore_fade=ColorRect.new()
 	restore_fade.name="RestoreFade"
 	restore_fade.color=Color(0,0,0,0)
@@ -1141,6 +1198,226 @@ func build_journey_ui() -> void:
 		style_button(button,false,16,true)
 		difficulty_buttons.append(button)
 
+# 设置页：开始页与暂停页共用，只改本机表现与音量，不发送联机命令。
+func build_settings_panel(canvas:CanvasLayer) -> void:
+	settings_panel=PanelContainer.new()
+	settings_panel.name="SettingsPanel"
+	settings_panel.add_theme_stylebox_override("panel",glass_style(0.86,0.36,22,14))
+	settings_panel.visible=false
+	canvas.add_child(settings_panel)
+	var column:=VBoxContainer.new()
+	column.add_theme_constant_override("separation",10)
+	settings_panel.add_child(column)
+	column.add_child(label("设置",30,Color("f7f2e6")))
+	for key:String in Settings.VOLUMES:
+		var row:=settings_row(column,Settings.VOLUME_NAMES[key])
+		var slider:=HSlider.new()
+		slider.name="Volume_"+key
+		slider.min_value=0;slider.max_value=100;slider.step=5
+		slider.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		slider.size_flags_vertical=Control.SIZE_SHRINK_CENTER
+		slider.custom_minimum_size.y=28
+		style_slider(slider)
+		slider.value=settings.volumes[key]*100.0
+		slider.value_changed.connect(func(value:float):set_volume(key,value/100.0))
+		row.add_child(slider)
+		var value_label:=label("",16,Color("cfd6cc"))
+		value_label.custom_minimum_size.x=56
+		value_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(value_label)
+		volume_sliders[key]=slider
+		volume_values[key]=value_label
+	var quality_row:=settings_row(column,"画质")
+	for quality:String in Settings.QUALITIES:
+		var button:=Button.new()
+		button.text=Settings.QUALITY_NAMES[quality]
+		button.set_meta("quality",quality)
+		button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button.pressed.connect(func():set_quality(quality))
+		quality_row.add_child(button)
+		style_button(button,false,16,true)
+		quality_buttons.append(button)
+	var fps_row:=settings_row(column,"帧率上限")
+	for cap:int in settings.fps_options():
+		var button:=Button.new()
+		button.text=Settings.fps_name(cap)
+		button.set_meta("fps",cap)
+		button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		button.pressed.connect(func():set_fps_cap(cap))
+		fps_row.add_child(button)
+		style_button(button,false,16,true)
+		fps_buttons.append(button)
+	var toggles:=HBoxContainer.new()
+	toggles.add_theme_constant_override("separation",8)
+	column.add_child(toggles)
+	damage_button=Button.new()
+	damage_button.pressed.connect(func():
+		damage_numbers=not damage_numbers
+		save_feel_settings()
+		update_journey_ui())
+	impact_button=Button.new()
+	impact_button.pressed.connect(func():
+		impact_effects=not impact_effects
+		save_feel_settings()
+		update_journey_ui())
+	for button in [damage_button,impact_button]:
+		button.custom_minimum_size=Vector2(0,40)
+		button.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		toggles.add_child(button)
+		style_button(button,false,16)
+	var device_hint:=label("手柄：本地双人时第一个手柄控制 01、第二个控制 02；\n单人与联机时控制本机角色。",13,Color("9fb0a6"))
+	device_hint.name="DeviceHint"
+	column.add_child(device_hint)
+	settings_close=Button.new()
+	settings_close.text="返回"
+	settings_close.custom_minimum_size=Vector2(0,46)
+	settings_close.pressed.connect(close_settings)
+	column.add_child(settings_close)
+	style_button(settings_close,true)
+
+func settings_row(column:VBoxContainer,caption:String) -> HBoxContainer:
+	var row:=HBoxContainer.new()
+	row.add_theme_constant_override("separation",12)
+	column.add_child(row)
+	var caption_label:=label(caption,17,Color("e8e2d2"))
+	caption_label.custom_minimum_size.x=96
+	row.add_child(caption_label)
+	return row
+
+func style_slider(slider:HSlider) -> void:
+	var track:=StyleBoxFlat.new()
+	track.bg_color=Color(0.015,0.02,0.022,0.85)
+	track.border_color=Color(1,1,1,0.12)
+	track.set_border_width_all(1)
+	track.set_corner_radius_all(4)
+	track.content_margin_top=3;track.content_margin_bottom=3
+	var fill:=StyleBoxFlat.new()
+	fill.bg_color=Color("e8bd7d")
+	fill.set_corner_radius_all(4)
+	fill.content_margin_top=3;fill.content_margin_bottom=3
+	slider.add_theme_stylebox_override("slider",track)
+	slider.add_theme_stylebox_override("grabber_area",fill)
+	slider.add_theme_stylebox_override("grabber_area_highlight",fill)
+	slider.add_theme_stylebox_override("focus",focus_box())
+
+func open_settings() -> void:
+	if run.state not in ["start","paused"]:return
+	settings_open=true
+	for key in Settings.VOLUMES:volume_sliders[key].set_value_no_signal(settings.volumes[key]*100.0)
+	update_journey_ui()
+	if gamepad_active:volume_sliders.master.grab_focus()
+
+func close_settings() -> void:
+	if not settings_open:return
+	settings_open=false
+	if settings_dirty:save_feel_settings()
+	update_journey_ui()
+	if gamepad_active and settings_button.is_visible_in_tree():settings_button.grab_focus()
+
+func set_volume(key:String,value:float) -> void:
+	settings.volumes[key]=clampf(value,0.0,1.0)
+	settings_dirty=true
+	apply_audio_settings()
+	update_settings_panel()
+
+func set_quality(value:String) -> void:
+	if value not in Settings.QUALITIES:return
+	settings.quality=value
+	settings_dirty=true
+	apply_render_quality()
+	update_settings_panel()
+
+func set_fps_cap(value:int) -> void:
+	if value not in settings.fps_options():return
+	settings.fps_cap=value
+	settings_dirty=true
+	if OS.has_feature("web"):apply_web_quality()
+	else:Engine.max_fps=value
+	update_settings_panel()
+
+# 设置页只在开始页与暂停页存在；联机队友恢复游戏时自动收起并保存。
+func update_settings_panel() -> void:
+	if not is_instance_valid(settings_panel):return
+	if settings_open and (run.state not in ["start","paused"] or get_meta("credits",false)):
+		settings_open=false
+		if settings_dirty:save_feel_settings()
+	settings_panel.visible=settings_open
+	if not settings_open:return
+	for key in Settings.VOLUMES:volume_values[key].text="%d%%"%roundi(settings.volumes[key]*100.0)
+	for button in quality_buttons:mark_choice(button,button.get_meta("quality")==settings.quality)
+	for button in fps_buttons:mark_choice(button,int(button.get_meta("fps"))==settings.fps_cap)
+	damage_button.text="伤害数字：%s"%("开" if damage_numbers else "关")
+	impact_button.text="画面冲击与震动：%s"%("开" if impact_effects else "关")
+	var viewport:=get_viewport().get_visible_rect().size
+	var width:=minf(640.0,viewport.x-32)
+	settings_panel.size=Vector2(width,0)
+	var height:=minf(settings_panel.get_combined_minimum_size().y,viewport.y-24)
+	settings_panel.size=Vector2(width,height)
+	settings_panel.position=Vector2((viewport.x-width)/2,maxf(12.0,(viewport.y-height)/2))
+
+# 手柄导航时才显示焦点描边；鼠标点击后的焦点保持不可见，与原有按钮外观一致。
+func focus_box() -> StyleBox:
+	if not gamepad_active:return StyleBoxEmpty.new()
+	if focus_style==null:
+		focus_style=StyleBoxFlat.new()
+		focus_style.draw_center=false
+		focus_style.border_color=Color("fff0cd")
+		focus_style.set_border_width_all(2)
+		focus_style.set_corner_radius_all(8)
+		focus_style.expand_margin_left=3;focus_style.expand_margin_right=3
+		focus_style.expand_margin_top=3;focus_style.expand_margin_bottom=3
+	return focus_style
+
+func set_gamepad_active(value:bool) -> void:
+	if gamepad_active==value:return
+	gamepad_active=value
+	for host in [panel,settings_panel]:
+		if not is_instance_valid(host):continue
+		for control in host.find_children("*","Control",true,false):
+			if control is Button or control is HSlider:control.add_theme_stylebox_override("focus",focus_box())
+	if is_instance_valid(hud):update_journey_ui()
+
+# 手柄打开菜单时把焦点放到可见的第一个控件上，十字键 / 摇杆即可导航，A 确认。
+func ensure_menu_focus() -> void:
+	var host:Control=null
+	if settings_panel.visible:host=settings_panel
+	elif panel.visible:host=panel
+	if host==null:return
+	var focused:=get_viewport().gui_get_focus_owner()
+	if focused!=null and focused.is_visible_in_tree() and host.is_ancestor_of(focused):return
+	var target:Control=volume_sliders.master if host==settings_panel else null
+	if target==null and primary.is_visible_in_tree() and not primary.disabled:target=primary
+	if target==null:
+		for control in host.find_children("*","Button",true,false):
+			if control.is_visible_in_tree() and not control.disabled:target=control;break
+	if target!=null:target.grab_focus()
+
+func handle_pad_button(event:InputEventJoypadButton) -> void:
+	var role:=Gamepad.role_for(event.device,play_mode=="local")
+	match event.button_index:
+		JOY_BUTTON_START:
+			if settings_open:close_settings()
+			else:
+				command("pause")
+				clear_controls()
+			get_viewport().set_input_as_handled()
+		JOY_BUTTON_B:
+			if settings_open:
+				close_settings()
+				get_viewport().set_input_as_handled()
+			elif run.state=="paused" and not get_meta("credits",false):
+				command("pause")
+				clear_controls()
+				get_viewport().set_input_as_handled()
+		JOY_BUTTON_X:
+			if run.state=="running":
+				if role==0:reload_requested=true
+				elif role==1:reload_requested_b=true
+		JOY_BUTTON_Y:
+			if run.state=="running":
+				if role==0:drop_requested=true
+				elif role==1:drop_requested_b=true
+
 func glass_style(alpha:float=0.72,border_alpha:float=0.30,pad:int=16,radius:int=10) -> StyleBoxFlat:
 	# 统一的暗色玻璃面板：深底、细暖边、圆角和轻微投影。
 	var style:=StyleBoxFlat.new()
@@ -1190,7 +1467,7 @@ func style_button(button:Button,accent:bool=false,font_size:int=19,compact:bool=
 	button.add_theme_stylebox_override("hover",hover)
 	button.add_theme_stylebox_override("pressed",pressed)
 	button.add_theme_stylebox_override("disabled",disabled)
-	button.add_theme_stylebox_override("focus",StyleBoxEmpty.new())
+	button.add_theme_stylebox_override("focus",focus_box())
 	button.add_theme_color_override("font_color",Color("211d16") if accent else Color("f2ede0"))
 	button.add_theme_color_override("font_hover_color",Color("211d16") if accent else Color("ffffff"))
 	button.add_theme_color_override("font_pressed_color",Color("211d16") if accent else Color("efe6d4"))
@@ -1277,6 +1554,9 @@ func apply_journey_primary() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not scene_prepared: return
 	if not event is InputEventKey or not event.pressed or event.echo: return
+	if settings_open:
+		if event.keycode==KEY_ESCAPE:close_settings()
+		return
 	if event.keycode==KEY_ESCAPE:
 		command("pause")
 		clear_controls()
@@ -1307,6 +1587,8 @@ func _physics_process(delta: float) -> void:
 	run.solo_control=play_mode=="solo"
 	run.external_companion=not run.combat_trial
 	run.set_combat_input(input.get("fire",false),input.get("reload",false),input.get("drop",false))
+	# 本地双人的 02 由第二个手柄射击；沿用联机的战斗命令格式写入角色 1。
+	if play_mode=="local" and input.has("fire_b"):apply_combat_command(1,"%d,%d,%d"%[int(input.fire_b),int(input.reload_b),int(input.drop_b)])
 	var second:Vector2=input.b
 	var second_jump:bool=input.jb
 	if play_mode=="solo" and not run.combat_trial:
@@ -1395,12 +1677,21 @@ func clear_controls() -> void:
 	else:super()
 	reload_requested=false
 	drop_requested=false
+	reload_requested_b=false
+	drop_requested_b=false
 	fire_blocked=true
+	pad_blocked=true
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch and is_instance_valid(touch):
 		touch_device=true
 		touch.set_enabled(run.state in ["running","rescue","settlement"])
+	# 最近一次使用的设备决定提示文字：手柄按键或摇杆切到手柄，键盘或鼠标按下切回键鼠。
+	if event is InputEventJoypadButton or (event is InputEventJoypadMotion and absf(event.axis_value)>0.5):
+		set_gamepad_active(true)
+	elif (event is InputEventKey or event is InputEventMouseButton) and event.pressed:
+		set_gamepad_active(false)
+	if event is InputEventJoypadButton and event.pressed and scene_prepared:handle_pad_button(event)
 
 func _notification(what: int) -> void:
 	if what==NOTIFICATION_APPLICATION_FOCUS_OUT and is_instance_valid(touch):
@@ -1638,14 +1929,17 @@ func rumble(weak: float, strong: float, seconds: float) -> void:
 	if touch_device: Input.vibrate_handheld(int(seconds*1000.0),clampf(maxf(weak,strong),0.1,1.0))
 
 func load_feel_settings() -> void:
-	var config:=ConfigFile.new()
-	if config.load(SETTINGS_PATH)==OK: impact_effects=bool(config.get_value("feel","impact_effects",true))
+	# 以文件为准：缺失的键回到默认值。
+	settings=Settings.new(settings.platform)
+	settings.read_file(SETTINGS_PATH)
+	impact_effects=settings.impact_effects
+	damage_numbers=settings.damage_numbers
 
 func save_feel_settings() -> void:
-	var config:=ConfigFile.new()
-	config.load(SETTINGS_PATH)
-	config.set_value("feel","impact_effects",impact_effects)
-	config.save(SETTINGS_PATH)
+	settings.impact_effects=impact_effects
+	settings.damage_numbers=damage_numbers
+	settings.write_file(SETTINGS_PATH)
+	settings_dirty=false
 
 func fail_showing()->bool:
 	# 使用模拟死亡时间，联机双方对重试时机的判断一致；演出开头 0.6 秒不接受确认，避免误触。
@@ -1743,12 +2037,13 @@ func sync_rescue_hud()->void:
 	for name in ["ProgressBack","TimerBack"]:rescue_box.get_node(name).size.x=width
 	rescue_fill.size.x=width*clampf(run.rescue.progress,0,1)
 	rescue_timer_fill.size.x=width*clampf(1.0-run.rescue.time/Run.RESCUE_TIME,0,1)
-	var instruction:String="连点空格拉人 / 攀爬，搭档同步协助"
+	var jump_key:="A" if gamepad_active else "空格"
+	var instruction:String="连点%s拉人 / 攀爬，搭档同步协助"%jump_key
 	if play_mode=="local":
 		var holder:int=1-run.rescue.role
-		var keys:=["空格","回车"]
+		var keys:=["A","A"] if gamepad_active else ["空格","回车"]
 		instruction="%02d 连点%s拉人 · %02d 连点%s向上爬"%[holder+1,keys[holder],run.rescue.role+1,keys[run.rescue.role]]
-	elif play_mode=="online":instruction="连点空格拉人 / 攀爬，与队友一起用力"
+	elif play_mode=="online":instruction="连点%s拉人 / 攀爬，与队友一起用力"%jump_key
 	if touch_device:instruction="连点右侧跳跃按钮，拉人 / 向上攀爬"
 	if run.rescue.has("climb"):instruction="拉住了！正在爬回路面"
 	rescue_label.text="救援进度 %d%%  ·  剩余 %.1f 秒\n%s"%[roundi(run.rescue.progress*100),maxf(0,Run.RESCUE_TIME-run.rescue.time),instruction]
@@ -1837,7 +2132,9 @@ func update_journey_ui() -> void:
 	journey_hint.text=""
 	journey_hint.visible=run.state=="rescue" or (run.state=="running" and run.charge_gate.get("active",false) and not run.charge_gate.open and absf(run.a.position.y-run.charge_gate.receiver.y)<180)
 	if journey_hint.visible: journey_hint.text=run.active_hint()
-	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing()
+	update_settings_panel()
+	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
+	update_chapter_bar(viewport,inset,hud_width)
 	primary.visible=true
 	training_button.visible=run.state=="start" and play_mode=="solo"
 	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
@@ -1845,8 +2142,8 @@ func update_journey_ui() -> void:
 	checkpoint_button.visible=run.state=="paused"
 	checkpoint_button.text="回到存档点继续" if not run.checkpoint.is_empty() else "从本关开头继续"
 	home_button.visible=run.state in ["paused","failed","complete"]
-	impact_button.visible=run.state=="paused" and not get_meta("credits",false)
-	impact_button.text="画面冲击与震动：%s"%("开" if impact_effects else "关")
+	settings_button.visible=run.state in ["start","paused"] and not get_meta("credits",false)
+	if gamepad_active:ensure_menu_focus()
 	pause_button.visible=run.state in ["running","rescue"]
 	if is_instance_valid(touch): touch.set_enabled(touch_device and run.state in ["running","rescue","settlement"])
 	for button in difficulty_buttons: button.visible=run.state=="start" and play_mode!="online"
@@ -1856,17 +2153,19 @@ func update_journey_ui() -> void:
 		"start":
 			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
 			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
+			if gamepad_active: subtitle.text=PAD_HELP+" · Start 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
 			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
 			primary.text="开始训练" if run.combat_trial else "出发"
 		"paused":
 			title.text="暂停"
 			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
-			if touch_device: subtitle.text="左侧摇杆移动 · 右侧跳跃、射击、换弹、丢枪\n金币 %d · 奖品 %d"%[run.coins,run.prizes]
+			if gamepad_active: subtitle.text=PAD_HELP+" · Start 继续 · B 返回\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
+			elif touch_device: subtitle.text="左侧摇杆移动 · 右侧跳跃、射击、换弹、丢枪\n金币 %d · 奖品 %d"%[run.coins,run.prizes]
 			primary.text="继续旅程"
 		"failed":
 			title.text=run.reason
 			subtitle.text="回到最近的安全存档点，危险与奖励恢复原状态。" if not run.checkpoint.is_empty() else "本关还没有存档，将从起点重新开始。"
-			primary.text=("从存档继续" if not run.checkpoint.is_empty() else "从起点重试")+("" if touch_device else "  ·  空格 / 回车")
+			primary.text=("从存档继续" if not run.checkpoint.is_empty() else "从起点重试")+("  ·  A" if gamepad_active else ("" if touch_device else "  ·  空格 / 回车"))
 		"settlement":
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
 			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n点击按钮或松开后按跳跃键，进入下一关。"%[run.elapsed,run.coins,run.prizes]
@@ -1874,6 +2173,18 @@ func update_journey_ui() -> void:
 		"complete": title.text="训练完成" if run.combat_trial else "归航完成";subtitle.text="击退 %d 个敌人 · 团队总分 %d。\n可以重新出发。"%[run.combat.kills,run.total_score()];primary.text="重新出发"
 	layout_panel()
 	if run.state=="rescue": journey_hint.text="连点跳跃救援！进度 %.0f%% · 剩余 %.1f 秒"%[run.rescue.progress*100,maxf(0,Run.RESCUE_TIME-run.rescue.time)]
+
+# 顶部细条放在两块 HUD 面板之间；窄屏放不下六段文字时铺满顶部，只写当前区域名。
+func update_chapter_bar(viewport:Vector2,inset:float,hud_width:float) -> void:
+	if not is_instance_valid(chapter_bar):return
+	var left:=inset+hud_width+20.0
+	var width:=viewport.x-2.0*left
+	var compact:=width<360.0
+	if compact:
+		left=inset
+		width=viewport.x-2.0*inset
+	var rect:=Rect2(left,6.0 if compact else 10.0,width,ChapterBar.BAR_HEIGHT)
+	chapter_bar.refresh(run,frame_delta,rect,run.state in ["running","rescue","paused"] and not settings_open,compact)
 
 func build_ambience() -> void:
 	ambient=AudioStreamPlayer.new()
@@ -1964,7 +2275,7 @@ func pump_ambience(delta: float) -> void:
 	# 附近有已察觉玩家的存活敌人时，环境声 0.4 秒内压低约 6 dB，脱战后 1.5 秒恢复。
 	var target:=AMBIENCE_DUCKED if run.state=="running" and combat_nearby() else 1.0
 	ambience_level=move_toward(ambience_level,target,delta*(1.5 if target<ambience_level else 0.35))
-	Sfx.set_bus_level("Ambience",ambience_level)
+	Sfx.set_bus_level("Ambience",ambience_level*settings.volumes.ambience)
 	pump_music(delta,target<1.0)
 	# 开始页和加载页无需创建一个立即暂停的播放句柄。
 	if run.state!="running":
@@ -2544,17 +2855,31 @@ func sample_local_input() -> Dictionary:
 	if not input_override.is_empty(): return input_override
 	var first:=Vector2(float(key_down(KEY_D) or key_down(KEY_RIGHT))-float(key_down(KEY_A) or key_down(KEY_LEFT)),float(key_down(KEY_W) or key_down(KEY_UP))-float(key_down(KEY_S) or key_down(KEY_DOWN)))
 	var second:=Vector2.ZERO
-	if play_mode=="local":
+	var local_pair:=play_mode=="local"
+	if local_pair:
 		first=Vector2(float(key_down(KEY_D))-float(key_down(KEY_A)),float(key_down(KEY_W))-float(key_down(KEY_S)))
 		second=Vector2(float(key_down(KEY_RIGHT))-float(key_down(KEY_LEFT)),float(key_down(KEY_UP))-float(key_down(KEY_DOWN)))
+	# 手柄：菜单确认后的跳跃 / 射击键要先松开，移动不受影响。
+	if pad_blocked and not Gamepad.any_held():pad_blocked=false
+	var pad_a:Dictionary=Gamepad.read(Gamepad.device_for(0,local_pair))
+	var pad_b:Dictionary=Gamepad.read(Gamepad.device_for(1,local_pair))
+	if pad_a.move!=Vector2.ZERO:first=pad_a.move
+	if pad_b.move!=Vector2.ZERO:second=pad_b.move
 	if touch.move!=Vector2.ZERO: first=touch.move
 	var touch_jump: bool=touch.take_jump()
 	var actions: Dictionary=touch.take_combat()
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): fire_blocked=false
 	var fire: bool=(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not fire_blocked and not touch_device) or actions.fire
-	var input:={"a":first,"b":second,"ja":key_down(KEY_SPACE) or touch_jump or (play_mode=="online" and key_down(KEY_ENTER)),"jb":key_down(KEY_ENTER),"fire":fire,"reload":reload_requested or actions.reload,"drop":drop_requested or actions.drop}
+	var pad_live:=not pad_blocked
+	var input:={"a":first,"b":second,"ja":key_down(KEY_SPACE) or touch_jump or (play_mode=="online" and key_down(KEY_ENTER)) or (pad_live and pad_a.jump),"jb":key_down(KEY_ENTER) or (pad_live and pad_b.jump),"fire":fire or (pad_live and pad_a.fire),"reload":reload_requested or actions.reload,"drop":drop_requested or actions.drop}
+	if local_pair:
+		input.fire_b=pad_live and pad_b.fire
+		input.reload_b=reload_requested_b
+		input.drop_b=drop_requested_b
 	reload_requested=false
 	drop_requested=false
+	reload_requested_b=false
+	drop_requested_b=false
 	return input
 
 func apply_combat_command(role: int, value: String) -> void:

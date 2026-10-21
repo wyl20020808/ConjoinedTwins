@@ -321,7 +321,8 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	title.visible=locked or hit_age<.4
 	title.text=("锁定 · " if locked else "")+enemy_name
 	title.modulate=Color("ffe18b") if locked else Color("e8ebe2")
-	var number:Label3D=view.get_node("HitNumber");number.visible=hit_age<.4
+	# 设置里关闭伤害数字时仍保留“击败”提示。
+	var number:Label3D=view.get_node("HitNumber");number.visible=hit_age<.4 and (died or game.damage_numbers)
 	number.text="击败" if died else "-%d"%event.get("hit_damage",10)
 	number.global_position=location+Vector3(0,3.0+hit_age*2,.1)
 	number.modulate.a=clampf(1-hit_age/.4,0,1)
