@@ -11,6 +11,11 @@ const HASH_INTERVAL := 60
 # deploy/windows/serve_web.py，再由 /ws 转给联机中继。可用启动参数 -- --server=地址 覆盖；
 # 玩家改过并成功连接的地址保存在 user://online.cfg，下次启动沿用。
 const DEFAULT_SERVER := "wss://www.u4139693.nyat.app:57412/ws"
+# SakuraFrp UDP 隧道（本地 127.0.0.1:24680）的公网地址“主机:端口”。填了以后桌面版优先走 UDP：
+# 丢包时靠冗余帧补齐，不像 TCP 那样整体卡住；UDP 连不上会自动退回上面的 wss。留空则只用 wss。
+const DEFAULT_UDP_SERVER := "www.u4139693.nyat.app:47997"
+# UDP 握手没有明确的失败信号，超过这个时间仍未连上就换下一个地址。
+const CONNECT_TIMEOUT_MSEC := 6000
 const ADDRESS_FILE := "user://online.cfg"
 # 输入只在变化时上传（服务器沿用上一份），另每秒补发一次以防万一；静止或按住方向时几乎没有上行流量。
 const INPUT_REFRESH_MSEC := 1000
@@ -24,6 +29,14 @@ var next_frame := 0
 var desynced := false
 var connected := false
 var last_address := ""
+# 依次尝试的后备地址（本机服务 → UDP 隧道 → wss），当前地址失败时自动换下一个。
+var candidates: Array[String] = []
+var chain_origin := ""
+var connect_started_msec := 0
+var input_seq := 0
+var resend_wanted := false
+var resend_msec := 0
+var resends := 0
 # 桌面版 wss 证书校验失败时（安全软件、校园网或公司网截获 HTTPS 很常见），改用不校验证书的加密连接重试一次。
 var tls_relaxed := false
 var last_input := PackedByteArray()
@@ -48,8 +61,9 @@ func _ready() -> void:
 	get_tree().set_multiplayer(api, get_path())
 	api.connected_to_server.connect(func():
 		connected = true
-		remember_address(last_address)
-		status_changed.emit("已连上服务器，等待分配位置…"))
+		candidates.clear()
+		remember_address(chain_origin if not chain_origin.is_empty() else last_address)
+		status_changed.emit("已连上服务器（%s），等待分配位置…" % transport_name()))
 	api.connection_failed.connect(_on_connection_failed)
 	api.server_disconnected.connect(func(): stop("与服务器断开。"))
 	api.peer_packet.connect(_on_packet)
@@ -60,6 +74,7 @@ func connect_to(address: String, relaxed: bool = false) -> void:
 	disconnect_from()
 	last_address = address
 	tls_relaxed = relaxed
+	connect_started_msec = Time.get_ticks_msec()
 	var target := parse_address(address, OS.has_feature("web"), page_is_secure())
 	if target.has("error"):
 		status_changed.emit(target.error)
@@ -135,14 +150,59 @@ static func default_address() -> String:
 	if config.load(ADDRESS_FILE) == OK:
 		var saved := str(config.get_value("online", "address", ""))
 		if not saved.is_empty(): return saved
-	return DEFAULT_SERVER
+	return preferred_default()
 
 static func remember_address(address: String) -> void:
 	# 无界面自动化测试连本机测试端口，不能把测试地址写进玩家的默认地址。
 	if OS.has_feature("web") or DisplayServer.get_name() == "headless": return
 	var config := ConfigFile.new()
-	config.set_value("online", "address", address.strip_edges())
+	# 默认地址不保存：以后默认地址更新（例如加了 UDP 隧道）时，玩家自动用上新的。
+	config.set_value("online", "address", "" if is_default(address) else address.strip_edges())
 	config.save(ADDRESS_FILE)
+
+static func is_default(address: String) -> bool:
+	var text := address.strip_edges()
+	return text == DEFAULT_SERVER or (not DEFAULT_UDP_SERVER.is_empty() and text == DEFAULT_UDP_SERVER)
+
+static func preferred_default() -> String:
+	return DEFAULT_UDP_SERVER if not DEFAULT_UDP_SERVER.is_empty() else DEFAULT_SERVER
+
+# 开始页“连接队友”：用默认地址时依次尝试本机联机服务（主机自己玩，免绕隧道）→ UDP 隧道 → wss；
+# 玩家自己填的地址只连这一个。
+func connect_auto(address: String) -> void:
+	var list: Array[String] = [address.strip_edges()]
+	if is_default(address) and not OS.has_feature("web"):
+		if not DEFAULT_UDP_SERVER.is_empty() and not list.has(DEFAULT_UDP_SERVER): list.push_front(DEFAULT_UDP_SERVER)
+		if not list.has(DEFAULT_SERVER): list.append(DEFAULT_SERVER)
+		if DisplayServer.get_name() != "headless" and await local_relay_running():
+			list.push_front("127.0.0.1")
+			status_changed.emit("检测到本机联机服务，直接连接本机…")
+	connect_chain(list)
+
+func connect_chain(list: Array[String]) -> void:
+	chain_origin = list[0] if not list.has(DEFAULT_SERVER) else DEFAULT_SERVER
+	candidates = list.slice(1)
+	connect_to(list[0])
+
+# 本机是否开着联机中继（主机电脑）：试连本机 WebSocket 端口，本机拒绝连接会立即返回。
+func local_relay_running() -> bool:
+	var probe := StreamPeerTCP.new()
+	if probe.connect_to_host("127.0.0.1", Relay.DEFAULT_WS_PORT) != OK: return false
+	var deadline := Time.get_ticks_msec() + 300
+	while Time.get_ticks_msec() < deadline:
+		probe.poll()
+		var status := probe.get_status()
+		if status == StreamPeerTCP.STATUS_CONNECTED:
+			probe.disconnect_from_host()
+			return true
+		if status == StreamPeerTCP.STATUS_ERROR or status == StreamPeerTCP.STATUS_NONE: return false
+		await get_tree().process_frame
+	probe.disconnect_from_host()
+	return false
+
+func transport_name() -> String:
+	if peer is ENetMultiplayerPeer: return "本机直连" if last_address.strip_edges().begins_with("127.0.0.1") else "UDP"
+	return "WebSocket"
 
 static func page_default_address() -> String:
 	if not OS.has_feature("web"): return ""
@@ -158,6 +218,11 @@ func _on_connection_failed() -> void:
 		status_changed.emit("加密校验未通过，正在改用兼容方式重连…")
 		connect_to.call_deferred(last_address, true)
 		return
+	if not candidates.is_empty():
+		var next: String = candidates.pop_front()
+		status_changed.emit("%s 连不上，改用 %s …" % [last_address, next])
+		connect_to.call_deferred(next)
+		return
 	stop("连接失败：%s 连不上。请确认主机电脑的联机服务和 SakuraFrp 在线，并用浏览器打开 %s 看能否访问。" % [last_address, browser_url(last_address)])
 
 # 服务器地址对应的网页地址，便于玩家用浏览器排查网络是否可达。
@@ -168,6 +233,8 @@ static func browser_url(address: String) -> String:
 	return text.trim_suffix("/ws")
 
 func disconnect_from() -> void:
+	connect_started_msec = 0
+	resend_wanted = false
 	if peer != null:
 		peer.close()
 	api.multiplayer_peer = null
@@ -196,6 +263,13 @@ func send_raw(bytes: PackedByteArray, mode := MultiplayerPeer.TRANSFER_MODE_RELI
 	bytes_sent += bytes.size()
 
 func send_input(move: Vector2, jump: bool) -> void:
+	if peer is ENetMultiplayerPeer:
+		# UDP：每帧都发、带序号、不可靠；丢一包下一帧就补上，不等重传。
+		if not connected: return
+		var packet := Relay.encode_input_seq(input_seq, roundi(clampf(move.x, -1, 1) * 100), roundi(clampf(move.y, -1, 1) * 100), jump)
+		input_seq = (input_seq + 1) & 0xFFFF
+		send_raw(packet, MultiplayerPeer.TRANSFER_MODE_UNRELIABLE_ORDERED)
+		return
 	var bytes := Relay.encode_input(roundi(clampf(move.x, -1, 1) * 100), roundi(clampf(move.y, -1, 1) * 100), jump)
 	var now := Time.get_ticks_msec()
 	if bytes == last_input and now - last_input_msec < INPUT_REFRESH_MSEC: return
@@ -212,6 +286,9 @@ func report(frame: int, state_hash: int) -> void:
 
 func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 	bytes_received += bytes.size()
+	if not bytes.is_empty() and bytes[0] == Relay.BUNDLE_TAG:
+		receive_bundle(Relay.decode_bundle(bytes))
+		return
 	if not bytes.is_empty() and bytes[0] == Relay.FRAME_TAG:
 		var frame := Relay.decode_frame(bytes)
 		var now := Time.get_ticks_usec()
@@ -261,6 +338,28 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			desynced = true
 			status_changed.emit("两端画面不同步（第 %d 帧），请回到开始页重新联机。" % int(message[1]))
 
+# UDP 帧包：每包含最近若干帧，只收下一帧该要的那一帧；出现缺口（中间的包全丢了）就请求补发。
+func receive_bundle(bundle: Array) -> void:
+	if not in_match: return
+	var accepted := false
+	for frame: Dictionary in bundle:
+		if frame.is_empty(): continue
+		var index := int(frame.index)
+		var expected := next_frame + frames.size()
+		if index < expected: continue
+		if index > expected:
+			resend_wanted = true
+			break
+		frame.erase("index")
+		frames.append(frame)
+		accepted = true
+	if accepted:
+		var now := Time.get_ticks_usec()
+		if last_arrival_usec > 0:
+			gaps.append((now - last_arrival_usec) / 1000.0)
+			if gaps.size() > 180: gaps.pop_front()
+		last_arrival_usec = now
+
 # 近 3 秒服务器帧到达间隔超出 1 帧的部分（取 95% 分位），即网络抖动。
 func jitter_ms() -> float:
 	if gaps.size() < 20: return 0.0
@@ -291,7 +390,17 @@ func playout_limit(catchup: int) -> int:
 	return mini(catchup, queued - target)
 
 func _process(delta: float) -> void:
+	# UDP 握手没有失败回调时按超时换下一个地址。
+	if peer is ENetMultiplayerPeer and not connected and connect_started_msec > 0 and Time.get_ticks_msec() - connect_started_msec > CONNECT_TIMEOUT_MSEC:
+		connect_started_msec = 0
+		_on_connection_failed()
+		return
 	if not connected: return
+	if resend_wanted and in_match and Time.get_ticks_msec() - resend_msec > 250:
+		resend_wanted = false
+		resend_msec = Time.get_ticks_msec()
+		resends += 1
+		send(["resend", next_frame + frames.size()])
 	ping_clock += delta
 	if ping_clock >= 1.0:
 		ping_clock = 0.0
