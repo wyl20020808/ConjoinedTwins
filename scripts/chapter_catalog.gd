@@ -4,6 +4,8 @@ extends RefCounted
 # 名称与区域须与 journey_run.gd 的 CHAPTERS 一致，由 tests/chapter_menu.gd 核对。
 
 const TRAINING := 3
+# 主界面背景与网页启动页共用的主页图。
+const HOME_COVER := "res://assets/ui/covers/home.jpg"
 const ENTRIES := [
 	{"number":"第一章", "name":"穿林入村", "cover":"res://assets/ui/covers/chapter_0.jpg",
 		"zones":["原野石板路","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"],
@@ -33,6 +35,9 @@ static func entry(chapter: int) -> Dictionary:
 static func title(chapter: int) -> String:
 	var data := entry(chapter)
 	return "%s · %s" % [data.number, data.name]
+
+static func home() -> Texture2D:
+	return load(HOME_COVER) if ResourceLoader.exists(HOME_COVER) else null
 
 static func cover(chapter: int) -> Texture2D:
 	var path: String = entry(chapter).cover

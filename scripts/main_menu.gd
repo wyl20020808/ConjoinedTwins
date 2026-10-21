@@ -10,7 +10,6 @@ const GOLD := Color("e8bd7d")
 
 var selected := 0
 var covers: Array[TextureRect] = []
-var cover_front := 0
 var shade: ColorRect
 var logo: Label
 var logo_sub: Label
@@ -93,6 +92,9 @@ func _ready() -> void:
 		cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(cover)
 		covers.append(cover)
+	# 背景固定为主页图；各章封面只出现在卡片与章节载入画面。
+	covers[0].texture = Catalog.home()
+	covers[1].visible = false
 	shade = ColorRect.new()
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -166,14 +168,7 @@ func label(font_size: int, color: Color) -> Label:
 	return result
 
 func select(chapter: int, instant: bool = false) -> void:
-	var changed := chapter != selected or instant
 	selected = clampi(chapter, 0, Catalog.ENTRIES.size() - 1)
-	if changed:
-		# 两张封面交叉淡入，切换章节时背景不闪黑。
-		cover_front = 1 - cover_front
-		covers[cover_front].texture = Catalog.cover(selected)
-		covers[cover_front].modulate.a = 1.0 if instant else 0.0
-		move_child(covers[cover_front], 2)
 	var data := Catalog.entry(selected)
 	kicker.text = data.number
 	heading.text = data.name
@@ -220,8 +215,6 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if not visible: return
 	clock += delta
-	var front: TextureRect = covers[cover_front]
-	front.modulate.a = minf(1.0, front.modulate.a + delta * 2.5)
 	# 背景封面缓慢平移，主界面不是一张静止的图。
 	var zoom := 1.06 + 0.02 * sin(clock * 0.1)
 	for cover in covers:

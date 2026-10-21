@@ -159,7 +159,7 @@ def finalize_shell(output):
     # 引擎按 fileSizes 计算启动进度；主包已拆小，必须改成拆分后的大小。
     text = re.sub(r'"index\.pck":\s*\d+', f'"index.pck":{core}', text)
     html.write_text(text, encoding="utf-8")
-    shutil.copyfile(ROOT / "assets/ui/covers/chapter_0.jpg", output / "loading_bg.jpg")
+    shutil.copyfile(ROOT / "assets/ui/covers/home.jpg", output / "loading_bg.jpg")
     files = json.loads((output / "sw-files.json").read_text(encoding="utf-8"))
     for name in ("index.js", "index.wasm", "index.pck", "index.audio.worklet.js", "index.audio.position.worklet.js", "loading_bg.jpg"):
         if (output / name).exists():
