@@ -20,8 +20,9 @@ func verify()->void:
 		check(Journey.Monsters.profile({"archetype":entry[0]}).damage==entry[1],entry[0]+" increased damage contract")
 	for chapter in range(3):
 		var run=Journey.new();run.level_index=chapter;run.retry()
-		for variant in ["archer","dasher","wolf"]:
-			check(run.journey_events.filter(func(e):return e.get("archetype","")==variant).size()>=15,"chapter %d contains %s packs"%[chapter,variant])
+		# 全部种类每章都可能出现（不按关卡限制），各至少 4 只。
+		for variant in run.Monsters.ROSTER:
+			check(run.journey_events.filter(func(e):return e.get("archetype","")==variant).size()>=4,"chapter %d contains %s"%[chapter,variant])
 		for kind in ["drone","fly_low","fly_body","rocket","stone_ball","iron_ball","shuttle","piston"]:
 			check(run.kinds.count(kind)>=2,"chapter %d has repeated %s"%[chapter,kind])
 		var early_ammo:int=run.combat.pickups.filter(func(p):return p.kind=="ammo" and p.position.y>900 and p.position.y<10000 and absf(p.position.x)>180).size()

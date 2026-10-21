@@ -307,3 +307,20 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 | `stone_slide_door` | NahuelMartinez #844329 | 合作门开启时的门体拖地摩擦 |
 
 运行时由 `scripts/sfx.gd` 的 `RECORDED_GROUPS` 加载，短音效与 Kenney 录音同样按组随机选取；循环声经 `loop_at` 按键复用定位播放器，暂停、失败与重开时全部停止。原合成 `gunshot` 等 PCM 保持不变（`tests/release_integration.gd` 校验），只是生产调用改用实录。
+
+## 2026-10-21 Tripo 第二批怪物与村民
+
+用户按 `docs/TRIPO_PROMPTS_MONSTERS_NPC.md` 的提示词，在自己的 Tripo Studio 账号中以文生 3D 生成，本人导出到 `~/Downloads` 后交给 Agent。生成参数同第一批：H3.1、三角面、面数上限 6000、2K PBR 纹理并去光。与第一批不同，这批导出带完整 PBR（法线 PNG、底色 JPEG、金属粗糙度 JPEG）。入库前用 `build-tools/shrink_glb.py` 把三张贴图缩到 1024（本机无 Pillow，脚本改用系统 `sips`，JPEG 质量 88，法线贴图保持 PNG），几何不变。
+
+**许可待确认**：同第一批，Tripo 生成内容的授权取决于账号套餐，正式发布前须由用户在账号中确认，并按需补充署名。
+
+| 原始导出（`~/Downloads`） | 字节 | SHA-256 | 入库文件 | 字节 | 三角面 | 用途 |
+| --- | ---: | --- | --- | ---: | ---: | --- |
+| `forest monster 3d model.glb` | 2,950,924 | `616b8b447f415014e18ab0c3438f074881d0f4dfaa94ea0e36c82910ebd739ac` | `assets/monsters/root_spider.glb` | 1,278,148 | 5,800 | 根须蛛（八足扑咬） |
+| `goblin miner 3d model.glb` | 3,163,652 | `f3d46c89d19ab61cd68bf7b0d874819600cd1121f6f392c7c2682ff81dca3245` | `assets/monsters/goblin_bomber.glb` | 1,345,368 | 5,695 | 矿灯地精（抛炸药包） |
+| `stylized crab warrior 3d model.glb` | 2,850,760 | `6fb065e8098f1c18e6ccac2bf6f3fda97d7eb979c10a613fdfef8f0301b2a128` | `assets/monsters/river_crab_knight.glb` | 1,230,008 | 5,741 | 河岸钳甲兵（慢速重甲近战） |
+| `fisherman character 3d model.glb` | 3,048,312 | `e934a3f622db079a4f06cdbe9dea649d4c033bac1890aeb9b7b892c5753f26c8` | `assets/landscape/villager_fisher.glb` | 1,305,724 | 5,900 | 渔夫（村民布景） |
+| `dwarf miner 3d model.glb` | 2,199,112 | `aa947ee724492497e8a83d033ea89a2493cba870132d7c2aedcfc01762f20f04` | `assets/landscape/villager_miner.glb` | 973,596 | 5,584 | 老矿工（村民布景） |
+| `fantasy knight 3d model.glb` | 3,319,880 | `cc1c45de71417cf10594618be8efe8c14718091f23aa2be6528e5a0e554efd32` | `assets/landscape/villager_guard.glb` | 1,434,008 | 5,816 | 巡逻卫兵（村民布景） |
+
+运行时使用 `build-tools/journey/rig_npcs.py` 自动绑骨并写动作后的 `assets/monsters/rigged/`、`assets/landscape/rigged/` 同名文件（约 1.1–1.6 MB）。根须蛛使用新增的多足骨架（自动识别 8 条腿、三角步态）；地精举手角度降到 70°，钳甲兵摆臂幅度降到 30%，避免网格拉伸或大钳与肩甲脱开（钳甲兵左侧小钳在原模型中本就与身体分开）。

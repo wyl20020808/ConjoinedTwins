@@ -20,6 +20,24 @@ var previous_reload := [0,0]
 var flame_on := [false,false]
 # 真实枪声录音按武器区分（喷火器另走循环声）。
 const SHOT_SOUNDS := {"smg":"smg_shot","shotgun":"shotgun_shot","launcher":"launcher_shot"}
+# 背上的第二把枪（每人一组四种枪模型，按类型显示一个）。
+var back_guns: Array[Node3D] = []
+# 瞄准权重：开火或刚开过火时 0.08 秒抬枪瞄准，停火 0.35 秒后放回抱枪姿势。
+var aim_level := [0.0,0.0]
+const AIM_IN := 0.08
+const AIM_OUT := 0.35
+const AIM_HOLD := 0.45
+# 姿势按右手握把相对胸口骨骼的位置给出（米，右/上/前；肩膀约在其上方 0.5、左右各 0.28，手臂长约 0.87）：
+# 抱枪时右手在右腹前，枪身斜横胸前、枪口朝左上方；瞄准时枪居中贴身、枪口指向目标。
+const CARRY_GRIP := Vector3(0.15,-0.05,0.35)
+const CARRY_DIRECTION := Vector3(-0.70,0.55,0.45)
+const AIM_GRIP := Vector3(0.05,0.30,0.22)
+const BACK_OFFSET := Vector3(0.0,-0.05,-0.30)
+const BACK_DIRECTION := Vector3(-0.50,0.85,0.0)
+# 枪模型本地的握持点：右手握把，左手护木（枪口朝 -Z）。
+const GRIP_RIGHT := Vector3(0,-0.10,0.12)
+const GRIP_LEFT := Vector3(0,-0.06,-0.34)
+const RECOIL := {"smg":[0.065,0.12,0.07],"shotgun":[0.16,0.24,0.20],"launcher":[0.2,0.26,0.24],"flamer":[0.05,0.03,0.01]}
 
 func make_gun(parent: Node3D) -> Node3D:
 	var gun := Node3D.new()
@@ -147,6 +165,18 @@ func _ready() -> void:
 			variant.name=type
 			variant.visible=type=="smg"
 		guns.append(holder)
+		var back:=Node3D.new()
+		add_child(back)
+		for type in ["smg","shotgun","flamer","launcher"]:
+			var spare:=make_weapon(back,type)
+			spare.name=type
+			spare.visible=type=="smg"
+			var flash:Node3D=spare.get_node_or_null("Flash")
+			if flash!=null:flash.visible=false
+			var light:Node3D=spare.get_node_or_null("FlashLight")
+			if light!=null:light.queue_free()
+		back.visible=false
+		back_guns.append(back)
 		flames.append(make_flame())
 		var grenade:=MeshInstance3D.new()
 		var ball:=SphereMesh.new();ball.radius=0.12;ball.height=0.24;ball.radial_segments=8;ball.rings=4
@@ -280,17 +310,23 @@ func sync() -> void:
 			if wrist>=0: hand=skeleton.global_transform*game.final_bone_pose(skeleton,wrist).origin
 		guns[role].global_position=hand
 		var target := hand+Vector3(0,0,-5)
+		var has_target:=false
 		if not weapon.is_empty():
 			for event in run.journey_events:
 				if event.id==weapon.target:
 					var point: Vector2=run.Combat.enemy_position(event)
 					target=Vector3(point.x/20,run.Combat.enemy_height(event)/20,-point.y/20)
-		if hand.distance_to(target)>0.01: guns[role].look_at(target)
-		apply_reload(guns[role],model,int(weapon.get("reload",0)),run.Combat.spec(weapon).reload if not weapon.is_empty() else 1)
-		if guns[role].visible and is_instance_valid(skeleton) and int(weapon.get("reload",0))>0:
-			reach_hand(skeleton,"R",guns[role].global_position)
-			reach_hand(skeleton,"L",model.to_global(model.get_node("Magazine").position))
+					has_target=true
 		var shot: Dictionary=run.combat.shots[role]
+		var anchor:=chest_anchor(role,skeleton)
+		if anchor.has("origin"):
+			var shooting:bool=run.combat.fire[role] or (not shot.is_empty() and run.elapsed-float(shot.time)<AIM_HOLD)
+			var rate:float=1.0/(AIM_IN if shooting else AIM_OUT)
+			if visual_state=="running": aim_level[role]=move_toward(aim_level[role],1.0 if shooting else 0.0,game.frame_delta*rate)
+			guns[role].global_transform=gun_pose(anchor,aim_level[role],target if has_target or shooting else Vector3.INF)
+		elif hand.distance_to(target)>0.01: guns[role].look_at(target)
+		apply_reload(guns[role],model,int(weapon.get("reload",0)),run.Combat.spec(weapon).reload if not weapon.is_empty() else 1)
+		sync_back_gun(role,anchor,visual_state)
 		var shot_type:String=shot.get("type","smg")
 		var recent: bool=not shot.is_empty() and run.elapsed-shot.time<0.065 and visual_state=="running"
 		# 喷火器连发间隔 0.05 秒，火舌在扳机松开后 0.12 秒内熄灭。
@@ -308,11 +344,14 @@ func sync() -> void:
 		if flash_light!=null:flash_light.visible=recent or flames[role].emitting
 		beams[role].visible=recent and shot_type in ["smg","shotgun"]
 		for n in range(1,pellet_beams[role].size()):pellet_beams[role][n].visible=false
+		# 后坐按枪种区分：[时长, 后移, 上扬]，时长可长于枪口焰；双手随后由 IK 跟着枪一起后坐。
+		var kick:Array=RECOIL.get(shot_type,RECOIL.smg)
+		if not shot.is_empty() and visual_state=="running" and int(weapon.get("reload",0))==0 and run.elapsed-float(shot.time)<kick[0]:
+			var recoil:float=1.0-clampf((run.elapsed-float(shot.time))/kick[0],0,1)
+			recoil*=recoil
+			guns[role].position+=guns[role].basis.z*kick[1]*recoil
+			guns[role].rotate_object_local(Vector3.RIGHT,kick[2]*recoil)
 		if recent:
-			if int(weapon.get("reload",0))==0:
-				var recoil:float=1.0-clampf((run.elapsed-shot.time)/.065,0,1)
-				guns[role].position+=guns[role].basis.z*.12*recoil
-				guns[role].rotate_object_local(Vector3.RIGHT,.07*recoil)
 			var from := Vector3(shot.from.x/20,shot.height/20,-shot.from.y/20)
 			var to := Vector3(shot.to.x/20,shot.target_height/20,-shot.to.y/20)
 			place_beam(beams[role],from,to)
@@ -332,6 +371,14 @@ func sync() -> void:
 				casings[role].amount_ratio=1.0
 				casings[role].set_meta("until",run.elapsed+0.05)
 		if not shot.is_empty(): last_shots[role]=shot.id
+		# 双手握枪：枪的位置（含后坐、换弹抬枪）确定后，再把双手送到握持点。
+		if guns[role].visible and is_instance_valid(skeleton):
+			if int(weapon.get("reload",0))>0:
+				reach_hand(skeleton,"R",guns[role].global_position)
+				reach_hand(skeleton,"L",model.to_global(model.get_node("Magazine").position))
+			elif anchor.has("origin"):
+				reach_hand(skeleton,"R",guns[role].to_global(GRIP_RIGHT))
+				reach_hand(skeleton,"L",guns[role].to_global(GRIP_LEFT))
 		if casings[role].emitting and run.elapsed>float(casings[role].get_meta("until",0.0)):casings[role].emitting=false
 		if run.combat.health[role]<previous_health[role]: game.sfx.play_at("punch_heavy",game.robots[role].global_position+Vector3(0,1.5,0),-2.0,0.95)
 		# 换弹：开始时卸弹匣，结束时上膛。
@@ -345,6 +392,45 @@ func sync() -> void:
 	for event in run.journey_events:
 		if event.has("hp") and game.event_views.has(event.id):
 			EnemyView.sync(game,game.event_views[event.id],event)
+
+# 胸口骨骼的世界位置（随跑步起伏）与身体朝向；找不到骨骼时返回空字典，沿用跟随右手的旧摆法。
+func chest_anchor(role:int,skeleton:Skeleton3D)->Dictionary:
+	if not is_instance_valid(skeleton):return {}
+	var chest:int=game.find_bone(skeleton,"UpperChest","Chest")
+	if chest<0:chest=game.find_bone(skeleton,"Chest","Spine")
+	if chest<0:return {}
+	var body:Basis=game.robots[role].global_basis.orthonormalized()
+	return {"origin":skeleton.global_transform*skeleton.get_bone_global_pose(chest).origin,
+		"right":body.x,"up":Vector3.UP,"forward":-body.z}
+
+func offset(anchor:Dictionary,local:Vector3)->Vector3:
+	return anchor.origin+anchor.right*local.x+anchor.up*local.y+anchor.forward*local.z
+
+# 抱枪与瞄准之间按 aim 混合：握点位置线性插值，朝向球面插值；没有目标时瞄准方向取正前方。
+# 枪的原点由右手握点反推，保证右手始终落在握把上。
+func gun_pose(anchor:Dictionary,aim:float,target:Vector3)->Transform3D:
+	var carry_grip:=offset(anchor,CARRY_GRIP)
+	var carry_dir:Vector3=(anchor.right*CARRY_DIRECTION.x+anchor.up*CARRY_DIRECTION.y+anchor.forward*CARRY_DIRECTION.z).normalized()
+	# 横抱时枪身上面朝外（身体前方）。
+	var carry:=Basis.looking_at(carry_dir,anchor.forward)
+	var aim_grip:=offset(anchor,AIM_GRIP)
+	var aim_dir:Vector3=anchor.forward
+	if target!=Vector3.INF and target.distance_to(aim_grip)>0.5:aim_dir=(target-aim_grip).normalized()
+	var aimed:=Basis.looking_at(aim_dir,Vector3.UP)
+	var weight:=smoothstep(0.0,1.0,aim)
+	var basis:=Basis(carry.get_rotation_quaternion().slerp(aimed.get_rotation_quaternion(),weight))
+	return Transform3D(basis,carry_grip.lerp(aim_grip,weight)-basis*GRIP_RIGHT)
+
+# 背上的第二把枪：斜挎在背后，枪口朝左肩上方，贴着背部。
+func sync_back_gun(role:int,anchor:Dictionary,visual_state:String)->void:
+	var spare:Dictionary=game.run.Combat.backup(game.run,role) if not game.run.combat.is_empty() else {}
+	var holder:=back_guns[role]
+	holder.visible=not spare.is_empty() and anchor.has("origin") and visual_state not in ["rescue","failed","complete","settlement"]
+	if not holder.visible:return
+	var type:String=spare.get("type","smg")
+	for variant in holder.get_children():variant.visible=variant.name==type
+	var direction:Vector3=(anchor.right*BACK_DIRECTION.x+anchor.up*BACK_DIRECTION.y).normalized()
+	holder.global_transform=Transform3D(Basis.looking_at(direction,-anchor.forward),offset(anchor,BACK_OFFSET))
 
 # 无 Tween、无墙钟时间：暂停、联机、重试和丢枪都直接服从武器剩余帧数。
 # 从固定背后视角能看到抬枪、倾斜弹匣口、抽出/插入弹匣和拉栓归位。

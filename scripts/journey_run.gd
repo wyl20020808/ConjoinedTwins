@@ -481,11 +481,13 @@ func reset_input() -> void:
 	super()
 	Combat.clear_input(self)
 
-func set_combat_input(fire: bool, reload_pressed: bool=false, drop_pressed: bool=false) -> void:
+func set_combat_input(fire: bool, reload_pressed: bool=false, drop_pressed: bool=false, swap_pressed: bool=false) -> void:
 	if state!="running" or combat.is_empty(): return
+	Combat.ensure_slots(self)
 	combat.fire[0]=fire
 	combat.reload[0]=combat.reload[0] or reload_pressed
 	combat.drop[0]=combat.drop[0] or drop_pressed
+	combat.swap[0]=combat.swap[0] or swap_pressed
 
 func step(delta: float, input_a: Vector2=Vector2.ZERO, input_b: Vector2=Vector2.ZERO, jump_a: bool=false, jump_b: bool=false) -> void:
 	if solo_control and not external_companion: jump_b=jump_a

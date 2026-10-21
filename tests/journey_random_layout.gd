@@ -45,8 +45,18 @@ func _initialize()->void:
 				if event.kind!="monster":continue
 				total+=1;types[event.archetype]=types.get(event.archetype,0)+1
 				check(run.Monsters.safe_spawn(run,event.origin),"多种子怪物出生保留实体、缺口与合作门安全检查")
-			var special:Array=[types.get("archer",0),types.get("dasher",0),types.get("wolf",0)]
-			check(special.max()-special.min()<=1,"实际生成的远程、冲锋和狼保持配比")
+			# 九种怪物每章都出现，没有一种超过总数四分之一。
+			check(run.Monsters.ROSTER.all(func(kind):return types.get(kind,0)>=3),"多种子下九种怪物每章都出现")
+			check(types.values().max()<=total*0.25,"没有一种怪物占比过高")
+			# 相邻两群主力不同：按怪群编号分组，比较各群第一只。
+			var leads:=[];var last_pack:=-1
+			for event in run.journey_events:
+				if event.kind!="monster" or not event.has("pack"):continue
+				if event.pack!=last_pack:leads.append(event.archetype);last_pack=event.pack
+			var repeats:=0
+			for n in range(1,leads.size()):
+				if leads[n]==leads[n-1]:repeats+=1
+			check(leads.size()>=8 and repeats==0,"相邻敌群主力轮换（%d 群，重复 %d 次）"%[leads.size(),repeats])
 			for n in range(1,run.encounter_markers.size()):
 				var previous:Dictionary=run.encounter_markers[n-1]
 				var current:Dictionary=run.encounter_markers[n]
