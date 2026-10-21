@@ -852,6 +852,7 @@ func build_event(event: Dictionary) -> Node3D:
 	return root
 
 func sync_events() -> void:
+	var rolling_cart=null
 	for event in run.journey_events:
 		var near:bool=model_visible(event.y)
 		if not near:
@@ -915,7 +916,22 @@ func sync_events() -> void:
 		if event.phase=="warning" and not sound_events.has(event.id):
 			sound_events[event.id]=true
 			var center:Vector2=event.rect.get_center()
-			sfx.play_at("warning",Vector3(center.x/SCALE,1.0,-center.y/SCALE),-4.0,0.75 if event.kind=="boar" else 1.0)
+			var at:=Vector3(center.x/SCALE,1.0,-center.y/SCALE)
+			sfx.play_at("warning",at,-4.0,0.75 if event.kind=="boar" else 1.0)
+			# 预警期叠加真实机关声：大树根部断裂吱嘎、摆锤木梁受力。
+			if event.kind in ["tree","swing"]: sfx.play_at("wood_creak_heavy",at,-3.0,0.8 if event.kind=="tree" else 1.0)
+		var phase_key:="%s:%s"%[event.id,event.phase]
+		if event.phase in ["falling","spent"] and event.kind in ["tree","stone"] and not sound_events.has(phase_key):
+			sound_events[phase_key]=true
+			var hit:Vector2=event.rect.get_center() if event.kind=="tree" else Vector2(event.locked_x,event.y)
+			var hit_at:=Vector3(hit.x/SCALE,0.5,-hit.y/SCALE)
+			if event.kind=="tree" and event.phase=="falling": sfx.play_at("tree_fall",hit_at,-2.0)
+			elif event.kind=="stone" and event.phase=="spent" and int(event.get("hp",1))>0 and event.trigger>=0: sfx.play_at("rubble",hit_at,-4.0,0.9)
+		if event.kind=="cart" and event.phase=="active" and view.visible:
+			var cart_at:Vector3=body.global_position
+			if rolling_cart==null or camera.global_position.distance_to(cart_at)<camera.global_position.distance_to(rolling_cart): rolling_cart=cart_at
+	# 推车滚动声只保留离镜头最近的一辆。
+	sfx.loop_at("event_cart","cart_roll",rolling_cart!=null and run.state=="running",rolling_cart if rolling_cart!=null else Vector3.ZERO,-5.0)
 
 func build_gate(gate: Dictionary) -> Node3D:
 	var root:=Node3D.new()
@@ -1118,6 +1134,8 @@ func build_journey_ui() -> void:
 	training_button.pressed.connect(func():
 		run.combat_trial=not run.combat_trial
 		run.new_campaign()
+		# new_campaign 内部的 retry 会把状态置为 running；切换地图后仍停在开始页，由玩家确认出发。
+		run.state="start"
 		reset_journey_views())
 	inner.add_child(training_button)
 	style_button(training_button)
@@ -1545,6 +1563,7 @@ func reset_journey_views() -> void:
 	# 固定关卡重试只需刷新阶段和反馈，不重建相同的环境模型。
 	floor_stamp=""
 	sound_events.clear()
+	if is_instance_valid(sfx): sfx.stop_loops()
 	clear_controls()
 	if is_instance_valid(combat_view): combat_view.reset()
 
@@ -1647,6 +1666,8 @@ func _process(delta:float)->void:
 			var duration:=Time.get_ticks_usec()-started
 			cost.samples+=1;cost.total_usec+=duration;cost.max_usec=maxi(cost.max_usec,duration)
 			frame_costs.render_view=cost
+	# 暂停、失败、救援、结算与开始页时，喷火/滚石/机械等持续声一律停下。
+	if run.state!="running" and is_instance_valid(sfx): sfx.stop_loops()
 
 # 面板尺寸按本帧可见按钮和文字计算；失败时改为底部紧凑条，不挡住仍在播放的失败演出。
 func layout_panel() -> void:
@@ -2227,6 +2248,8 @@ func update_journey_ui() -> void:
 	journey_hint.size=Vector2(viewport.x-2*inset,56)
 	journey_hint.text=""
 	journey_hint.visible=run.state=="rescue" or (run.state=="running" and run.charge_gate.get("active",false) and not run.charge_gate.open and absf(run.a.position.y-run.charge_gate.receiver.y)<180)
+	# 怪物潮专区显示剩余敌人数，离开专区后自动收起。
+	if run.state=="running" and not run.combat_trial and not run.arena_at(run.progress()).is_empty():journey_hint.visible=true
 	if journey_hint.visible: journey_hint.text=run.active_hint()
 	update_settings_panel()
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
@@ -2898,6 +2921,8 @@ func return_home()->void:
 	else:
 		run.combat_trial=false
 		run.new_campaign()
+		# new_campaign 内部的 retry 会把状态置为 running，必须显式回到开始页，才会显示模式与难度选项。
+		run.state="start"
 		reset_journey_views()
 	if is_instance_valid(net_status):net_status.text="远程双人：连接同一版本网页"
 	clear_controls()

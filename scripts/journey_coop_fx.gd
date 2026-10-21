@@ -131,7 +131,10 @@ func sync_gates(run) -> void:
 				shard_burst(point + Vector3(0, 1.5, 0), 1.6)
 				shard_burst(point + Vector3(0, 3.0, 0), 1.6)
 				var sfx = game.get("sfx")
-				if sfx != null and sfx.has_method("play_at"): sfx.play_at("door_open", point + Vector3(0, 2.0, 0), 0.0, 0.8)
+				if sfx != null and sfx.has_method("play_at"):
+					# 重门开启：门轴吱嘎叠一层门体拖地的低沉摩擦。
+					sfx.play_at("stone_slide_door", point + Vector3(0, 0.5, 0), -9.0, 1.1)
+					sfx.play_at("door_open", point + Vector3(0, 2.0, 0), 0.0, 0.8)
 		gate_state[gate.id] = {"occupied": occupied, "open": open}
 
 func sync_rescue(run, state: String) -> void:

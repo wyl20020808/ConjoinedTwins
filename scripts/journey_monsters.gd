@@ -46,44 +46,68 @@ static func safe_supply(run,point:Vector2)->bool:
 		if run.kinds[i] in ["cargo","pillar","rail","sweeper"] and run.obstacles[i].grow(run.Motion.RADIUS).has_point(point):return false
 	return true
 
+# 机关段只在组间换侧空地放 1~3 只的零星小队，横排对齐；成规模的敌群集中到怪物潮专区。
+const PACK_LANES := {1:[0.0],2:[-90.0,90.0],3:[-150.0,0.0,150.0]}
+# 专区内三波：前排/后排两行等距排开，波间留出补给与喘息距离。
+const WAVES := [900.0,1500.0,2100.0]
+const WAVE_ROW := 440.0
+
 static func populate(run) -> void:
 	var layout=RandomLayout.new(run.seed_value,run.level_index,2)
-	var pack := 0
-	for anchor in range(900,int(run.finish_distance())-1200,900):
-		# 每四群计划 16 只；局部 3~5 只波动，实体与合作门安全检查优先。
-		var base:float=anchor+float(layout.draw("spacing",[-120,-60,0,60,120]))
-		var count:int=layout.draw("pack_size",[3,4,4,5])
-		var points: Array[Vector2]=[]
-		for member in range(count):
-			var found := false
-			var offsets:Array=layout.shuffled([0,100,-100,200])
-			var lanes:Array=layout.shuffled([-250,-120,120,250])
-			for offset in offsets:
-				for x in lanes:
-					var point := Vector2(x,base+member*100+offset)
-					if points.any(func(p):return p.distance_to(point)<90) or not safe_spawn(run,point): continue
-					var variant:String=layout.draw("archetype",["archer","dasher","wolf",""])
-					add(run,point,run.theme_at(point.y),variant)
-					points.append(point);found=true;break
-				if found: break
-		if points.is_empty(): continue
-		pack+=1
-		# 每两群附近补给一次，避开实体、缺口与门；不凭空补满玩家弹药。
-		if pack%2==0:
-			var supply_y:float=base+260
-			var center:=0.0
-			for marker in run.encounter_markers:
-				if marker.y+110<supply_y:continue
-				center=-marker.blocked*245;break
-			for offset in [0,-60,60,-120,120]:
-				var point:=Vector2(center-28,supply_y+offset)
-				if safe_supply(run,point):
-					run.Combat.add_pickup(run,"ammo",point)
-					# 密集战斗后的有限恢复点，两侧角色都必须实际走近拾取。
-					for x in [center-28,center+28]:
-						var recovery:=Vector2(x,point.y+35)
-						if safe_supply(run,recovery):run.Combat.add_pickup(run,"medkit",recovery)
+	var packs:=0
+	for slot in run.pack_slots:
+		var count:int=layout.draw("pack_size",[1,2,2,3])
+		var placed:=false
+		for x in PACK_LANES[count]:
+			for dy in [0.0,-30.0,30.0]:
+				var point:=Vector2(x,slot+dy)
+				if safe_spawn(run,point):
+					add(run,point,run.theme_at(point.y),layout.draw("archetype",["archer","dasher","wolf",""]))
+					placed=true
 					break
+		if not placed:continue
+		packs+=1
+		pack_supply(run,slot+260,packs%2==0)
+	for arena in run.arenas:arena_waves(run,arena,layout)
+
+# 小队后方的补给：放在下一组机关的空侧，避开实体与门；隔一队再补一对医疗包，两侧角色都要走近拾取。
+static func pack_supply(run,supply_y:float,with_medkit:bool)->void:
+	var center:=0.0
+	for marker in run.encounter_markers:
+		if marker.y+110<supply_y or marker.get("kind","")=="arena":continue
+		center=-marker.blocked*245;break
+	for offset in [0,-60,60,-120,120]:
+		var point:=Vector2(center-28,supply_y+offset)
+		if not safe_supply(run,point):continue
+		run.Combat.add_pickup(run,"ammo",point)
+		if with_medkit:
+			for x in [center-28,center+28]:
+				var recovery:=Vector2(x,point.y+35)
+				if safe_supply(run,recovery):run.Combat.add_pickup(run,"medkit",recovery)
+		return
+
+static func arena_waves(run,arena:Dictionary,layout)->void:
+	var start:float=arena.start
+	# 入口先补给，前 40 米不放怪，两人整理站位、拾取后再迎战。
+	for x in [-60.0,60.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,start+260))
+	run.Combat.add_pickup(run,"medkit",Vector2(0,start+330))
+	run.Combat.add_pickup(run,"gun",Vector2(0,start+200),{},layout.draw("arena_weapon",run.ZONE_WEAPONS))
+	for wave in range(WAVES.size()):
+		var front:float=start+WAVES[wave]
+		var count:int=layout.draw("wave_size",[6,7,7,8])
+		var rows:Array=[ceili(count/2.0),count-ceili(count/2.0)]
+		for row in range(2):
+			var members:int=rows[row]
+			for member in range(members):
+				var x:=-WAVE_ROW/2+WAVE_ROW*(member+.5)/members
+				var point:=Vector2(x,front+row*110)
+				if safe_spawn(run,point):
+					add(run,point,run.theme_at(point.y),layout.draw("archetype",["archer","dasher","wolf",""]))
+		# 每波打完后的回复点，位于下一波前方 300 单位以外。
+		if wave<WAVES.size()-1:
+			var supply:=front+330
+			run.Combat.add_pickup(run,"medkit",Vector2(-60,supply))
+			run.Combat.add_pickup(run,"ammo",Vector2(60,supply))
 
 static func add(run, position: Vector2, theme: String, variant:String="") -> Dictionary:
 	var archetype := variant if not variant.is_empty() else ("briar" if theme in ["forest","broken","edge","meadow","river","ridge"] else ("sentinel" if theme in ["mine","ruins","facility"] else "raider"))

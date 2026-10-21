@@ -17,6 +17,9 @@ var last_shots := [0,0]
 var previous_health := [100,100]
 var previous_shield_uses := 0
 var previous_reload := [0,0]
+var flame_on := [false,false]
+# 真实枪声录音按武器区分（喷火器另走循环声）。
+const SHOT_SOUNDS := {"smg":"smg_shot","shotgun":"shotgun_shot","launcher":"launcher_shot"}
 
 func make_gun(parent: Node3D) -> Node3D:
 	var gun := Node3D.new()
@@ -212,6 +215,7 @@ func reset() -> void:
 	pickup_views.clear()
 	last_shots=[0,0]
 	exploded=[0,0]
+	flame_on=[false,false]
 	previous_health=game.run.combat.health.duplicate()
 	previous_shield_uses=game.run.shield_uses
 
@@ -292,6 +296,12 @@ func sync() -> void:
 		# 喷火器连发间隔 0.05 秒，火舌在扳机松开后 0.12 秒内熄灭。
 		flames[role].emitting=not shot.is_empty() and shot_type=="flamer" and run.elapsed-shot.time<0.12 and visual_state=="running" and guns[role].visible
 		if flames[role].emitting:flames[role].global_transform=model.get_node("Flash").global_transform
+		# 喷火：点火瞬间一声起燃，按住扳机期间持续火焰与噼啪声，松开即停。
+		if flames[role].emitting and not flame_on[role]:game.sfx.play_at("flame_start",guns[role].global_position,-8.0)
+		# 暂停时火舌画面保持，声音停下。
+		flame_on[role]=flames[role].emitting and run.state=="running"
+		game.sfx.loop_at("flamer:%d"%role,"flame_loop",flame_on[role],guns[role].global_position,-12.0)
+		game.sfx.loop_at("flamer_crackle:%d"%role,"fire_crackle_loop",flame_on[role],guns[role].global_position,-16.0)
 		sync_grenade(role,shot,visual_state)
 		model.get_node("Flash").visible=recent and shot_type!="flamer"
 		var flash_light:OmniLight3D=model.get_node_or_null("FlashLight")
@@ -313,7 +323,7 @@ func sync() -> void:
 					place_beam(pellet_beams[role][n],from,Vector3(end.x/20,shot.height/20,-end.y/20))
 					pellet_beams[role][n].visible=true
 			if shot.id!=last_shots[role]:
-				if shot_type!="flamer" or int(shot.id)%6==0:game.sfx.play("whoosh" if shot_type=="flamer" else "gunshot",{"smg":-13.0,"shotgun":-7.0,"flamer":-16.0,"launcher":-9.0}.get(shot_type,-13.0),{"shotgun":0.7,"launcher":0.55}.get(shot_type,1.0))
+				if shot_type!="flamer":game.sfx.play(SHOT_SOUNDS.get(shot_type,"smg_shot"),{"smg":-14.0,"shotgun":-9.0,"launcher":-10.0}.get(shot_type,-14.0))
 				var flash_node:Node3D=model.get_node("Flash")
 				flash_node.rotation.z=randf()*TAU
 				flash_node.scale=Vector3.ONE*randf_range(0.8,1.25)
@@ -378,7 +388,7 @@ func sync_grenade(role:int,shot:Dictionary,visual_state:String)->void:
 		if fx!=null:
 			fx.impact(Vector3(to.x,0,to.z),Color("ffa040"),float(shot.get("splash",95.0))/20,4.0)
 			fx.burst("dust",Vector3(to.x,0.1,to.z))
-		game.sfx.play("hit",-6.0,0.6)
+		game.sfx.play_at("explosion",Vector3(to.x,0.5,to.z),-3.0)
 
 # 仅覆盖双臂：双腿继续使用走跑/跳跃动画，不增设动画状态机。
 # 两段骨骼解析到达枪握把与弹匣；每次先清除覆盖，避免累计旋转。

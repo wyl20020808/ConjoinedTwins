@@ -281,3 +281,29 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 | Cynic Battle Loop / Ferk（原曲 Alex Smith / cynicmusic） | https://opengameart.org/content/cynic-battle-loop ；`https://opengameart.org/sites/default/files/cynicbattleloop_0.ogg` | 1,861,815 字节；`39195451e23c929dce5bed687b0d78454c32eb574b06713ea3d079b6b37b6a86` | `assets/audio/music/cynic_battle_loop.ogg`：三章共用战斗层，附近敌人察觉时淡入 |
 
 四首合计约 8.4 MB，单个文件均小于 5 MB。
+
+## 2026-10-20 真实录音：枪声、火焰与机关（freesound.org，CC0）
+
+为替换合成枪声与机关提示音，从 freesound.org 选取 31 段许可均为 CC0 1.0 的实录音效（署名非必须），逐条记录在 `build-tools/journey/recorded-audio-sources.json`：来源页面、下载地址、作者、许可、原始文件 SHA-256 与字节数、原标题与描述、处理步骤。下载对象为各页面公开的 HQ 预览 MP3（约 128 kbps），未登录、未下载原始高码率文件。处理：解码并缩混为单声道 44.1 kHz 16 位 WAV，截取所需片段、去直流、短淡入淡出，峰值归一化到 −1 dBFS；循环素材按节奏周期截取并做首尾等功率交叉淡化，导入时设为正向循环（`edit/loop_mode=2`）。部分原始电平很低的素材增益较大（锤击约 +14~16 dB、滚石约 +14 dB、机械低鸣约 +17 dB），底噪随之抬高，待实机试听确认。入库于 `assets/audio/recorded/`，共约 2.7 MB，单个文件均小于 1 MB。
+
+| 组（`<组>_<序号>.wav` 或单个 `<组>.wav`） | 作者 / freesound 编号 | 游戏内用途 |
+| --- | --- | --- |
+| `smg_shot` ×4 | qubodup #854231、#854207、#854179、#854177 | 冲锋枪射击 |
+| `shotgun_shot` ×3 | AnthonyChan0 #159709；qubodup #184418、#854652 | 霰弹枪射击 |
+| `launcher_shot` ×2 | qubodup #162402；LeMudCrab #163458 | 榴弹发射 |
+| `explosion` ×2 | qubodup #171971、#855898 | 榴弹落地爆炸 |
+| `flame_start` ×2 | ldezem #386379；AslakHostaker #395038 | 喷火器点火 |
+| `flame_loop` | AslakHostaker #395039 | 喷火器持续火焰（循环） |
+| `fire_crackle_loop` | cyberthilop #558983 | 喷火时叠加的火焰噼啪（循环） |
+| `steam_hiss` ×2 | Engineer_815 #493558；wubitog #234782 | 蒸汽机关蓄压与喷射、压机泄压 |
+| `hammer_swing` ×2 | Joao_Janz #485243、#485246 | 摆锤挥落 |
+| `spike_spring` ×2 | fractionalist #644245；baefild #276589 | 地刺弹出 |
+| `wood_creak_heavy` ×2 | LampEight #402465；kyles #450381 | 塌陷路面开裂、倒树与摆木预警 |
+| `tree_fall` ×2 | Kinoton #494071；ecfike #139952 | 大树倒下 |
+| `rocket_whoosh` ×2 | qubodup #840511；craigsmith #675780 | 火焰弩发射飞行 |
+| `stone_roll` | klakmart #108273 | 滚石、铁球与木桶滚动（循环） |
+| `cart_roll` | pnwheeler #831723 | 推车冲出（循环） |
+| `machine_loop` | lagezon #232882 | 工业机关运转低鸣（循环） |
+| `stone_slide_door` | NahuelMartinez #844329 | 合作门开启时的门体拖地摩擦 |
+
+运行时由 `scripts/sfx.gd` 的 `RECORDED_GROUPS` 加载，短音效与 Kenney 录音同样按组随机选取；循环声经 `loop_at` 按键复用定位播放器，暂停、失败与重开时全部停止。原合成 `gunshot` 等 PCM 保持不变（`tests/release_integration.gd` 校验），只是生产调用改用实录。

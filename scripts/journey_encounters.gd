@@ -13,9 +13,30 @@ const MID_GATES:=[
 	[24000.0,false,"village_supply","村口闸门 · 连线供能",false],
 	[31200.0,true,"village_yard","院落防线 · 双板开门",false]
 ]
+# 怪物潮专区：在组边界插入 120 米无机关空地，机关段只保留零星小队。
+# 机关按原节奏在"基准坐标"中生成，再把切口之后的全部实体整体后移，机关数量不变。
+const ARENA:=2400.0
+const ARENA_GROUPS:=[[13,21,31,40],[11,24,33],[11,24,33]]
+static func cuts(run)->Array:
+	var result:Array=[]
+	for group in ARENA_GROUPS[mini(run.level_index,ARENA_GROUPS.size()-1)]:result.append(group*720.0)
+	return result
+static func shift_at(cut_list:Array,y:float)->float:
+	var shift:=0.0
+	for cut in cut_list:
+		if y>=cut:shift+=ARENA
+	return shift
+
 static func build(run)->void:
 	var layout=RandomLayout.new(run.seed_value,run.level_index,1)
-	var finish:float=run.finish_distance()
+	var cut_list:=cuts(run)
+	# 基准长度不含专区；地域主题、终点与护盾按真实坐标计算。
+	var finish:float=run.finish_distance()-cut_list.size()*ARENA
+	var real:=func(y:float)->float:return y+shift_at(cut_list,y)
+	var anchors:Array=[]
+	var tag:=func(y:float)->void:
+		while anchors.size()<run.kinds.size():anchors.append(y)
+	run.arenas.clear();run.pack_slots.clear()
 	if run.level_index==0:
 		for entry in MID_GATES:
 			if entry[2].ends_with("relay"):
@@ -23,6 +44,7 @@ static func build(run)->void:
 				continue
 			run.add_gate(entry[0],entry[1],entry[2]);run.charge_gates[-1].title=entry[3]
 			if entry[4]:bridge(run,run.charge_gates[-1])
+			tag.call(entry[0])
 	# 后续章节保留地域，但同样增加途中合作站，不把机关都堆到终点。
 	else:
 		for ratio in [.22,.48,.73]:
@@ -33,6 +55,7 @@ static func build(run)->void:
 	run.add_gate(finish-1900,false,"waterwheel")
 	run.add_gate(finish-1000,true,"drawbridge")
 	bridge(run,run.charge_gates[-1])
+	tag.call(finish-1000)
 	var routes:={}
 	var small_beats:Array=[]
 	var route_number:=0
@@ -48,7 +71,10 @@ static func build(run)->void:
 	# 双人机关按每 10 组的节奏"到期"（第 4 组跳绳杆、第 6 组木桶、第 9 组颜色门），
 	# 落在之后第一个可用的第三拍；遇到合作门留空区或窄路组时顺延，不因节奏撞车而整章缺失。
 	var due:Array=[]
+	var pending:=0.0
 	for n in range(1,int(finish/STEP)):
+		# 上一拍生成的实体全部记到该拍的锚点，后移时整拍一起移动，不会被切口拆开。
+		tag.call(pending)
 		if n%3==0:
 			match int(n/3)%10:
 				4:due.append("jump_bar")
@@ -62,7 +88,8 @@ static func build(run)->void:
 		# 前后留站位与退出空间；这些路段的交互目标是合作门及其桥面。
 		# 按整组地形的前后包络留出到达、横移和离桥空间，不能只检查机关中心。
 		if run.charge_gates.any(func(g):return y>=g.receiver.y-960 and y<=g.receiver.y+840):continue
-		var theme:String=run.theme_at(y)
+		pending=y
+		var theme:String=run.theme_at(real.call(y))
 		var kinds:Array=FOREST if theme in ["forest","broken","edge","meadow","river"] else (RIDGE if theme in ["ridge","ruins","mine"] else VILLAGE)
 		# 三个节拍共用同侧安全走廊，组间允许换侧，避免密集机关强迫瞬间横穿整条路。
 		var group:=int(n/3)
@@ -122,13 +149,57 @@ static func build(run)->void:
 		# 换侧首拍先整理站位，金币放在同侧后续节拍，密集地图仍遵守奖励池上限。
 		if n%3!=0:
 			run.rewards.append({"id":"beat:%d:0"%n,"kind":"coin","position":Vector2(-blocked*220,y-65),"radius":22.0,"claimed":false})
+	tag.call(pending)
+	# 机关段之间的零星小队：每隔一组放在组间换侧空地，靠近合作门或专区的组跳过。
+	for group in range(2,int(finish/720)):
+		if group%2!=0 or group*720.0 in cut_list:continue
+		var slot:=group*720.0-50
+		if run.charge_gates.any(func(g):return absf(slot-g.receiver.y)<900):continue
+		run.pack_slots.append(real.call(slot))
+	shift_layout(run,cut_list,anchors)
+	for index in range(cut_list.size()):
+		var start:float=cut_list[index]+index*ARENA
+		run.arenas.append({"start":start,"end":start+ARENA})
+		# 专区中线标记：保持遭遇覆盖与换侧留白，危险侧为 0，两人走中路。
+		for y in range(int(start)+160,int(start+ARENA),400):
+			run.encounter_markers.append({"y":float(y),"kind":"arena","blocked":0.0,"formation":false})
+	run.encounter_markers.sort_custom(func(p,q):return p.y<q.y)
 	ground_mechanisms(run)
-	for beat in small_beats:small_hazards(run,beat[0],beat[1],beat[2],layout)
+	for beat in small_beats:small_hazards(run,beat[0],real.call(beat[1]),beat[2],layout)
 	for zone in range(6):
-		var y:=zone*finish/6+400
+		var y:float=zone*run.finish_distance()/6+400
 		run.rewards.append({"id":"shield:%d"%zone,"kind":"shield","position":Vector2(0,y),"radius":28.0,"claimed":false})
 	# 旅程有限，奖励集合也有明确上界，不沿用旧随机路段的小型池截断地图。
 	run.select_charge_gate();run.revision+=1
+
+# 把基准坐标中切口之后的实体整体后移一个专区长度。障碍按所属节拍的锚点判断，
+# 迎面滚球、无人机等起点在前方的实体与其触发距离一起移动。
+static func shift_layout(run,cut_list:Array,anchors:Array)->void:
+	if cut_list.is_empty():return
+	for i in range(run.obstacles.size()):
+		var shift:=shift_at(cut_list,anchors[i])
+		if shift==0.0:continue
+		run.obstacles[i].position.y+=shift
+		var spec:Dictionary=run.hazard_specs[i]
+		# 地形默认触发距离为 0（始终有效）；只移动显式设定的触发点。
+		if spec.get("start_distance",0.0)>0.0:spec.start_distance+=shift
+	for gate in run.charge_gates:
+		var shift:=shift_at(cut_list,gate.receiver.y)
+		if shift==0.0:continue
+		gate.receiver.y+=shift
+		for key in ["left","right","door","near","far"]:
+			if gate.has(key):gate[key].position.y+=shift
+	for marker in run.encounter_markers:
+		var shift:=shift_at(cut_list,marker.y)
+		marker.y+=shift
+		if marker.has("narrow_start"):
+			marker.narrow_start+=shift;marker.narrow_end+=shift
+	for event in run.journey_events:
+		var shift:=shift_at(cut_list,event.y)
+		if shift==0.0:continue
+		event.y+=shift
+		for key in ["rect","previous","sample"]:event[key].position.y+=shift
+	for reward in run.rewards:reward.position.y+=shift_at(cut_list,reward.position.y)
 
 # 后一节拍的缺口可能向前侵入上一机关。生成完成后按全部实体底座切分缺口，
 # 给底座保留贯通两岸的实心路基，而不是给悬空机关补一块孤立空气地板。
@@ -168,22 +239,42 @@ static func narrow_terrain(run,route:Dictionary)->void:
 	if left<run.EDGE:run.add_hazard("road_gap",Rect2(left,route.start,run.EDGE-left,route.end-route.start))
 
 # 小型地刺与矮栏补充大机关；主通道外缘仍可走，窄桥内不塞障碍。
+# 小机关在危险侧排成一行（固定列），与主机关、倒树等事件重叠时换到下一列或后一排，
+# 不再零散斜排；危险侧放不下时才退到对侧内缘，数量不因避让而减少。
+const SMALL_COLUMNS:=[250.0,165.0,80.0,0.0,-135.0]
+const SMALL_ROWS:=[40.0,70.0]
 static func small_hazards(run,n:int,y:float,side:float,layout=null)->void:
 	var kinds:Array=layout.shuffled(["active_spikes","rail","cargo"]) if layout!=null else ["active_spikes","rail","cargo"]
+	var blockers:Array[Rect2]=[]
+	var area:=Rect2(-run.EDGE,y-40,run.EDGE*2,170)
+	for i in range(run.kinds.size()):
+		# 迎面滚动/飞行物会离开原位，不占用固定列；工业机关的 velocity 是摆动参数，仍算占位。
+		var spec:Dictionary=run.hazard_specs[i]
+		if run.kinds[i]=="drone" or (spec.has("velocity") and not spec.get("industrial",false)) or spec.get("front",false):continue
+		if run.obstacles[i].intersects(area):blockers.append(run.obstacles[i].grow(8))
+	for event in run.journey_events:
+		if event.kind!="monster" and event.rect.intersects(area):blockers.append(event.rect.grow(8))
 	for j in range(3):
 		var kind:String=kinds[j]
 		# 碎石块读起来像悬空的土块，试玩反馈要求去掉；原位改为贴地的活动地刺，
-		# 保留洗牌次序与小机关密度，其余小机关位置不变。
+		# 保留洗牌次序与小机关密度。
 		if kind=="cargo":kind="active_spikes"
 		# 最后一个小机关的完整身体碰撞包络必须早于 marker.y+110，
 		# 防止两人开始整理下一段站位时，仍横穿上一段的尾部危险。
-		var center:=Vector2(side*190 if j!=1 else -side*135,y+20+j*25)
-		var size:=Vector2(44,28) if kind=="active_spikes" else (Vector2(52,10) if kind=="rail" else Vector2(32,30))
-		var rect:=Rect2(center-size/2,size)
-		var supported:=true
-		for i in range(run.kinds.size()):
-			if run.kinds[i] in ["road_gap","collapse"] and run.obstacles[i].intersects(rect.grow(10),true):supported=false;break
-		if not supported:continue
+		var size:=Vector2(44,28) if kind=="active_spikes" else Vector2(52,10)
+		var rect:=Rect2()
+		var found:=false
+		for row in SMALL_ROWS:
+			for column in SMALL_COLUMNS:
+				rect=Rect2(Vector2(side*column,y+row)-size/2,size)
+				if blockers.any(func(b):return b.intersects(rect)):continue
+				var supported:=true
+				for i in range(run.kinds.size()):
+					if run.kinds[i] in ["road_gap","collapse"] and run.obstacles[i].intersects(rect.grow(10),true):supported=false;break
+				if supported:found=true;break
+			if found:break
+		if not found:continue
+		blockers.append(rect.grow(8))
 		var index:int=run.add_hazard(kind,rect)
 		run.hazard_specs[index].small=true
 		run.hazard_specs[index].beat_end=y+110

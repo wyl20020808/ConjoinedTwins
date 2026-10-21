@@ -20,8 +20,9 @@ var mobile:=false
 
 static func profile(meters:float,chapter:int=0)->Vector3:
 	if chapter==0:
-		var land:=smoothstep(220.0,420.0,meters)
-		var village:=smoothstep(1020.0,1250.0,meters)
+		# 第一章加入怪物潮专区后每区 400 米：原野→森林在第一区末过渡，村口区后半段进入村庄。
+		var land:=smoothstep(280.0,480.0,meters)
+		var village:=smoothstep(1200.0,1400.0,meters)
 		return Vector3(1.0-land,land*(1.0-village),village)
 	if chapter==1:return Vector3(0,0.3,0.7)
 	return Vector3(0.75,0.2,0.05)

@@ -2,9 +2,9 @@ extends "res://scripts/road_run.gd"
 
 # 主动前进的连续旅程。位置是固定世界坐标；镜头进度不驱动物理。
 const CHAPTERS := [
-	{"name":"穿林入村", "length":38400.0, "zones":["原野石板路","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["ridge","forest","broken","edge","village","village"]},
-	{"name":"水车河道", "length":30000.0, "zones":["村外田野","农田小路","河岸渡口","水车栈道","旧桥防线","河谷出口"], "themes":["farm","farm","river","river","village","river"]},
-	{"name":"矿道归航", "length":30000.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
+	{"name":"穿林入村", "length":48000.0, "zones":["原野石板路","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["ridge","forest","broken","edge","village","village"]},
+	{"name":"水车河道", "length":37200.0, "zones":["村外田野","农田小路","河岸渡口","水车栈道","旧桥防线","河谷出口"], "themes":["farm","farm","river","river","village","river"]},
+	{"name":"矿道归航", "length":37200.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
 ]
 const WALK_SPEED := 320.0
 # 镜头只前进；允许在可见后沿前后调整，不把玩家夹回上一帧位置。
@@ -59,6 +59,9 @@ var solid_query_epoch:=-INF
 var solid_query_revision:=-1
 var solid_query_count:=-1
 var encounter_markers:Array=[]
+# 怪物潮专区区间与机关段零星小队的出生锚点，由布局生成，供怪物填充使用。
+var arenas:Array=[]
+var pack_slots:Array=[]
 var journey_events: Array[Dictionary] = []
 var visited_zones: Array[int] = []
 var region_checkpoint := -1
@@ -142,6 +145,8 @@ func retry(count_failure: bool = false) -> void:
 	super(count_failure)
 	journey_events.clear()
 	encounter_markers.clear()
+	arenas.clear()
+	pack_slots.clear()
 	visited_zones.clear()
 	region_checkpoint = -1
 	event_serial = 0
@@ -156,6 +161,9 @@ func retry(count_failure: bool = false) -> void:
 			Combat.add_pickup(self,"ammo",Vector2(-65,gate.receiver.y-60))
 		for zone in range(6):
 			var start: float=zone*finish_distance()/6.0
+			# 怪物潮专区自带补给；区域补给落在专区内时顺延到专区出口之后。
+			for arena in arenas:
+				if start+720>=arena.start and start+200<arena.end:start=arena.end
 			Combat.add_pickup(self,"gun",Vector2(-42,start+200),{},ZONE_WEAPONS[(zone+level_index)%ZONE_WEAPONS.size()])
 			# 第二把枪放在右侧，种类与左侧不同；单人时搭档也会去捡。落点避开实体与缺口。
 			var second: String=ZONE_WEAPONS[(zone+level_index+2)%ZONE_WEAPONS.size()]
@@ -421,6 +429,12 @@ func check_finish() -> void:
 	super()
 	if combat_trial and state=="settlement": state="complete"
 
+# 进入专区前 15 米开始提示，离开专区即结束。
+func arena_at(y: float) -> Dictionary:
+	for arena in arenas:
+		if y>=arena.start-300 and y<arena.end: return arena
+	return {}
+
 func active_hint() -> String:
 	if combat_trial: return combat.get("notice","")
 	var narrow:Dictionary=Encounters.narrow_at(self,progress(),maxf(a.position.y,b.position.y))
@@ -442,6 +456,10 @@ func active_hint() -> String:
 		return "%s · %d%%\n%s"%[charge_gate.title,int(charge_gate.charge/duration*100),hint]
 	for event in journey_events:
 		if event.phase=="warning": return EVENT_NAMES[event.kind]
+	var arena:=arena_at(progress())
+	if not arena.is_empty():
+		var left:=journey_events.filter(func(e):return e.kind=="monster" and e.hp>0 and e.y>=arena.start and e.y<arena.end).size()
+		return "怪物潮：剩余 %d 只，边打边推进"%left if left>0 and progress()>=arena.start else "怪物潮专区：没有机关，专心清理敌群"
 	for marker in encounter_markers:
 		if marker.y>=progress()-40 and marker.y<=progress()+450 and not marker.kind in EVENT_NAMES:
 			return {"slope":"起伏坡道：观察前方高低，保持同侧", "steps":"石阶：留意高低差，依次通过", "tilt":"倾斜桥面：保持靠近，留意两侧高度", "lift":"升降平台：等平台接近地面再上桥"}.get(marker.kind,hazard_name(marker.kind))

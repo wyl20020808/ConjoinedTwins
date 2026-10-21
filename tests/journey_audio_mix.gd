@@ -79,6 +79,44 @@ func verify()->void:
 	var picked:={}
 	for n in range(40): picked[sfx.pick("punch")]=true
 	check(picked.size()>2,"同名音效随机选取不同录音")
+	# 真实录音：枪声、爆炸、火焰与机关每组都能加载；循环素材导入为正向循环。
+	for group in sfx.RECORDED_GROUPS:
+		var expected:int=maxi(1,int(sfx.RECORDED_GROUPS[group]))
+		check(sfx.variants.has(group) and sfx.variants[group].size()==expected and not sfx.variants[group].has(null),"真实录音组 %s 全部加载"%group)
+	for group in ["flame_loop","fire_crackle_loop","machine_loop","stone_roll","cart_roll"]:
+		var looped:AudioStreamWAV=sfx.variants[group][0]
+		check(looped.loop_mode==AudioStreamWAV.LOOP_FORWARD and looped.loop_end>looped.loop_begin,"循环录音 %s 无缝循环"%group)
+	for weapon in game.combat_view.SHOT_SOUNDS.values():
+		check(sfx.variants.has(weapon),"武器枪声 %s 使用真实录音"%weapon)
+	# 机关阶段切换改用真实录音。
+	var rig:=Node3D.new();game.add_child(rig);rig.global_position=Vector3(-2,0,-28)
+	var rows:=[["active_spikes","safe","extend","spike_spring"],["hammer","wait","swing","hammer_swing"],["collapse","safe","crack","wood_creak_heavy"],["steam","safe","jet","steam_hiss"]]
+	for n in range(rows.size()):
+		var row:Array=rows[n]
+		game.hazard_fx.track(88000+n,row[0],{"stage":row[1],"rect":Rect2(0,0,80,80)},rig)
+		sfx.started_frame.clear()
+		game.hazard_fx.track(88000+n,row[0],{"stage":row[2],"rect":Rect2(0,0,80,80)},rig)
+		var cue:AudioStreamPlayer3D=sfx.players_3d[(sfx.next_player_3d-1+sfx.players_3d.size())%sfx.players_3d.size()]
+		check(str(cue.stream.resource_path).contains("recorded/"+row[3]),"%s %s 播放真实录音 %s"%[row[0],row[2],row[3]])
+	rig.queue_free()
+	# 循环声：同一键复用一个播放器，关闭即停；暂停时机关循环静音；stop_loops 全部停下。
+	run.state="running";sfx.started_frame.clear()
+	sfx.loop_at("probe","flame_loop",true,Vector3(1,0,-20),-12.0)
+	var probe:AudioStreamPlayer3D=sfx.loops.get("probe")
+	check(probe!=null and probe.playing and probe.stream==sfx.variants.flame_loop[0],"喷火循环声开始播放")
+	sfx.loop_at("probe","flame_loop",true,Vector3(2,0,-21),-12.0)
+	check(sfx.loops.get("probe")==probe and probe.global_position==Vector3(2,0,-21),"同一循环键复用播放器并跟随位置")
+	sfx.loop_at("probe","flame_loop",false)
+	check(not probe.playing,"松开扳机循环声停止")
+	game.hazard_fx.loop("machine:0","machine_loop",true,Vector3.ZERO,-14.0,1.0)
+	check(sfx.loops["machine:0"].playing,"运行中机械低鸣播放")
+	run.state="paused";game.hazard_fx.loop("machine:0","machine_loop",true,Vector3.ZERO,-14.0,1.0)
+	check(not sfx.loops["machine:0"].playing,"暂停时机械低鸣停下")
+	run.state="running";sfx.started_frame.clear();sfx.loop_at("probe","stone_roll",true,Vector3.ZERO)
+	sfx.stop_loops()
+	var any_playing:=false
+	for loop_player in sfx.loops.values():any_playing=any_playing or loop_player.playing
+	check(not any_playing,"stop_loops 停下全部循环声")
 	# 脚步：贴地行走一个 Run 步幅（01 约 1.8 米）一步，起跳与落地各一声。
 	run.state="running";run.heights[0]=0.0
 	game.visual_last_heights[0]=0.0;game.step_travel[0]=0.0;game.step_last[0]=Vector2.INF

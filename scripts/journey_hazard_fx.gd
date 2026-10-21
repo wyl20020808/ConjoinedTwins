@@ -19,6 +19,10 @@ var jet_owner: Array[int] = []
 var last_stage := {}
 var last_seen := {}
 var last_position := {}
+# 工业机械（压机、锤、往复台、活塞）运转低鸣：最多同时 MACHINE_POOL 台，靠定位衰减区分远近。
+const MACHINE_POOL := 2
+const MACHINES := ["press", "hammer", "shuttle", "piston"]
+var machine_owner: Array[int] = []
 
 func _init(owner_game, owner_fx) -> void:
 	game = owner_game
@@ -32,6 +36,7 @@ func _ready() -> void:
 		jets.append(make_steam_jet()); jet_owner.append(-1)
 	for n in range(TRAIL_POOL):
 		trails.append(make_trail()); trail_owner.append(-1)
+	for n in range(MACHINE_POOL): machine_owner.append(-1)
 
 # —— 发射器 ——
 
@@ -191,16 +196,17 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 			"press":
 				if stage == "hold":
 					slam(base, maxf(2.2, size * 0.8))
+					cue("steam_hiss", base, -10.0, 1.3)
 					cue("metal_heavy", base, -1.0, 0.8)
 			"active_spikes":
 				if stage == "extend":
 					burst_debris(base + Vector3(0, 0.15, 0), Color("5b4a3a"))
 					fx.burst("spark", base + Vector3(0, 0.5, 0))
-					cue("metal_light", base, -4.0, 1.0)
+					cue("spike_spring", base, -3.0, 1.0)
 			"collapse":
 				if stage == "crack":
 					burst_debris(base + Vector3(0, 0.1, 0), Color("4d4136"))
-					cue("creak", base, -4.0, 0.9)
+					cue("wood_creak_heavy", base, -3.0, 0.9)
 				elif stage == "collapsed":
 					burst_debris(base, Color("4d4136"))
 					fx.burst("dust", base)
@@ -209,11 +215,13 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 			"hammer":
 				if stage == "swing":
 					fx.burst("dust", base + Vector3(0, 0.1, 0))
-					cue("whoosh", base, -6.0, 0.75)
+					cue("hammer_swing", base, -4.0, 0.85)
 			"steam":
 				if stage == "pressure":
 					fx.burst("dust", base + Vector3(0, 0.1, 0))
-					cue("whoosh", base, -9.0, 1.35)
+					cue("steam_hiss", base, -13.0, 1.25)
+				elif stage == "jet":
+					cue("steam_hiss", base, -4.0, 0.9)
 	# 持续：蒸汽柱。原有喷流块的材质每帧由机关同步重设，这里每帧隐藏，改由粒子表现；碰撞与采样不变。
 	if kind == "steam":
 		var jet := view.get_node_or_null("jet")
@@ -229,6 +237,12 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 			(jets[slot].process_material as ParticleProcessMaterial).emission_box_extents = box
 			jets[slot].emitting = stage == "jet"
 			if not on: jet_owner[slot] = -1
+	if kind in MACHINES:
+		var machine := machine_owner.find(index)
+		if machine < 0:
+			machine = machine_owner.find(-1)
+			if machine >= 0: machine_owner[machine] = index
+		if machine >= 0: loop("machine:%d" % machine, "machine_loop", true, base + Vector3(0, 1.0, 0), -14.0, 1.0)
 	# 持续：滚动/飞行拖尾。
 	var moving: bool = kind == "rocket" or kind == "barrel" or kind.begins_with("fly_") or game.run.Threats.is_ball(kind)
 	if moving:
@@ -242,10 +256,14 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 			if slot >= 0:
 				trail_owner[slot] = index
 				style_trail(trails[slot], kind)
+				if kind == "rocket": cue("rocket_whoosh", base, -4.0, 1.0)
 		if slot >= 0:
 			var lift: float = 0.35 if kind != "rocket" else (float(sample.get("bottom", 0.0)) + float(sample.get("top", 40.0))) / 40.0
 			trails[slot].global_position = base + Vector3(0, lift, 0)
 			trails[slot].emitting = active
+			# 滚石、木桶滚动时持续地面滚动声，跟随拖尾槽位，数量受拖尾池约束。
+			var rolling: bool = active and (kind == "barrel" or game.run.Threats.is_ball(kind))
+			loop("trail:%d" % slot, "stone_roll", rolling, base, -6.0, 0.8 if kind == "iron_ball" else 1.0)
 			if not active:
 				trail_owner[slot] = -1
 				if kind == "rocket" and before in ["active", "flight"]:
@@ -258,6 +276,12 @@ func cue(name: String, point: Vector3, volume_db: float, pitch: float) -> void:
 	var sfx = game.get("sfx")
 	if sfx != null and sfx.has_method("play_at"): sfx.play_at(name, point, volume_db, pitch)
 
+# 持续循环声：暂停或非进行状态一律静音，画面冻结时声音不继续滚动。
+func loop(key: String, name: String, on: bool, point: Vector3, volume_db: float, pitch: float) -> void:
+	var sfx = game.get("sfx")
+	if sfx == null or not sfx.has_method("loop_at"): return
+	sfx.loop_at(key, name, on and game.run.state == "running", point, volume_db, pitch)
+
 # 未在本帧出现的机关（离开窗口或被释放）归还持续特效。
 func release_missing() -> void:
 	var frame := Engine.get_process_frames()
@@ -268,7 +292,12 @@ func release_missing() -> void:
 				pool[0][slot].emitting = false
 				var glow = pool[0][slot].get_node_or_null("Glow")
 				if glow: glow.visible = false
+				if is_same(owners, trail_owner): loop("trail:%d" % slot, "stone_roll", false, Vector3.ZERO, 0.0, 1.0)
 				owners[slot] = -1
+	for slot in range(machine_owner.size()):
+		if machine_owner[slot] >= 0 and last_seen.get(machine_owner[slot], -1) != frame:
+			loop("machine:%d" % slot, "machine_loop", false, Vector3.ZERO, 0.0, 1.0)
+			machine_owner[slot] = -1
 	if last_stage.size() > 256:
 		last_position.clear()
 		for index in last_stage.keys():

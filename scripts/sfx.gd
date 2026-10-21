@@ -40,7 +40,18 @@ const VARIANTS := {
 	"metal_latch": ["metalLatch"],
 	"door_open": ["doorOpen_1", "doorOpen_2"],
 }
+# 真实录音（freesound.org，全部 CC0，来源见 build-tools/journey/recorded-audio-sources.json）：
+# 枪声、爆炸、火焰与机关。值为同组条数，文件名为 <组>_<序号>.wav；条数为 0 表示单个循环文件。
+const RECORDED := "res://assets/audio/recorded/%s.wav"
+const RECORDED_GROUPS := {
+	"smg_shot": 4, "shotgun_shot": 3, "launcher_shot": 2, "explosion": 2, "flame_start": 2,
+	"steam_hiss": 2, "hammer_swing": 2, "wood_creak_heavy": 2, "tree_fall": 2, "spike_spring": 2,
+	"rocket_whoosh": 2, "stone_slide_door": 0,
+	"flame_loop": 0, "fire_crackle_loop": 0, "machine_loop": 0, "stone_roll": 0, "cart_roll": 0,
+}
 var variants := {}
+# 持续循环声（喷火、滚石、无人机等）：按调用方给定的键复用定位播放器，数量受调用方的对象池约束。
+var loops := {}
 # 退出场景树后不再新建播放句柄，否则 OGG 播放对象会在退出时残留。
 var closing := false
 # 每个播放器每帧最多启动一次：同帧重复改播会让被替换的播放句柄来不及释放（例如多排地刺同时弹出）。
@@ -75,6 +86,12 @@ func _ready() -> void:
 		var list: Array[AudioStream] = []
 		for file in VARIANTS[key]: list.append(load(KENNEY % file))
 		variants[key] = list
+	for key in RECORDED_GROUPS:
+		var list: Array[AudioStream] = []
+		var count: int = RECORDED_GROUPS[key]
+		if count == 0: list.append(load(RECORDED % key))
+		for n in range(count): list.append(load(RECORDED % ("%s_%d" % [key, n])))
+		variants[key] = list
 
 func has_sound(name: String) -> bool:
 	return not closing and is_inside_tree() and (streams.has(name) or variants.has(name))
@@ -107,6 +124,10 @@ static func set_bus_level(name: String, linear: float) -> void:
 func _exit_tree() -> void:
 	closing = true
 	started_frame.clear()
+	for player in loops.values():
+		player.stop()
+		player.stream = null
+	loops.clear()
 	for player in players_3d:
 		player.stop()
 		player.stream = null
@@ -206,3 +227,30 @@ func play_at(name: String, position: Vector3, volume_db: float = 0.0, pitch: flo
 	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
 	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))
 	player.play()
+
+# 持续循环声：每帧以 on 调用；同一个 key 复用一个定位播放器并跟随位置，on=false 时停止。
+# 录音在导入时设为正向循环，播放器不重启即可无缝延续。
+func loop_at(key: String, name: String, on: bool, position: Vector3 = Vector3.ZERO, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	var player: AudioStreamPlayer3D = loops.get(key)
+	if not on or not has_sound(name):
+		if player != null and player.playing: player.stop()
+		return
+	if player == null:
+		player = AudioStreamPlayer3D.new()
+		player.bus = "SFX"
+		player.unit_size = 8.0
+		player.max_distance = MAX_DISTANCE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.panning_strength = 0.8
+		add_child(player)
+		loops[key] = player
+	player.global_position = position
+	player.volume_db = volume_db
+	player.pitch_scale = pitch
+	var stream: AudioStream = variants[name][0] if variants.has(name) else streams.get(name)
+	if player.stream != stream: player.stream = stream
+	if not player.playing and available(player): player.play()
+
+# 停止并回收全部循环声（暂停、重开、离开场景时调用）。
+func stop_loops() -> void:
+	for player in loops.values(): player.stop()
