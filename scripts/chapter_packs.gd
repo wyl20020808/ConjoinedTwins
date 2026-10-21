@@ -4,6 +4,11 @@ extends Node
 # 选中章节时才下载并挂载，多个章节共用的包只下载一次。浏览器缓存由网页外壳的 Service Worker
 # 负责（web/sw.js）：下载过的包刷新页面后直接从本地缓存读取，不再走网络。
 # 原生、无头和未拆包的网页没有清单，一律视为全部就绪，行为与拆包前完全相同。
+#
+# 传输：每个包另有一份 brotli 压缩文件（清单里的 transfer，扩展名 .pckz），服务器原样发送、
+# 不带 Content-Encoding，下载后在这里解压。不能让服务器对 .pck 做 Content-Encoding 压缩：
+# 浏览器交给引擎的是解压后的数据，HTTPRequest 却按响应头里压缩后的长度停止读取，文件会被截断。
+# 解压失败（例如引擎不支持 brotli）时改为下载未压缩的原包。
 signal changed
 
 const MANIFEST := "packs.json"
@@ -28,6 +33,7 @@ var speed_bytes := 0
 var speed_clock := 0.0
 var cache_clock := 0.0
 var cache_polls := 20
+var raw_fallback := {}
 
 func _ready() -> void:
 	var url := packs_url()
@@ -40,6 +46,8 @@ func _ready() -> void:
 	http = HTTPRequest.new()
 	http.use_threads = false
 	http.download_chunk_size = CHUNK
+	# 压缩由 .pckz 自行处理，不让引擎再按 Content-Encoding 解 gzip。
+	http.accept_gzip = false
 	add_child(http)
 	http.request_completed.connect(_on_completed)
 	manifest_state = "loading"
@@ -66,17 +74,31 @@ func _on_completed(result: int, code: int, _headers: PackedStringArray, body: Pa
 		return
 	var name := active
 	active = ""
-	http.download_file = ""
 	if name.is_empty(): return
 	var info: Dictionary = manifest.packs[name]
+	var plan := transfer(name)
+	var data := PackedByteArray()
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200 and body.size() == int(plan.size):
+		data = body.decompress(int(info.size), FileAccess.COMPRESSION_BROTLI) if plan.compressed else body
+		if plan.compressed and data.size() != int(info.size):
+			push_warning("章节包 %s 解压失败，改为下载未压缩版本" % name)
+			raw_fallback[name] = true
+			data = PackedByteArray()
+	body = PackedByteArray()
 	var path := store + str(info.file).get_file()
+	if data.size() == int(info.size):
+		var file := FileAccess.open(path, FileAccess.WRITE)
+		if file != null:
+			file.store_buffer(data)
+			file.close()
+	data = PackedByteArray()
 	var size := FileAccess.open(path, FileAccess.READ).get_length() if FileAccess.file_exists(path) else -1
-	if result != HTTPRequest.RESULT_SUCCESS or code != 200 or size != int(info.size):
+	if size != int(info.size):
 		attempts[name] = int(attempts.get(name, 0)) + 1
 		if attempts[name] <= RETRIES:
 			queue.push_front(name)
 		else:
-			failure = "下载失败（%s，状态 %d，结果 %d），请检查网络后重试。" % [name, code, result]
+			failure = "下载失败（%s，状态 %d，结果 %d，收到 %d / %d 字节），请检查网络后重试。" % [name, code, result, http.get_downloaded_bytes(), int(plan.size)]
 			queue.clear()
 	elif not ProjectSettings.load_resource_pack(path):
 		failure = "章节数据无法读取（%s），请刷新页面重试。" % name
@@ -86,6 +108,13 @@ func _on_completed(result: int, code: int, _headers: PackedStringArray, body: Pa
 		cached[name] = true
 	changed.emit()
 	_pump()
+
+# 本次下载用的文件：优先 brotli 压缩版（.pckz），解压失败过则用原包。
+func transfer(name: String) -> Dictionary:
+	var info: Dictionary = manifest.packs[name]
+	if info.has("transfer") and not raw_fallback.has(name):
+		return {"url": str(info.transfer), "size": int(info.transfer_size), "hash": str(info.get("transfer_hash", "")), "compressed": true}
+	return {"url": str(info.file), "size": int(info.size), "hash": str(info.get("hash", "")), "compressed": false}
 
 func _on_manifest(result: int, code: int, body: PackedByteArray) -> void:
 	# 没有清单说明网页未拆包（整包导出或旧部署），全部资源已在主包内。
@@ -151,16 +180,15 @@ func _pump() -> void:
 		active = ""
 		_pump()
 		return
-	var info: Dictionary = manifest.packs[active]
-	http.download_file = store + str(info.file).get_file()
-	if http.request(base_url + str(info.file)) != OK:
+	# 下载到内存再写入虚拟文件系统：压缩包要先解压，原包也一并按大小校验后再挂载。
+	if http.request(base_url + str(transfer(active).url)) != OK:
 		failure = "无法开始下载 %s。" % active
 		active = ""
-		http.download_file = ""
 	changed.emit()
 
+# 进度、剩余量都按实际传输的字节数（压缩版大小）计算。
 func pack_size(name: String) -> int:
-	return int(manifest.packs[name].size) if enabled else 0
+	return int(transfer(name).size) if enabled else 0
 
 func bytes_total(chapter: int) -> int:
 	var total := 0
@@ -213,7 +241,8 @@ func query_browser_cache() -> void:
 	cache_polls = 0
 	var files := []
 	for name in manifest.packs:
-		files.append({"name": name, "file": manifest.packs[name].file, "hash": manifest.packs[name].get("hash", "")})
+		var plan := transfer(name)
+		files.append({"name": name, "file": plan.url, "hash": plan.hash})
 	JavaScriptBridge.eval("window.ctQueryCache && window.ctQueryCache(%s)" % JSON.stringify(files), true)
 
 func poll_browser_cache() -> void:

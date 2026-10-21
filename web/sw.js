@@ -6,7 +6,8 @@
 // - index.html、packs.json、sw.js 与 /ws 联机不在清单内，始终走网络，保证版本一致。
 const BUILD = '__BUILD__';
 const FILES = __FILES__;
-const CACHE = 'ct-files-v1';
+// v2：v1 里存过带 Content-Encoding 的章节包响应（长度头与内容不符，会让下载截断），整体弃用。
+const CACHE = 'ct-files-v2';
 
 function scopePath() {
 	return new URL(self.registration.scope).pathname;
@@ -22,6 +23,11 @@ self.addEventListener('install', () => {
 
 self.addEventListener('activate', (event) => {
 	event.waitUntil((async () => {
+		for (const name of await caches.keys()) {
+			if (name.startsWith('ct-files-') && name !== CACHE) {
+				await caches.delete(name);
+			}
+		}
 		const cache = await caches.open(CACHE);
 		const keep = new Set(Object.keys(FILES).map(cacheKey));
 		for (const request of await cache.keys()) {
