@@ -13,7 +13,7 @@ var noise := RandomNumberGenerator.new()
 const BUSES := ["Music", "SFX", "Ambience", "UI"]
 const UI_SOUNDS := ["coin", "coin_land", "prize", "clear", "click"]
 # 定位音效：机关、敌人在世界中的位置发声，带距离衰减和左右声像。
-const POOL_3D := 8
+const POOL_3D := 14
 const MAX_DISTANCE := 90.0
 # 每次播放随机变化音高与音量，避免连续同一声音像机器复读；只影响本机听感。
 const PITCH_VARY := 0.05
@@ -62,7 +62,10 @@ func available(player: Node) -> bool:
 	if started_frame.get(player, -1) == frame: return false
 	started_frame[player] = frame
 	return true
-const SOUND_NAMES := ["coin", "coin_land", "prize", "shield", "shield_break", "jump", "land", "hit", "fall", "warning", "whoosh", "clear", "rope", "buckle", "click", "gunshot"]
+const SOUND_NAMES := ["coin", "coin_land", "prize", "shield", "shield_break", "jump", "land", "hit", "fall", "warning", "whoosh", "clear", "rope", "buckle", "click", "gunshot",
+	"heal", "growl", "snarl", "hiss", "grunt", "barrel_roll", "wood_knock", "chain_rattle"]
+# 需要无缝循环的合成声，烘焙时在导入设置里打开正向循环。
+const LOOPED := ["barrel_roll"]
 
 func _ready() -> void:
 	ensure_buses()
@@ -155,6 +158,96 @@ func synthesize() -> void:
 	streams.buckle = render(0.08, func(t): return (0.3*sin(t*TAU*1700)+0.2*sin(t*TAU*2300))*exp(-t*65))
 	streams.click = render(0.05, func(t): return 0.4 * square(t * 660.0) * exp(-t * 70.0))
 	streams.gunshot = render(0.09, func(t): return (0.45*(noise.randf()*2-1)+0.3*sin(TAU*110*t))*exp(-t*55))
+	# 以下为补充音效，追加在原有序列之后，不改变前面声音的随机序列。
+	streams.heal = render(0.7, heal_wave)
+	streams.growl = render(0.8, func(t): return beast(t, 0.8, 72.0, 22.0, 0.55, 700.0))
+	streams.snarl = render(0.38, func(t): return beast(t, 0.38, 150.0, 38.0, 0.7, 1500.0))
+	streams.hiss = render(0.45, hiss_wave)
+	streams.grunt = render(0.26, grunt_wave)
+	streams.barrel_roll = render(1.6, barrel_wave)
+	streams.wood_knock = render(0.22, func(t): return knock(t, 0.0, 165.0, 1.0))
+	streams.chain_rattle = render(0.9, chain_wave)
+
+# 一阶低通 / 二阶共振的滤波状态；render 逐样本顺序调用，状态按声音在每次 render 前清零。
+var lp_state := 0.0
+var res_state := [0.0, 0.0, 0.0, 0.0]
+
+func lowpass(x: float, cutoff: float) -> float:
+	var a := 1.0 - exp(-TAU * cutoff / RATE)
+	lp_state += a * (x - lp_state)
+	return lp_state
+
+# 二阶带通共振（模拟声道共振峰与木桶空腔），slot 区分两组独立状态。
+func resonate(x: float, frequency: float, q: float, slot: int) -> float:
+	var r := exp(-PI * frequency / (q * RATE))
+	var c := 2.0 * r * cos(TAU * frequency / RATE)
+	var y: float = (1.0 - r) * x + c * res_state[slot * 2] - r * r * res_state[slot * 2 + 1]
+	res_state[slot * 2 + 1] = res_state[slot * 2]
+	res_state[slot * 2] = y
+	return y
+
+# 野兽喉音：低频锯齿带抖动的基频，乘以快速的喉部颤动，再混入气声，整体低通。
+func beast(t: float, length: float, base: float, flutter: float, breath: float, cutoff: float) -> float:
+	if t == 0.0: lp_state = 0.0
+	var pitch := base * (1.0 + 0.12 * sin(TAU * 3.0 * t) + 0.25 * t / length)
+	var phase := pitch * t
+	var rasp := 0.55 + 0.45 * sin(TAU * flutter * t + 2.0 * sin(TAU * 7.0 * t))
+	var voice := saw(phase) * 0.6 + square(phase * 0.5) * 0.2
+	var air := (noise.randf() * 2.0 - 1.0) * breath
+	var swell := clampf(t / 0.06, 0.0, 1.0) * clampf((length - t) / (length * 0.45), 0.0, 1.0)
+	return lowpass((voice * rasp + air * rasp) * swell, cutoff) * 0.9
+
+func hiss_wave(t: float) -> float:
+	if t == 0.0: lp_state = 0.0
+	var white := noise.randf() * 2.0 - 1.0
+	var high := white - lowpass(white, 2500.0)
+	return high * 0.55 * clampf(t / 0.03, 0.0, 1.0) * clampf((0.45 - t) / 0.25, 0.0, 1.0)
+
+# 人声"嘿"：声门脉冲串经过两个共振峰，音高略下滑。
+func grunt_wave(t: float) -> float:
+	if t == 0.0: res_state = [0.0, 0.0, 0.0, 0.0]
+	var pitch := lerpf(150.0, 110.0, t / 0.26)
+	var pulse := 1.0 if fposmod(pitch * t, 1.0) < 0.08 else 0.0
+	var source := pulse + (noise.randf() * 2.0 - 1.0) * 0.15
+	var voice := resonate(source, 650.0, 6.0, 0) * 1.2 + resonate(source, 1150.0, 8.0, 1) * 0.8
+	return voice * clampf(t / 0.02, 0.0, 1.0) * clampf((0.26 - t) / 0.14, 0.0, 1.0) * 0.75
+
+# 回血：三个柔和的钟音上行，叠一层细碎闪光，音量偏低。
+func heal_wave(t: float) -> float:
+	var value := 0.0
+	var notes := [659.25, 880.0, 1318.5]
+	for n in range(3):
+		var start := n * 0.09
+		if t >= start:
+			var local := t - start
+			value += 0.28 * sin(TAU * notes[n] * local) * exp(-local * 5.0) * clampf(local / 0.01, 0.0, 1.0)
+			value += 0.08 * sin(TAU * notes[n] * 2.0 * local) * exp(-local * 9.0)
+	var sparkle := (noise.randf() * 2.0 - 1.0) * 0.05 * exp(-t * 4.0) * (0.5 + 0.5 * sin(TAU * 31.0 * t))
+	return value + sparkle
+
+# 木头敲击：空腔共振的短促闷响。
+func knock(t: float, start: float, frequency: float, gain: float) -> float:
+	if t < start: return 0.0
+	var local := t - start
+	return gain * (0.6 * sin(TAU * frequency * local) + 0.3 * sin(TAU * frequency * 2.37 * local)) * exp(-local * 28.0) 		+ gain * 0.25 * (noise.randf() * 2.0 - 1.0) * exp(-local * 120.0)
+
+# 木桶滚动循环：低沉的地面隆隆声，桶板每 0.2 秒磕地一下；1.6 秒为整周期，首尾无缝。
+func barrel_wave(t: float) -> float:
+	if t == 0.0: lp_state = 0.0
+	var rumble := lowpass(noise.randf() * 2.0 - 1.0, 180.0) * 2.4
+	var period := 0.2
+	var local := fposmod(t, period)
+	var strike := floori(t / period)
+	var weight := 0.8 + 0.2 * sin(float(strike) * 2.1)
+	var clack := weight * (0.5 * sin(TAU * 140.0 * local) + 0.25 * sin(TAU * 310.0 * local)) * exp(-local * 32.0)
+	return rumble * 0.55 + clack * 0.45
+
+# 吊桥铁链：一串随机间隔的细小金属碰撞，逐渐减弱。
+func chain_wave(t: float) -> float:
+	var link := fposmod(t * 23.0 + sin(t * 9.0) * 0.4, 1.0) / 23.0
+	var ring := sin(TAU * 2300.0 * link) * 0.5 + sin(TAU * 3400.0 * link) * 0.3
+	var tick := ring * exp(-link * 220.0) + (noise.randf() * 2.0 - 1.0) * 0.08 * exp(-link * 400.0)
+	return tick * 1.1 * clampf((0.9 - t) / 0.5, 0.0, 1.0)
 
 func prize_wave(t: float) -> float:
 	var value := 0.0

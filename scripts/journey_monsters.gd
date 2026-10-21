@@ -65,9 +65,12 @@ static func safe_supply(run,point:Vector2)->bool:
 
 # 机关段只在组间换侧空地放 1~3 只的零星小队，横排对齐；成规模的敌群集中到怪物潮专区。
 const PACK_LANES := {1:[0.0],2:[-90.0,90.0],3:[-150.0,0.0,150.0]}
-# 专区内三波：前排/后排两行等距排开，波间留出补给与喘息距离。
+# 专区内三波：前中后三行等距排开，波间留出补给与喘息距离。
 const WAVES := [900.0,1500.0,2100.0]
 const WAVE_ROW := 440.0
+const WAVE_ROWS := 3
+# 怪物潮：玩家踏进专区入口后，整片专区的怪物一齐警觉、一起压上来，不再等镜头靠近才逐只苏醒。
+const HORDE_ENTRY := 500.0
 
 static func populate(run) -> void:
 	var layout=RandomLayout.new(run.seed_value,run.level_index,2)
@@ -79,14 +82,14 @@ static func populate(run) -> void:
 	for slot in run.pack_slots:groups.append({"y":slot})
 	for arena in run.arenas:
 		arena_supply(run,arena,layout)
-		for wave in range(WAVES.size()):groups.append({"y":arena.start+WAVES[wave],"last_wave":wave==WAVES.size()-1})
+		for wave in range(WAVES.size()):groups.append({"y":arena.start+WAVES[wave],"last_wave":wave==WAVES.size()-1,"arena":arena.start})
 	groups.sort_custom(func(p,q):return p.y<q.y)
 	for group in groups:
 		if group.has("last_wave"):
-			arena_wave(run,group.y,group.last_wave,layout,rotation)
+			arena_wave(run,group.y,group.last_wave,layout,rotation,group.arena)
 			continue
 		var slot:float=group.y
-		var count:int=layout.draw("pack_size",[1,2,2,3])
+		var count:int=layout.draw("pack_size",[2,2,3,3])
 		var pair:=draw_pair(layout,rotation)
 		var placed:=0
 		for x in PACK_LANES[count]:
@@ -128,31 +131,34 @@ static func pack_supply(run,supply_y:float,with_medkit:bool)->void:
 static func arena_supply(run,arena:Dictionary,layout)->void:
 	var start:float=arena.start
 	# 入口先补给，前 40 米不放怪，两人整理站位、拾取后再迎战。
-	for x in [-60.0,60.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,start+260))
-	run.Combat.add_pickup(run,"medkit",Vector2(0,start+330))
+	for x in [-90.0,0.0,90.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,start+260))
+	for x in [-60.0,60.0]:run.Combat.add_pickup(run,"medkit",Vector2(x,start+330))
 	run.Combat.add_pickup(run,"gun",Vector2(0,start+200),{},layout.draw("arena_weapon",run.ZONE_WEAPONS))
 
-static func arena_wave(run,front:float,last_wave:bool,layout,rotation:Dictionary)->void:
-	var count:int=layout.draw("wave_size",[6,7,7,8])
-	var rows:Array=[ceili(count/2.0),count-ceili(count/2.0)]
+static func arena_wave(run,front:float,last_wave:bool,layout,rotation:Dictionary,arena_start:float)->void:
+	var count:int=layout.draw("wave_size",[10,11,11,12])
+	var rows:Array=[]
+	for row in range(WAVE_ROWS):rows.append(ceili(float(count-rows.reduce(func(a,b):return a+b,0))/(WAVE_ROWS-row)))
 	var pair:=draw_pair(layout,rotation)
 	var placed:=0
-	for row in range(2):
+	for row in range(WAVE_ROWS):
 		var members:int=rows[row]
 		for member in range(members):
 			var x:=-WAVE_ROW/2+WAVE_ROW*(member+.5)/members
-			var point:=Vector2(x,front+row*110)
+			var point:=Vector2(x,front+row*90)
 			if safe_spawn(run,point):
 				# 首只与偶数位为本波主力，其余从全部种类混抽，避免大波次让少数种类占比过高。
 				var variant:String=pair[0] if placed%2==0 else layout.draw("wave_mix",ROSTER)
-				add(run,point,run.theme_at(point.y),variant).pack=front
+				var monster:=add(run,point,run.theme_at(point.y),variant)
+				monster.pack=front
+				monster.horde=arena_start
 				placed+=1
 	if placed>0:rotation.previous=pair[0]
 	# 每波打完后的回复点，位于下一波前方 300 单位以外。
 	if not last_wave:
 		var supply:=front+330
 		run.Combat.add_pickup(run,"medkit",Vector2(-60,supply))
-		run.Combat.add_pickup(run,"ammo",Vector2(60,supply))
+		for x in [0.0,60.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,supply))
 
 static func add(run, position: Vector2, theme: String, variant:String="") -> Dictionary:
 	var archetype := variant if not variant.is_empty() else ("briar" if theme in ["forest","broken","edge","meadow","river","ridge"] else ("sentinel" if theme in ["mine","ruins","facility"] else "raider"))
@@ -192,11 +198,16 @@ static func sample(event: Dictionary, time: float) -> Dictionary:
 static func advance(run, event: Dictionary) -> void:
 	# 只更新附近敌人；远处保持出生数据，不把全地图寻路塞进每个固定步。
 	event.velocity=Vector2.ZERO
-	if absf(event.y-run.distance)>NOTICE_RANGE+200:
+	var horde:=in_horde(run,event)
+	if horde: event.alert=true
+	elif absf(event.y-run.distance)>NOTICE_RANGE+200:
 		if absf(event.y-run.distance)<PATROL_RANGE and event.hp>0: patrol(run,event)
 		return
 	var target:Vector2=run.a.position if event.id%2==0 else run.b.position
 	if event.origin.distance_to(target)<NOTICE_RANGE: event.alert=true
+	# 远处成群追来时把目标前移到玩家附近再分散，避免几十只挤成一条线。
+	if horde and event.origin.distance_to(target)>NOTICE_RANGE:
+		target.x=clampf(target.x+float(event.id%5-2)*60.0,-run.EDGE+40,run.EDGE-40)
 	# 门的站位区保留合作空间，附近追兵仍会在外围行走。
 	var protected:bool=run.charge_gates.any(func(g):return absf(target.y-g.receiver.y)<180)
 	var data:=profile(event)
@@ -245,6 +256,12 @@ static func advance(run, event: Dictionary) -> void:
 	event.phase=next.phase
 	event.bottom=next.bottom
 	event.top=next.top
+
+# 怪物潮成员：任一玩家进入专区入口之后、离开专区之前，整片专区一起警觉追击。
+static func in_horde(run,event:Dictionary)->bool:
+	if not event.has("horde") or event.hp<=0: return false
+	var front:float=maxf(run.a.position.y,run.b.position.y)
+	return front>=float(event.horde)+HORDE_ENTRY and front<float(event.horde)+run.Encounters.ARENA+200.0
 
 # 局部实体集合：低栏、树干和缺口都不能被追兵穿过，开门后可正常追入下一段。
 static func blockers(run, from:Vector2, to:Vector2) -> Array[Rect2]:

@@ -19,7 +19,7 @@ TESTS = (
     "physical_rope_terrain", "journey_pursuit", "journey_combat",
     "journey_monsters", "journey_combat_variety", "journey_world_view", "journey_failure_presentation", "journey_narrow_routes", "journey_polish", "journey_encounter_density",
     "journey_environment_lifetime", "journey_runtime_budget", "rope_mesh_lifetime", "journey_rescue_transition",
-    "journey_rescue_hud", "journey_hazard_grounding", "journey_dynamic_geometry",
+    "journey_rescue_hud", "journey_hazard_grounding", "journey_dynamic_geometry", "journey_audio_combat_polish",
 )
 
 

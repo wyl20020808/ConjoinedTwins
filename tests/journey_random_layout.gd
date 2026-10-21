@@ -76,7 +76,8 @@ func _initialize()->void:
 		var variance:=0.0
 		for count in counts:variance+=pow(count-mean,2)/counts.size()
 		check(sqrt(variance)/mean<.15,"各局实际怪物数围绕均值波动，变异系数低于 15%")
-		check(mean>(123 if chapter==0 else 101)*.8 and mean<(123 if chapter==0 else 101)*1.2,"随机化保持原有战斗密度的 20% 范围")
+		# 基准为 2026-10-21 加密怪物潮与机关段小队后的设计密度（原为 123 / 101），容差不变。
+		check(mean>(175 if chapter==0 else 131)*.8 and mean<(175 if chapter==0 else 131)*1.2,"随机化保持原有战斗密度的 20% 范围")
 		print("RANDOM_DENSITY chapter=",chapter," mean=",mean," min=",counts.min()," max=",counts.max()," stddev=",sqrt(variance))
 	var output:=OS.get_environment("RANDOM_LAYOUT_REPORT")
 	if not output.is_empty():

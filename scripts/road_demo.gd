@@ -1983,7 +1983,8 @@ func fail_showing() -> bool:
 # 救援：从坠落者外侧回望，同时看到吊着的人和拉绳的队友。各机位之间平滑过渡，结束后回到固定机位。
 func update_camera() -> void:
 	var target := camera_shot()
-	var rate := 12.0 if run.state == "failed" and falling() else 4.0
+	# 有人掉下崖进入救援时镜头要先一步赶到，拉人过程全程在画面里。
+	var rate := 12.0 if (run.state == "failed" and falling()) or run.state == "rescue" else 4.0
 	camera.transform = camera.transform.interpolate_with(target, clampf(frame_delta * rate, 0.0, 1.0))
 	if target == camera_home and camera.transform.origin.distance_to(camera_home.origin) < 0.01: camera.transform = camera_home
 
