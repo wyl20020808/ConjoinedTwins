@@ -60,6 +60,19 @@ var encounter_markers:Array=[]
 var journey_events: Array[Dictionary] = []
 var visited_zones: Array[int] = []
 var region_checkpoint := -1
+# 区域入口之外的补充存档：距上一存档至少 40 米（约 2.5 秒步行）且满足全部安全条件时顺延保存。
+const MID_CHECKPOINT_SPACING := 800.0
+const MID_CHECKPOINT_POLL := 12
+const MID_CHECKPOINT_HEALTH := 50
+const MID_CHECKPOINT_GATE_CLOSED := 800.0
+const MID_CHECKPOINT_GATE_OPEN := 300.0
+const MID_CHECKPOINT_SPAWN_CLEAR := 80.0
+const MID_CHECKPOINT_ENEMY_CLEAR := 360.0
+const MID_CHECKPOINT_HAZARD_MARGIN := 36.0
+const MID_CHECKPOINT_MOVING_BEHIND := 300.0
+const MID_CHECKPOINT_MOVING_AHEAD := 2.0
+const MID_CHECKPOINT_MOVING_LANE := 160.0
+const MID_CHECKPOINT_EVENT_TRIGGERED := 240.0
 var event_serial := 0
 var last_floor := [0.0,0.0]
 
@@ -304,17 +317,76 @@ func update_checkpoint() -> void:
 	if journey_events.is_empty(): return
 	var zone:=zone_index()
 	if zone not in visited_zones: visited_zones.append(zone)
-	if region_checkpoint==zone or progress()<zone*finish_distance()/6.0+60: return
-	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return
+	# 补充规则每 0.1 秒判定一次；判定只读同步状态，联机两端在同一固定步得出相同结果。
+	var polled:=posmod(roundi(elapsed/FIXED_STEP),MID_CHECKPOINT_POLL)==0
+	if region_checkpoint!=zone:
+		if progress()<zone*finish_distance()/6.0+60: return
+		# 入口规则迟迟不满足时（密集机关段），按补充存档规则保存本区域的第一个存档。
+		if not checkpoint_ground_clear() and not (polled and mid_checkpoint_clear() and mid_checkpoint_hazards_clear()): return
+		region_checkpoint=zone
+		capture_checkpoint()
+		return
+	# 区域内补充存档：距上一存档足够远后，在战斗清空、远离机关与窄路的安全地面上顺延保存。
+	if not polled or checkpoint.is_empty() or progress()<checkpoint.progress+MID_CHECKPOINT_SPACING: return
+	if mid_checkpoint_clear() and mid_checkpoint_hazards_clear(): capture_checkpoint()
+
+# 区域入口存档：两人贴地、绳未挂障碍，附近没有进行中的攻击，脚下不压机关。
+func checkpoint_ground_clear() -> bool:
+	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return false
 	# 入口 8 秒缓冲内存档，不把活跃攻击或塌陷危险保存到脚下。
 	for event in journey_events:
 		# 新怪物只有预警与落弹期间阻止安全存档；冷却时恢复会重新给出完整预警。
 		if event.kind=="monster" and event.phase not in ["warning","active"]: continue
-		if event.trigger>=0 and event.phase not in ["spent","fallen"] and absf(event.y-progress())<800: return
+		if event.trigger>=0 and event.phase not in ["spent","fallen"] and absf(event.y-progress())<800: return false
 	for i in range(kinds.size()):
-		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return
-	region_checkpoint=zone
-	capture_checkpoint()
+		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return false
+	return true
+
+# 补充存档的额外条件：先查廉价的血量、机关、敌人与窄路，再由调用方做完整危险走廊检查。
+func mid_checkpoint_clear() -> bool:
+	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return false
+	if combat.is_empty() or combat.health[0]<MID_CHECKPOINT_HEALTH or combat.health[1]<MID_CHECKPOINT_HEALTH: return false
+	var low:=minf(a.position.y,b.position.y)
+	var high:=maxf(a.position.y,b.position.y)
+	for gate in charge_gates:
+		var clear: float=MID_CHECKPOINT_GATE_OPEN if gate.open else MID_CHECKPOINT_GATE_CLOSED
+		if high>=gate.receiver.y-clear and low<=gate.receiver.y+clear: return false
+	if not Encounters.narrow_at(self,low,high).is_empty(): return false
+	for event in journey_events:
+		if event.kind=="monster":
+			# 出生点即使敌人已倒下也不作为恢复位置；存活敌人须在近战距离之外，远程与冲锋仍有完整预警。
+			for point in [a.position,b.position]:
+				if event.spawn.distance_to(point)<MID_CHECKPOINT_SPAWN_CLEAR: return false
+				if event.hp>0 and event.origin.distance_to(point)<MID_CHECKPOINT_ENEMY_CLEAR: return false
+			# 正在预警或攻击的敌人仍按区域入口的 800 单位窗口回避。
+			if event.hp>0 and event.phase in ["warning","active"] and absf(event.y-progress())<800: return false
+		elif event.phase not in ["spent","fallen"]:
+			# 倒树、推车、投掷与摆臂按自身作用区回避；已触发的再多留一段反应距离。
+			var reach: float=MID_CHECKPOINT_EVENT_TRIGGERED if event.trigger>=0 else 80.0
+			if event.rect.grow(reach).has_point(a.position) or event.rect.grow(reach).has_point(b.position): return false
+	return true
+
+# 旅程无输入时角色原地不动，不沿用自动推进道路的“恢复后直行 1 秒”走廊：
+# 固定、周期与缺口危险按当前采样包络，不得进入两人及绳索周围的留白框；
+# 移动危险在同一路线带内前后一段距离，或按相对速度即将到达时都不存档。
+func mid_checkpoint_hazards_clear() -> bool:
+	if rope_block_substeps>0 or rope_unwinding or rope_failed: return false
+	var margin:=Motion.RADIUS+MID_CHECKPOINT_HAZARD_MARGIN
+	var guard:=Rect2(a.position,Vector2.ZERO).expand(b.position).grow(margin)
+	var low:=guard.position.y-MID_CHECKPOINT_MOVING_BEHIND
+	var far:=guard.end.y+level_speed()*MID_CHECKPOINT_MOVING_AHEAD
+	for i in range(kinds.size()):
+		var moving: bool=hazard_specs[i].get("front",false) or kinds[i].begins_with("fly_") or kinds[i] in ["drone","forklift"] or Threats.is_ball(kinds[i])
+		# 远处静止物只需粗筛；周期机关的运动包络不会离原位超过一屏。
+		if not moving and (obstacles[i].end.y<guard.position.y-600 or obstacles[i].position.y>guard.end.y+600): continue
+		var sample:=hazard_sample(i,elapsed)
+		var rect: Rect2=sample.get("envelope",sample.rect)
+		if rect.intersects(guard,true): return false
+		var lane: bool=rect.end.x>=guard.position.x-MID_CHECKPOINT_MOVING_LANE and rect.position.x<=guard.end.x+MID_CHECKPOINT_MOVING_LANE
+		if moving and lane and rect.end.y>=low and rect.position.y<=far: return false
+		# 迎面物按纵向相对速度估算到达时间，只计同一路线带内的。
+		if lane and sample.has("ttc") and rect.end.y>=low and sample.ttc<MID_CHECKPOINT_MOVING_AHEAD: return false
+	return true
 
 func check_finish() -> void:
 	if charge_gates.any(func(gate): return not gate.open): return
