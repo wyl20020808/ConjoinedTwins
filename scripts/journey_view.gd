@@ -3163,7 +3163,7 @@ func toggle_online()->void:
 	else:
 		play_mode="online"
 		online_entry=true
-		net.connect_to(net_address.text)
+		net.connect_auto(net_address.text)
 	update_journey_ui()
 
 func publish_web_verification()->void:
