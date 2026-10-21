@@ -24,11 +24,25 @@ var next_frame := 0
 var desynced := false
 var connected := false
 var last_address := ""
+# 桌面版 wss 证书校验失败时（安全软件、校园网或公司网截获 HTTPS 很常见），改用不校验证书的加密连接重试一次。
+var tls_relaxed := false
 var last_input := PackedByteArray()
 var last_input_msec := 0
 # 联机流量统计（字节，含本层负载，不含传输层头部），供测试与网页验证读取。
 var bytes_sent := 0
 var bytes_received := 0
+# 联机质量：往返延迟（ping/pong）、服务器帧到达间隔的抖动、缓冲见底的卡顿次数。
+# 只用于显示、日志和自适应缓冲，不进入模拟，两端同步不受影响。
+const DIAG_FILE := "user://online_diag.log"
+const FRAME_MS := 1000.0 / 60.0
+var rtt_ms := -1.0
+var gaps: Array[float] = []
+var last_arrival_usec := 0
+var starved := false
+var stalls := 0
+var stalls_window := 0
+var ping_clock := 0.0
+var stat_clock := 0.0
 
 func _ready() -> void:
 	get_tree().set_multiplayer(api, get_path())
@@ -36,15 +50,16 @@ func _ready() -> void:
 		connected = true
 		remember_address(last_address)
 		status_changed.emit("已连上服务器，等待分配位置…"))
-	api.connection_failed.connect(func(): stop("连接失败：检查服务器地址、端口和组网是否在线。"))
+	api.connection_failed.connect(_on_connection_failed)
 	api.server_disconnected.connect(func(): stop("与服务器断开。"))
 	api.peer_packet.connect(_on_packet)
 
 # 地址可写 “主机”、“主机:端口”、“[IPv6]:端口”，或 ws:// / wss:// 开头的完整地址。
 # 原生客户端默认走 ENet（UDP）；网页版浏览器不能收发 UDP，一律走 WebSocket。
-func connect_to(address: String) -> void:
+func connect_to(address: String, relaxed: bool = false) -> void:
 	disconnect_from()
 	last_address = address
+	tls_relaxed = relaxed
 	var target := parse_address(address, OS.has_feature("web"), page_is_secure())
 	if target.has("error"):
 		status_changed.emit(target.error)
@@ -52,7 +67,7 @@ func connect_to(address: String) -> void:
 	var error: int
 	if target.kind == "ws":
 		var ws := WebSocketMultiplayerPeer.new()
-		error = ws.create_client(target.url)
+		error = ws.create_client(target.url, TLSOptions.client_unsafe() if relaxed else TLSOptions.client())
 		peer = ws
 	else:
 		var enet := ENetMultiplayerPeer.new()
@@ -137,6 +152,21 @@ static func page_default_address() -> String:
 	if not host is String or host.is_empty(): return ""
 	return ("wss://" if page_is_secure() else "ws://") + host + "/ws"
 
+func _on_connection_failed() -> void:
+	var secure := last_address.strip_edges().to_lower().begins_with("wss://")
+	if secure and not tls_relaxed and not OS.has_feature("web"):
+		status_changed.emit("加密校验未通过，正在改用兼容方式重连…")
+		connect_to.call_deferred(last_address, true)
+		return
+	stop("连接失败：%s 连不上。请确认主机电脑的联机服务和 SakuraFrp 在线，并用浏览器打开 %s 看能否访问。" % [last_address, browser_url(last_address)])
+
+# 服务器地址对应的网页地址，便于玩家用浏览器排查网络是否可达。
+static func browser_url(address: String) -> String:
+	var text := address.strip_edges()
+	if text.to_lower().begins_with("wss://"): text = "https://" + text.substr(6)
+	elif text.to_lower().begins_with("ws://"): text = "http://" + text.substr(5)
+	return text.trim_suffix("/ws")
+
 func disconnect_from() -> void:
 	if peer != null:
 		peer.close()
@@ -184,6 +214,11 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 	bytes_received += bytes.size()
 	if not bytes.is_empty() and bytes[0] == Relay.FRAME_TAG:
 		var frame := Relay.decode_frame(bytes)
+		var now := Time.get_ticks_usec()
+		if last_arrival_usec > 0:
+			gaps.append((now - last_arrival_usec) / 1000.0)
+			if gaps.size() > 180: gaps.pop_front()
+		last_arrival_usec = now
 		if in_match and not frame.is_empty() and int(frame.index) == next_frame + frames.size():
 			frame.erase("index")
 			frames.append(frame)
@@ -204,6 +239,9 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			stop("房间已满（已有两人）。")
 		"match":
 			frames.clear()
+			gaps.clear()
+			starved = false
+			stalls = 0
 			last_input = PackedByteArray()
 			next_frame = 0
 			desynced = false
@@ -215,9 +253,64 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			frames.clear()
 			status_changed.emit("队友已断开，等待重新加入…")
 			match_stopped.emit("队友已断开")
+		"pong":
+			if message.size() >= 2:
+				var sample := (Time.get_ticks_usec() - int(message[1])) / 1000.0
+				rtt_ms = sample if rtt_ms < 0 else lerpf(rtt_ms, sample, 0.3)
 		"desync":
 			desynced = true
 			status_changed.emit("两端画面不同步（第 %d 帧），请回到开始页重新联机。" % int(message[1]))
+
+# 近 3 秒服务器帧到达间隔超出 1 帧的部分（取 95% 分位），即网络抖动。
+func jitter_ms() -> float:
+	if gaps.size() < 20: return 0.0
+	var sorted := gaps.duplicate()
+	sorted.sort()
+	return maxf(0.0, sorted[int(sorted.size() * 0.95)] - FRAME_MS)
+
+# 自适应缓冲目标：抖动越大多留几帧（2–6 帧），用几十毫秒延迟换平滑，不再停一下、快进一下。
+func playout_target() -> int:
+	return clampi(1 + ceili(jitter_ms() / FRAME_MS), 2, 6)
+
+# 本物理帧最多消化几帧。缓冲见底即记一次卡顿，并等攒回目标帧数再继续；
+# 只改变应用时机，不跳帧、不改帧内容，模拟结果与两端同步不变。
+func playout_limit(catchup: int) -> int:
+	var queued := frames.size()
+	var target := playout_target()
+	if queued == 0:
+		if not starved:
+			starved = true
+			stalls += 1
+			stalls_window += 1
+		return 0
+	if starved:
+		if queued < target: return 0
+		starved = false
+	if queued <= target: return 1
+	if queued <= target + 6: return 2
+	return mini(catchup, queued - target)
+
+func _process(delta: float) -> void:
+	if not connected: return
+	ping_clock += delta
+	if ping_clock >= 1.0:
+		ping_clock = 0.0
+		send(["ping", Time.get_ticks_usec()])
+	if not in_match: return
+	stat_clock += delta
+	if stat_clock >= 10.0:
+		stat_clock = 0.0
+		var line := [roundi(rtt_ms), roundi(jitter_ms()), frames.size(), stalls_window, roundi(Engine.get_frames_per_second())]
+		send(["stat"] + line)
+		var file := FileAccess.open(DIAG_FILE, FileAccess.READ_WRITE if FileAccess.file_exists(DIAG_FILE) else FileAccess.WRITE)
+		if file != null:
+			file.seek_end()
+			file.store_line("%s 你是 %02d 号 延迟 %d ms 抖动 %d ms 缓冲 %d 帧 近10秒卡顿 %d 次 帧率 %d" % ([Time.get_datetime_string_from_system(), role + 1] + line))
+			file.close()
+		stalls_window = 0
+
+func diagnostics_text() -> String:
+	return "延迟 %s · 抖动 %d ms · 缓冲 %d 帧 · 卡顿 %d 次 · %d 帧/秒" % [("%d ms" % roundi(rtt_ms)) if rtt_ms >= 0 else "—", roundi(jitter_ms()), frames.size(), stalls, roundi(Engine.get_frames_per_second())]
 
 # 取出本次物理帧要模拟的帧：通常一帧；积压时追帧，保留少量缓冲吸收网络抖动。
 func take_frames(maximum: int = -1) -> Array:

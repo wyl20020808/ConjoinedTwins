@@ -117,7 +117,9 @@ func _on_connected(key: Vector2i) -> void:
 	if free.is_empty():
 		send(key, ["full"])
 		log_line("第三人（%s %d）被拒绝：房间已满。" % [links[key.x].name, key.y])
-		links[key.x].peer.disconnect_peer.call_deferred(key.y)
+		# 稍后再断开，让“房间已满”先送到对方，否则对方只会看到“连接失败”。
+		get_tree().create_timer(0.5).timeout.connect(func():
+			if links[key.x].api.get_peers().has(key.y): links[key.x].peer.disconnect_peer(key.y))
 		return
 	roles[key] = free[0]
 	log_line("玩家 %02d 已连接（%s %d）。" % [free[0] + 1, links[key.x].name, key.y])
@@ -169,6 +171,13 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 				commands.append([role, str(message[1]), str(message[2])])
 		"hash":
 			if message.size() >= 3: check_hash(role, int(message[1]), int(message[2]))
+		"ping":
+			# 原样回给发送者，客户端据此测往返延迟；不进入对局帧，不影响同步。
+			if message.size() >= 2: send(key, ["pong", message[1]])
+		"stat":
+			# 客户端每 10 秒上报一次网络质量，记在主机的中继日志里，不用让对方截图就能看出卡在哪。
+			if message.size() >= 6:
+				log_line("玩家 %02d 网络：延迟 %d ms，抖动 %d ms，缓冲 %d 帧，近 10 秒卡顿 %d 次，帧率 %d" % [role + 1, int(message[1]), int(message[2]), int(message[3]), int(message[4]), int(message[5])])
 
 func check_hash(role: int, at: int, value: int) -> void:
 	if hashes.size() > 64: hashes.clear()
