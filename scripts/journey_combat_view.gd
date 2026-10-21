@@ -16,6 +16,7 @@ const GRENADE_FLIGHT := 0.28
 var last_shots := [0,0]
 var previous_health := [100,100]
 var previous_shield_uses := 0
+var previous_reload := [0,0]
 
 func make_gun(parent: Node3D) -> Node3D:
 	var gun := Node3D.new()
@@ -322,7 +323,12 @@ func sync() -> void:
 				casings[role].set_meta("until",run.elapsed+0.05)
 		if not shot.is_empty(): last_shots[role]=shot.id
 		if casings[role].emitting and run.elapsed>float(casings[role].get_meta("until",0.0)):casings[role].emitting=false
-		if run.combat.health[role]<previous_health[role]: game.sfx.play("hit",-9.0)
+		if run.combat.health[role]<previous_health[role]: game.sfx.play_at("punch_heavy",game.robots[role].global_position+Vector3(0,1.5,0),-2.0,0.95)
+		# 换弹：开始时卸弹匣，结束时上膛。
+		var reloading:int=int(weapon.get("reload",0))
+		if reloading>0 and previous_reload[role]==0: game.sfx.play_at("metal_latch",guns[role].global_position,-6.0)
+		elif reloading==0 and previous_reload[role]>0 and not weapon.is_empty(): game.sfx.play_at("metal_click",guns[role].global_position,-4.0)
+		previous_reload[role]=reloading
 		previous_health[role]=run.combat.health[role]
 	if run.shield_uses>previous_shield_uses: game.sfx.play("shield_break",-6.0)
 	previous_shield_uses=run.shield_uses

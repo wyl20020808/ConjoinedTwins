@@ -9,21 +9,112 @@ var players: Array[AudioStreamPlayer] = []
 var next_player := 0
 var noise := RandomNumberGenerator.new()
 
+# 混音总线：音乐、音效、环境、界面分开调节；Master 末端限幅，叠音时不爆音。
+const BUSES := ["Music", "SFX", "Ambience", "UI"]
+const UI_SOUNDS := ["coin", "coin_land", "prize", "clear", "click"]
+# 定位音效：机关、敌人在世界中的位置发声，带距离衰减和左右声像。
+const POOL_3D := 8
+const MAX_DISTANCE := 90.0
+# 每次播放随机变化音高与音量，避免连续同一声音像机器复读；只影响本机听感。
+const PITCH_VARY := 0.05
+const VOLUME_VARY := 2.0
+var players_3d: Array[AudioStreamPlayer3D] = []
+var next_player_3d := 0
+var vary := RandomNumberGenerator.new()
+# 录制音效（Kenney Impact Sounds / RPG Audio，CC0，见 ASSET_SOURCES.md）：同名多条，播放时随机选一条。
+# 原 OGG 已解码为单声道 WAV：短音效频繁起停，OGG 播放句柄在退出时可能残留。
+const KENNEY := "res://assets/audio/kenney/%s.wav"
+const VARIANTS := {
+	"step_grass": ["footstep_grass_000", "footstep_grass_001", "footstep_grass_002", "footstep_grass_003", "footstep_grass_004"],
+	"step_stone": ["footstep_concrete_000", "footstep_concrete_001", "footstep_concrete_002", "footstep_concrete_003", "footstep_concrete_004"],
+	"step_wood": ["footstep_wood_000", "footstep_wood_001", "footstep_wood_002", "footstep_wood_003", "footstep_wood_004"],
+	"land_soft": ["impactSoft_heavy_000", "impactSoft_heavy_001", "impactSoft_heavy_002", "impactSoft_heavy_003", "impactSoft_heavy_004"],
+	"metal_heavy": ["impactMetal_heavy_000", "impactMetal_heavy_001", "impactMetal_heavy_002", "impactMetal_heavy_003", "impactMetal_heavy_004"],
+	"metal_light": ["impactMetal_light_000", "impactMetal_light_001", "impactMetal_light_002", "impactMetal_light_003", "impactMetal_light_004"],
+	"rubble": ["impactMining_000", "impactMining_001", "impactMining_002", "impactMining_003", "impactMining_004"],
+	"plate_heavy": ["impactPlate_heavy_000", "impactPlate_heavy_001", "impactPlate_heavy_002", "impactPlate_heavy_003", "impactPlate_heavy_004"],
+	"punch": ["impactPunch_medium_000", "impactPunch_medium_001", "impactPunch_medium_002", "impactPunch_medium_003", "impactPunch_medium_004"],
+	"punch_heavy": ["impactPunch_heavy_000", "impactPunch_heavy_001", "impactPunch_heavy_002", "impactPunch_heavy_003", "impactPunch_heavy_004"],
+	"creak": ["creak1", "creak2", "creak3"],
+	"metal_click": ["metalClick"],
+	"metal_latch": ["metalLatch"],
+	"door_open": ["doorOpen_1", "doorOpen_2"],
+}
+var variants := {}
+# 退出场景树后不再新建播放句柄，否则 OGG 播放对象会在退出时残留。
+var closing := false
+# 每个播放器每帧最多启动一次：同帧重复改播会让被替换的播放句柄来不及释放（例如多排地刺同时弹出）。
+var started_frame := {}
+
+func available(player: Node) -> bool:
+	var frame := Engine.get_process_frames()
+	if started_frame.get(player, -1) == frame: return false
+	started_frame[player] = frame
+	return true
 const SOUND_NAMES := ["coin", "coin_land", "prize", "shield", "shield_break", "jump", "land", "hit", "fall", "warning", "whoosh", "clear", "rope", "buckle", "click", "gunshot"]
 
 func _ready() -> void:
+	ensure_buses()
+	vary.randomize()
 	for n in range(POOL):
 		var player := AudioStreamPlayer.new()
 		add_child(player)
 		players.append(player)
+	for n in range(POOL_3D):
+		var player := AudioStreamPlayer3D.new()
+		player.bus = "SFX"
+		player.unit_size = 8.0
+		player.max_distance = MAX_DISTANCE
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.panning_strength = 0.8
+		add_child(player)
+		players_3d.append(player)
 	for key in SOUND_NAMES:
 		streams[key] = load("res://assets/audio/%s.wav" % key)
+	for key in VARIANTS:
+		var list: Array[AudioStream] = []
+		for file in VARIANTS[key]: list.append(load(KENNEY % file))
+		variants[key] = list
+
+func has_sound(name: String) -> bool:
+	return not closing and is_inside_tree() and (streams.has(name) or variants.has(name))
+
+func pick(name: String) -> AudioStream:
+	if variants.has(name):
+		var list: Array = variants[name]
+		return list[vary.randi() % list.size()]
+	return streams.get(name)
+
+static func ensure_buses() -> void:
+	for name in BUSES:
+		if AudioServer.get_bus_index(name) >= 0: continue
+		AudioServer.add_bus()
+		var index := AudioServer.bus_count - 1
+		AudioServer.set_bus_name(index, name)
+		AudioServer.set_bus_send(index, "Master")
+	var master := AudioServer.get_bus_index("Master")
+	for n in range(AudioServer.get_bus_effect_count(master)):
+		if AudioServer.get_bus_effect(master, n) is AudioEffectHardLimiter: return
+	var limiter := AudioEffectHardLimiter.new()
+	limiter.ceiling_db = -0.5
+	AudioServer.add_bus_effect(master, limiter)
+
+# 按线性 0–1 平滑设置某条总线音量，用于战斗时压低环境声。
+static func set_bus_level(name: String, linear: float) -> void:
+	var index := AudioServer.get_bus_index(name)
+	if index >= 0: AudioServer.set_bus_volume_db(index, linear_to_db(maxf(0.0001, linear)))
 
 func _exit_tree() -> void:
+	closing = true
+	started_frame.clear()
+	for player in players_3d:
+		player.stop()
+		player.stream = null
 	for player in players:
 		player.stop()
 		player.stream = null
 	streams.clear()
+	variants.clear()
 
 func synthesize() -> void:
 	noise.seed = 7
@@ -91,10 +182,27 @@ func render(length: float, wave: Callable) -> AudioStreamWAV:
 	return stream
 
 func play(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
-	if not streams.has(name): return
+	if not has_sound(name): return
 	var player := players[next_player]
+	if not available(player): return
 	next_player = (next_player + 1) % players.size()
-	player.stream = streams[name]
-	player.volume_db = volume_db
-	player.pitch_scale = pitch
+	player.stream = pick(name)
+	player.bus = "UI" if name in UI_SOUNDS else "SFX"
+	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
+	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))
+	player.play()
+
+# 在世界坐标发声，带距离衰减；调用方不必判断远近。
+func play_at(name: String, position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	if not has_sound(name) or players_3d.is_empty(): return
+	# 超出听距的不播放：既听不到，也不占用播放器（远处播放的句柄停止时可能不被音频服务器回收）。
+	var listener := get_viewport().get_camera_3d() if get_viewport() != null else null
+	if listener != null and listener.global_position.distance_to(position) > MAX_DISTANCE: return
+	var player := players_3d[next_player_3d]
+	if not available(player): return
+	next_player_3d = (next_player_3d + 1) % players_3d.size()
+	player.stream = pick(name)
+	player.global_position = position
+	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
+	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))
 	player.play()

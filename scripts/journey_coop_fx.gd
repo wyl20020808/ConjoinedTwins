@@ -130,6 +130,8 @@ func sync_gates(run) -> void:
 				fx.impact(point, Color("ffd27a"), 4.0, 3.0, false)
 				shard_burst(point + Vector3(0, 1.5, 0), 1.6)
 				shard_burst(point + Vector3(0, 3.0, 0), 1.6)
+				var sfx = game.get("sfx")
+				if sfx != null and sfx.has_method("play_at"): sfx.play_at("door_open", point + Vector3(0, 2.0, 0), 0.0, 0.8)
 		gate_state[gate.id] = {"occupied": occupied, "open": open}
 
 func sync_rescue(run, state: String) -> void:
