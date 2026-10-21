@@ -24,6 +24,8 @@ var next_frame := 0
 var desynced := false
 var connected := false
 var last_address := ""
+# 桌面版 wss 证书校验失败时（安全软件、校园网或公司网截获 HTTPS 很常见），改用不校验证书的加密连接重试一次。
+var tls_relaxed := false
 var last_input := PackedByteArray()
 var last_input_msec := 0
 # 联机流量统计（字节，含本层负载，不含传输层头部），供测试与网页验证读取。
@@ -36,15 +38,16 @@ func _ready() -> void:
 		connected = true
 		remember_address(last_address)
 		status_changed.emit("已连上服务器，等待分配位置…"))
-	api.connection_failed.connect(func(): stop("连接失败：检查服务器地址、端口和组网是否在线。"))
+	api.connection_failed.connect(_on_connection_failed)
 	api.server_disconnected.connect(func(): stop("与服务器断开。"))
 	api.peer_packet.connect(_on_packet)
 
 # 地址可写 “主机”、“主机:端口”、“[IPv6]:端口”，或 ws:// / wss:// 开头的完整地址。
 # 原生客户端默认走 ENet（UDP）；网页版浏览器不能收发 UDP，一律走 WebSocket。
-func connect_to(address: String) -> void:
+func connect_to(address: String, relaxed: bool = false) -> void:
 	disconnect_from()
 	last_address = address
+	tls_relaxed = relaxed
 	var target := parse_address(address, OS.has_feature("web"), page_is_secure())
 	if target.has("error"):
 		status_changed.emit(target.error)
@@ -52,7 +55,7 @@ func connect_to(address: String) -> void:
 	var error: int
 	if target.kind == "ws":
 		var ws := WebSocketMultiplayerPeer.new()
-		error = ws.create_client(target.url)
+		error = ws.create_client(target.url, TLSOptions.client_unsafe() if relaxed else TLSOptions.client())
 		peer = ws
 	else:
 		var enet := ENetMultiplayerPeer.new()
@@ -136,6 +139,21 @@ static func page_default_address() -> String:
 	var host = JavaScriptBridge.eval("location.host", true)
 	if not host is String or host.is_empty(): return ""
 	return ("wss://" if page_is_secure() else "ws://") + host + "/ws"
+
+func _on_connection_failed() -> void:
+	var secure := last_address.strip_edges().to_lower().begins_with("wss://")
+	if secure and not tls_relaxed and not OS.has_feature("web"):
+		status_changed.emit("加密校验未通过，正在改用兼容方式重连…")
+		connect_to.call_deferred(last_address, true)
+		return
+	stop("连接失败：%s 连不上。请确认主机电脑的联机服务和 SakuraFrp 在线，并用浏览器打开 %s 看能否访问。" % [last_address, browser_url(last_address)])
+
+# 服务器地址对应的网页地址，便于玩家用浏览器排查网络是否可达。
+static func browser_url(address: String) -> String:
+	var text := address.strip_edges()
+	if text.to_lower().begins_with("wss://"): text = "https://" + text.substr(6)
+	elif text.to_lower().begins_with("ws://"): text = "http://" + text.substr(5)
+	return text.trim_suffix("/ws")
 
 func disconnect_from() -> void:
 	if peer != null:
