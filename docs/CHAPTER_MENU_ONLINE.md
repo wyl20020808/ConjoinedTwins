@@ -113,3 +113,19 @@
 3. 协议从 6 升到 7，**中继也要用新代码重启**；两人都刷新页面。
 4. Caddyfile 不需要改：`precompressed br gzip` 同样适用于 `packs/*.pck`。
 5. 新增或删除资源、改动章节内容后，先运行 `python build-tools/chapter_usage.py` 更新用量记录再导出。
+
+## Windows 本机发布（2026-10-21 起替代 Mac mini）
+
+SakuraFrp 隧道：TCP，节点“浙江三线PLUS7”，公网端口 57412 → 本机 `127.0.0.1:8080`，需开启自动 HTTPS（网页 Service Worker 与 wss 联机都要求 https）。
+
+本机没有 Caddy，改用 `deploy/windows/serve_web.py`（只用 Python 标准库），职责与 `deploy/macmini/Caddyfile` 相同：静态文件优先发预压缩 `.br/.gz`、`.wasm` 正确类型、`no-cache` + ETag；`/ws` 透传给联机中继 WebSocket 端口 24681。
+
+```
+python build-tools/prepare_web.py                                                    # 导出 + 拆包 + 预压缩到 builds\web
+powershell -ExecutionPolicy Bypass -File deploy\windows\start_server.ps1 -Publish     # 复制到 D:\ConjoinedTwins-web\site 并后台启动
+powershell -ExecutionPolicy Bypass -File deploy\windows\start_server.ps1 -Stop        # 停止
+```
+
+- 站点目录固定为 `D:\ConjoinedTwins-web\site`（工程外），其他任务重新导出 `builds\web` 不会影响正在发布的版本；要更新时再 `-Publish`。
+- 中继用 `--main-pack 站点\index.pck` 运行，与正在发布的网页同一份代码，协议版本必然一致。
+- 进程无窗口运行，PID 记录在 `D:\ConjoinedTwins-web\*.pid`，日志在 `D:\ConjoinedTwins-web\logs\`；脚本只停止自己记录的进程。重启电脑后需重新运行（未注册开机自启）。也可双击 `deploy\windows\启动网页服务器.cmd`。
