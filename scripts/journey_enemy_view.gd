@@ -16,6 +16,12 @@ const SCANNED := {
 const NATIVE_FORWARD_Z := ["wolf","briar"]
 const LOOPING := ["Idle","Walk","Run"]
 # 命中碎屑颜色：树精木屑、石卫石粉、狼灰毛，其他怪物溅土。
+# 命中停顿：只冻结被击中敌人的姿势（普通命中 50 ms、击败 90 ms），模拟和其余画面照常推进。
+const HIT_STOP := 0.05
+const KILL_STOP := 0.09
+# 画面击退：沿射击方向后移最多 0.28 米，0.2 秒回位；碰撞仍按模拟位置。
+const KNOCKBACK := 0.28
+const KNOCKBACK_TIME := 0.2
 const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86")}
 static var charge_material:ShaderMaterial
 
@@ -245,7 +251,17 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)
-	if event.kind=="monster" and actor.has_meta("anim"):sync_animation(run,actor,event,died,hit_age)
+	var stop:float=KILL_STOP if died else HIT_STOP
+	# 停顿期间保留上一帧骨骼姿势，结束后按模拟时间继续，不累计偏差。
+	if event.kind=="monster" and actor.has_meta("anim") and not (hit_age>=0.0 and hit_age<stop):sync_animation(run,actor,event,died,hit_age)
+	if hit_age>=0.0 and hit_age<KNOCKBACK_TIME and event.kind=="monster":
+		var away:Vector2=point-(run.a.position+run.b.position)*0.5
+		if away.length_squared()>1.0:
+			var push:float=KNOCKBACK*(1.0-smoothstep(0.0,KNOCKBACK_TIME,hit_age))*(1.4 if died else 1.0)
+			away=away.normalized()
+			actor.position+=Vector3(away.x,0,-away.y)*push
+		# 命中瞬间轻微放大再回弹，强调确认感。
+		actor.scale*=1.0+0.08*(1.0-smoothstep(0.0,stop*1.6,hit_age))
 	# 命中火花与倒地尘爆：按模拟命中/击败时间各触发一次，只读状态。
 	var fx=game.get("fx")
 	if fx!=null and event.kind=="monster":
@@ -314,4 +330,6 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	burst.global_basis=game.camera.global_basis.scaled(Vector3.ONE*(1+maxf(0,hit_age)*5))
 	if hit_age<.2 and event.hit_at!=view.get_meta("last_hit_at"):
 		game.sfx.play("buckle",-15.0,.7 if died else 1.25)
+		# 击败追加一层低沉冲击，和普通命中区分。
+		if died: game.sfx.play("land",-10.0,0.75)
 	view.set_meta("last_hit_at",event.get("hit_at",-1.0))
