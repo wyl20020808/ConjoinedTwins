@@ -11,6 +11,10 @@ const SCANNED := {
 	"archer":["res://assets/monsters/rigged/raider_slinger.glb",3.0,3.0],
 	"dasher":["res://assets/monsters/rigged/brute_charger.glb",3.2,3.2],
 	"wolf":["res://assets/monsters/rigged/grey_wolf.glb",2.8,2.0],
+	# 2026-10-21 第二批：原生高度 根须蛛 0.70、地精 1.0、钳甲兵 0.98（最长边为 1）。
+	"root_spider":["res://assets/monsters/rigged/root_spider.glb",2.6,1.8],
+	"goblin_bomber":["res://assets/monsters/rigged/goblin_bomber.glb",2.4,2.4],
+	"river_crab_knight":["res://assets/monsters/rigged/river_crab_knight.glb",3.6,3.5],
 }
 # 狼与树精的模型原生朝 +Z（其余朝 +X）。原先统一转 -90°，导致它们一直侧身朝玩家移动。
 const NATIVE_FORWARD_Z := ["wolf","briar"]
@@ -29,8 +33,9 @@ const TURN_LEAN := 0.05
 const FX_RANGE := 900.0
 const RUN_DUST_EVERY := 0.28
 const DASH_DUST_EVERY := 0.08
-const ALERT_COLORS := {"briar":Color("9bd36a"),"raider":Color("ff8a4a"),"sentinel":Color("8fd0ff"),"archer":Color("d8e27a"),"dasher":Color("ff5a3a"),"wolf":Color("ffcf6a")}
-const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86")}
+const ALERT_COLORS := {"briar":Color("9bd36a"),"raider":Color("ff8a4a"),"sentinel":Color("8fd0ff"),"archer":Color("d8e27a"),"dasher":Color("ff5a3a"),"wolf":Color("ffcf6a"),
+	"root_spider":Color("c7e070"),"goblin_bomber":Color("ffb347"),"river_crab_knight":Color("6fd6e0")}
+const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86"),"root_spider":Color("5e4126"),"river_crab_knight":Color("4b6f86"),"goblin_bomber":Color("4a4f45")}
 static var charge_material:ShaderMaterial
 
 static func model_path(archetype: String) -> String:
@@ -43,7 +48,7 @@ static func make_monster(game, parent: Node3D, archetype: String) -> Node3D:
 	if models.has(archetype):
 		var instance:Node3D=models[archetype].instantiate();parent.add_child(instance);return instance
 	var actor := Node3D.new();actor.name="Monster";parent.add_child(actor)
-	var color: Color={"briar":Color("617648"),"raider":Color("9a5342"),"sentinel":Color("647b88"),"archer":Color("4e6449"),"dasher":Color("88533c"),"wolf":Color("777b75")}[archetype]
+	var color: Color={"briar":Color("617648"),"raider":Color("9a5342"),"sentinel":Color("647b88"),"archer":Color("4e6449"),"dasher":Color("88533c"),"wolf":Color("777b75")}.get(archetype,Color("6b6b5a"))
 	var hide: Material=game.material("monster_"+archetype,color)
 	var dark: Material=game.material("monster_dark",Color("293537"))
 	var trim: Material=game.material("monster_trim",Color("c6ad77"))
@@ -200,7 +205,7 @@ static func sync_animation(run, actor: Node3D, event: Dictionary, died: bool, hi
 		var start:float=event.trigger+run.Monsters.profile(event).windup
 		clip="Attack";phase=.45+clampf((run.elapsed-start)/.5,0,1)*.55
 	elif moving:
-		clip="Run" if event.archetype in ["dasher","wolf"] else "Walk"
+		clip="Run" if run.Monsters.charges(event) else "Walk"
 		phase=fposmod(event.get("stride",0.0)/TAU,1.0)
 	var name:String=actor.get_meta("anim_names",{}).get(clip,"")
 	if name.is_empty():
@@ -227,19 +232,19 @@ static func monster_fx(game, view: Node3D, event: Dictionary, location: Vector3,
 	if not near: return
 	var phase:String=event.get("phase","")
 	var seq:int=event.get("attack_seq",0)
-	var charging:bool=event.archetype in ["dasher","wolf"] and phase=="active"
+	var charging:bool=run.Monsters.charges(event) and phase=="active"
 	var every:float=DASH_DUST_EVERY if charging else RUN_DUST_EVERY
-	if (moving or charging) and (event.archetype in ["dasher","wolf","briar"] or charging) and run.elapsed-float(view.get_meta("fx_dust_at",-10.0))>=every:
+	if (moving or charging) and (run.Monsters.charges(event) or event.archetype=="briar" or charging) and run.elapsed-float(view.get_meta("fx_dust_at",-10.0))>=every:
 		view.set_meta("fx_dust_at",run.elapsed)
 		fx.burst("dust",feet)
 	if phase=="active" and view.get_meta("fx_active_seq",-1)!=seq:
 		view.set_meta("fx_active_seq",seq)
-		if event.archetype=="archer":
+		if run.Monsters.ranged(event):
 			fx.burst("spark",location+Vector3(0,2.2,0))
-		elif event.archetype not in ["dasher","wolf"]:
+		elif not run.Monsters.charges(event):
 			var land:Vector2=event.get("landing",event.origin)
 			var ground:=Vector3(land.x/20.0,run.surface_at(land,run.elapsed).height/20.0,-land.y/20.0)
-			fx.impact(ground,Color("ffcf9a"),1.6 if event.archetype!="sentinel" else 2.2,1.2)
+			fx.impact(ground,Color("ffcf9a"),2.2 if event.archetype in ["sentinel","river_crab_knight"] else 1.6,1.2)
 			var hazard_fx=game.get("hazard_fx")
 			if hazard_fx!=null: hazard_fx.burst_debris(ground+Vector3(0,0.15,0),HIT_CHIPS.get(event.archetype,Color("6b5843")),0.45)
 
@@ -282,10 +287,10 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		var charge:=sin(clampf((run.elapsed-event.trigger)/run.Monsters.profile(event).windup,0,1)*PI/2) if event.phase=="warning" else 0.0
 		actor.get_node("LeftArm").rotation.x=-charge*1.7-swing*.7
 		actor.get_node("RightArm").rotation.x=-charge*1.7+swing*.7
-		if event.archetype=="archer" and event.phase in ["warning","active"]:
+		if run.Monsters.ranged(event) and event.phase in ["warning","active"]:
 			actor.get_node("LeftArm").rotation.x=-1.5
 			actor.get_node("RightArm").rotation.x=-1.5+charge*.65
-		elif event.archetype in ["dasher","wolf"]:
+		elif run.Monsters.charges(event):
 			actor.position.y-=charge*.22
 			actor.rotation.x=-charge*.3-(.25 if event.phase=="active" else 0.0)
 			if event.archetype=="wolf":
@@ -296,7 +301,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 			var figure:Node3D=actor.get_node("Figure")
 			figure.rotation.x=swing*.11
 			figure.rotation.z=charge*.28
-		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
+		view.get_node("Body").visible=event.phase=="active" and not died and not run.Monsters.charges(event)
 		monster_fx(game,view,event,location,moving,died)
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)

@@ -27,19 +27,41 @@
 - **近战出手**：掠袭者、树精、石卫进入出手阶段时，在落点冲击并溅碎屑（石卫冲击范围更大）。
 - **弓手放箭**：手部火花。
 
-## 种类单一
+## 种类单一：新增三种怪物、三种村民，全部怪物每章都可能出现并轮换
 
-已写好 Tripo 文生 3D 提示词：3 种新怪物、3 种 NPC，含生成参数和文件名，见 [TRIPO_PROMPTS_MONSTERS_NPC.md](TRIPO_PROMPTS_MONSTERS_NPC.md)。等用户生成并下载后再接入：绑骨、出生规则，以及每种地貌两种本地怪、相邻敌群交替出现。
+用户按提示词在 Tripo 生成 6 个模型（来源、大小、SHA-256 见 `ASSET_SOURCES.md`），按用户要求：怪物不按关卡限制，每章都可能出现所有种类，并且交替出现。
 
-现在不调整出场编排的原因：`tests/journey_random_layout.gd` 要求每章远程、冲锋、狼三类数量相差不超过 1。只有 6 种怪时，重排也只是同样几种轮换，体验改善有限。新怪到位后再一起改编排，并相应更新这条配比约束。
+**新怪物**（`scripts/journey_monsters.gd`）：
+
+| 种类 | 名称 | 攻击方式 | 血量 | 速度 | 说明 |
+| --- | --- | --- | ---: | ---: | --- |
+| `root_spider` | 根须蛛 | 扑咬（复用冲锋逻辑） | 30 | 290 | 预警 0.4 秒、扑 0.4 秒、射程 220、伤害 22，短促快速 |
+| `goblin_bomber` | 矿灯地精 | 远程（复用飞行物逻辑） | 35 | 200 | 炸药包飞得比箭慢（520），预警 0.8 秒，射程 620，伤害 38；画面为黑色圆弹加发光引信 |
+| `river_crab_knight` | 河岸钳甲兵 | 近战砸地 | 90 | 150 | 慢速重甲，落点冲击范围与石卫相同 |
+
+原来按名字写死的判断（`archer`、`dasher`/`wolf`）改为按攻击方式：`Monsters.ranged()`（弓手、地精）与 `Monsters.charges()`（冲锋者、狼、根须蛛），涉及模拟、搭档避险、预警条、画面动作与特效。
+
+**出场编排**：原来每只怪从“弓手 / 冲锋者 / 狼 / 本地怪”袋中抽，本地怪按地貌固定（森林树精、村庄掠袭者、矿道石卫）。现在每一群抽一个主力和一个辅助（都从 9 种的洗牌袋中抽，二者不同），成员按主力、辅助交替站位；相邻两群主力不同，空群不打断轮换。每种怪都可能出现在任何一章。实测 3 个种子 × 3 章：9 种每章都出现，每种 5–18 只，没有一种超过总数四分之一，相邻怪群主力不重复。
+
+**新村民**：渔夫、老矿工、巡逻卫兵加入村民轮换（`scripts/journey_landscape.gd` 的 `VILLAGERS`，由 4 种变为 7 种），与原村民一样有待机、说话、张望动作。
+
+**绑骨**（`build-tools/journey/rig_npcs.py`）：
+
+- 新增 `spider` 骨架：按贴地顶点绕身体中心的角度间隙自动分腿（根须蛛识别为 8 条），每条腿两节拱形骨；动作为三角步态（相邻腿交替抬起前摆）、前腿高举再扑下的攻击、腿收拢的受击。
+- 地精举手角度 70°（举太高会拉长手臂网格），钳甲兵走路摆臂幅度降到 30%（大钳是独立网格块）。
 
 ## 验证
 
-- 新增 `tests/journey_monster_polish.gd`：12 项 0 失败（狼头朝前、转身逐帧追随与侧倾、约 2 秒转到位、察觉与出手特效各触发一次、下次出手再触发、远处不触发）。
-- `journey_hit_feel`、`journey_monsters`（338 项）、`journey_world_view`（44 项）、`journey_combat_variety`（67 项）、`journey_audio_mix`：0 失败。
-- `python3 build-tools/check_journey_performance.py --godot /Applications/Godot.app/Contents/MacOS/Godot`：26 组全部通过，报告 `/Users/apple/ConjoinedTwins-task-temp/monster-polish-perf-20261021/summary.json`。
+- `tests/journey_monster_polish.gd`：27 项 0 失败（狼头朝前、转身与侧倾、察觉与出手特效；三种新怪物带五个动作、名称血量与轮换、攻击方式归类、走完蓄力/出手/受击/倒下的画面同步；三种新村民加入轮换并带三个动作）。
+- `tests/journey_random_layout.gd`、`tests/journey_combat_variety.gd`：把原“弓手、冲锋者、狼各至少 15 只、三者相差不超过 1”的配比约定改为新设计：每章 9 种都出现，没有一种超过四分之一，相邻怪群主力不同。分别 4536 项、85 项 0 失败。
+- `journey_monsters`（347 项）、`journey_world_view`、`journey_environment_lifetime`（无资源残留）、`journey_encounter_density`、`journey_pursuit`、`journey_polish`、`journey_combat`、`journey_hit_feel`、`journey_audio_mix`：0 失败。
+- `python3 build-tools/check_journey_performance.py --godot /Applications/Godot.app/Contents/MacOS/Godot`：狼头与特效一轮 26 组全部通过（`/Users/apple/ConjoinedTwins-task-temp/monster-polish-perf-20261021/summary.json`）；新怪物与轮换一轮 26 组全部通过（`/Users/apple/ConjoinedTwins-task-temp/monster-roster-perf-20261021/summary.json`）。
+- 新增素材让项目多出约 16 MB（6 个原始导出缩图后约 7.6 MB，绑骨版约 8.6 MB，另有导入时提取的贴图）。网页包体积尚未重新测量。
 
 ## 待试玩
 
 - 狼头在游戏里的实际朝向，鬃毛和颈部有没有拉扯变形。
 - 察觉光环和奔跑扬尘会不会太密。
+- 三种新怪物在游戏里的大小、朝向和动作（根须蛛三角步态、地精抛炸药包、钳甲兵砸地）；新数值（血量、伤害、速度）是否合适。
+- 9 种怪物轮流出现后的难度：每章都可能遇到远程地精与重甲钳甲兵。
+- 新村民在村庄里的分布与比例（老矿工按普通村民身高显示，可能显得不够矮）。

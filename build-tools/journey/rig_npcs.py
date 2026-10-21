@@ -32,6 +32,14 @@ CONFIG = {
     'villager_elder': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.6, 'attack': 'swing', 'raise': 50},
     'villager_blacksmith': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.8, 'attack': 'swing', 'raise': 90},
     'villager_merchant': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.7, 'attack': 'swing', 'raise': 50},
+    # 2026-10-21 第二批 Tripo：三种怪物、三种村民，正前方均为 +X。根须蛛是多足，用 spider 骨架与三角步态。
+    'root_spider': {'kind': 'spider', 'forward': (1, 0, 0), 'gait': 1.0},
+    # 地精手臂短、紧贴身体，举太高会把手臂网格拉长；钳甲兵的大钳是独立网格块，摆臂过大会与肩甲脱开。
+    'goblin_bomber': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.9, 'attack': 'swing', 'raise': 70, 'main': 'R'},
+    'river_crab_knight': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.55, 'attack': 'slam', 'raise': 45, 'arm_gait': 0.3},
+    'villager_fisher': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.7, 'attack': 'swing', 'raise': 50},
+    'villager_miner': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.6, 'attack': 'swing', 'raise': 60},
+    'villager_guard': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.8, 'attack': 'swing', 'raise': 70},
 }
 
 
@@ -176,6 +184,37 @@ def straighten_head(mesh, cfg):
     return math.degrees(yaw)
 
 
+def spider_joints(verts, cfg):
+    """多足：贴地顶点按绕身体中心的角度分组得到每条腿的脚（按角度间隙自动分出 4–8 条），
+    髋点在身体边缘、膝点抬高形成拱形腿；身体中心到最前端为头。"""
+    f, left, up = frame_axes(cfg['forward'])
+    H = max(v.z for v in verts)
+    body = [v for v in verts if v.z > 0.45 * H]
+    c = centroid(body); c.z = 0.45 * H
+    flat = lambda v: Vector((v.x - c.x, v.y - c.y, 0))
+    radius = sorted(flat(v).length for v in body)[int(len(body) * 0.8)]
+    feet = [v for v in verts if v.z < 0.06 * H and flat(v).length > 0.6 * radius]
+    angle = lambda v: math.atan2(flat(v).dot(left), flat(v).dot(f))
+    feet.sort(key=angle)
+    groups = [[feet[0]]]
+    for a, b in zip(feet, feet[1:]):
+        if angle(b) - angle(a) > math.radians(14): groups.append([])
+        groups[-1].append(b)
+    if len(groups) > 1 and angle(feet[0]) + 2 * math.pi - angle(feet[-1]) < math.radians(14):
+        groups[0] = groups.pop() + groups[0]
+    groups = sorted([g for g in groups if len(g) >= 6], key=len, reverse=True)[:8]
+    groups.sort(key=lambda g: angle(centroid(g)))
+    nose = max(verts, key=lambda v: v.dot(f) if v.z > 0.25 * H else -1e9)
+    joints = {'c': c, 'top': c + up * 0.3 * H, 'nose': nose, '_legs': len(groups)}
+    for i, g in enumerate(groups):
+        foot = centroid(g); foot.z = 0.03 * H
+        d = flat(foot).normalized()
+        hip = c + d * radius * 0.7; hip.z = 0.4 * H
+        knee = hip + (foot - hip) * 0.45; knee.z = max(0.55 * H, hip.z + 0.1 * H)
+        joints.update({f'leg_hip.{i}': hip, f'leg_knee.{i}': knee, f'leg_foot.{i}': foot})
+    return joints
+
+
 def build_armature(joints, kind):
     arm_data = bpy.data.armatures.new('Rig')
     rig = bpy.data.objects.new('Rig', arm_data)
@@ -193,6 +232,15 @@ def build_armature(joints, kind):
         return b
 
     j = joints
+    if kind == 'spider':
+        bone('Hips', j['c'], j['c'] + Vector((0, 0, 0.02)))
+        bone('Spine', j['c'], j['top'], 'Hips')
+        bone('Head', j['c'], j['nose'], 'Hips')
+        for i in range(j['_legs']):
+            bone(f'LegUpper.{i}', j[f'leg_hip.{i}'], j[f'leg_knee.{i}'], 'Hips')
+            bone(f'LegLower.{i}', j[f'leg_knee.{i}'], j[f'leg_foot.{i}'], f'LegUpper.{i}', True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        return rig
     if kind == 'biped':
         bone('Hips', j['pelvis'], j['pelvis'] + Vector((0, 0, 0.05)))
         bone('Spine', j['pelvis'], j['chest'], 'Hips')
@@ -397,8 +445,9 @@ def biped_clips(rig, joints, cfg, H):
     keyframe_clip(rig, 'Talk', 90, True, talk)
     keyframe_clip(rig, 'Look', 150, True, look)
     g = cfg.get('gait', 1.0)
-    keyframe_clip(rig, 'Walk', 32, True, lambda t: gait(t, 26 * g, 40 * g, 20 * g, 12, 0.018 * g, 4))
-    keyframe_clip(rig, 'Run', 20, True, lambda t: gait(t, 42 * g, 70 * g, 40 * g, 50, 0.035 * g, 12 * g))
+    arm = cfg.get('arm_gait', 1.0)
+    keyframe_clip(rig, 'Walk', 32, True, lambda t: gait(t, 26 * g, 40 * g, 20 * g * arm, 12 * arm, 0.018 * g, 4))
+    keyframe_clip(rig, 'Run', 20, True, lambda t: gait(t, 42 * g, 70 * g, 40 * g * arm, 50 * arm, 0.035 * g, 12 * g))
     keyframe_clip(rig, 'Attack', 30, False, attack)
     keyframe_clip(rig, 'Hit', 12, False, hit)
     return main
@@ -459,6 +508,69 @@ def quad_clips(rig, joints, cfg, H):
     return 'jaw'
 
 
+def spider_clips(rig, joints, cfg, H):
+    """三角步态：按角度顺序交替分成两组，一组抬腿前摆时另一组撑地后蹬；身体随步伐轻颠。
+    攻击：前腿高举、身体后仰蓄力，再前扑砸下；受击：身体后缩、腿收拢。"""
+    f, left, up = frame_axes(cfg['forward'])
+    lean = lambda deg: q_axis(left, deg)
+    legs = joints['_legs']
+    out = [((joints[f'leg_foot.{i}'] - joints['c']) * Vector((1, 1, 0))).normalized() for i in range(legs)]
+    # 绕切向轴转正角使腿向上抬；绕竖轴转使腿前后摆（按腿所在一侧决定方向，保持“前摆”一致）。
+    lift = lambda i, deg: q_axis(up.cross(out[i]), -deg)
+    sweep = lambda i, deg: q_axis(up, deg * (1 if out[i].dot(left) >= 0 else -1))
+    front = [i for i in range(legs) if out[i].dot(f) > 0.3]
+
+    def gait(t, amp, raise_deg, bob):
+        p = t * 2 * math.pi
+        rots = {}
+        for i in range(legs):
+            ph = 0.0 if i % 2 == 0 else math.pi
+            a = math.sin(p + ph)
+            up_amt = raise_deg * max(0.0, math.cos(p + ph))
+            rots[f'LegUpper.{i}'] = sweep(i, amp * a) @ lift(i, up_amt)
+            rots[f'LegLower.{i}'] = lift(i, -up_amt * 0.6)
+        rots['Spine'] = lean(3 * math.sin(2 * p))
+        rots['Head'] = lean(-3 * math.sin(2 * p + 0.4))
+        return rots, up * (bob * H * abs(math.sin(2 * p)))
+
+    def idle(t):
+        p = t * 2 * math.pi
+        rots = {'Spine': lean(2 * math.sin(p)), 'Head': q_axis(up, 6 * math.sin(p * 0.5))}
+        for i in range(legs):
+            rots[f'LegUpper.{i}'] = lift(i, 2.5 * math.sin(p + i))
+        return rots, up * (0.01 * H * math.sin(p))
+
+    def attack(t):
+        e = lambda x: x * x * (3 - 2 * x)
+        rear = e(min(t / 0.45, 1.0)); strike = e(max(0.0, min((t - 0.45) / 0.15, 1.0)))
+        back = 1.0 - max(0.0, (t - 0.65) / 0.35)
+        k = rear * (1 - strike) * back; l = strike * back
+        rots = {'Spine': lean(-14 * k + 10 * l), 'Head': lean(-18 * k + 22 * l)}
+        for i in range(legs):
+            if i in front:
+                rots[f'LegUpper.{i}'] = lift(i, 55 * k - 10 * l)
+                rots[f'LegLower.{i}'] = lift(i, -30 * k + 15 * l)
+            else:
+                rots[f'LegUpper.{i}'] = lift(i, -8 * k)
+        return rots, up * (0.08 * H * k - 0.04 * H * l) + f * (0.1 * H * l - 0.04 * H * k)
+
+    def hit(t):
+        k = math.sin(min(t, 1.0) * math.pi)
+        rots = {'Spine': lean(-12 * k), 'Head': lean(-10 * k)}
+        for i in range(legs):
+            rots[f'LegUpper.{i}'] = lift(i, 18 * k)
+            rots[f'LegLower.{i}'] = lift(i, -25 * k)
+        return rots, -f * (0.05 * H * k) + up * (-0.03 * H * k)
+
+    keyframe_clip(rig, 'Idle', 60, True, idle)
+    g = cfg.get('gait', 1.0)
+    keyframe_clip(rig, 'Walk', 24, True, lambda t: gait(t, 16 * g, 22 * g, 0.012))
+    keyframe_clip(rig, 'Run', 14, True, lambda t: gait(t, 22 * g, 30 * g, 0.025))
+    keyframe_clip(rig, 'Attack', 30, False, attack)
+    keyframe_clip(rig, 'Hit', 12, False, hit)
+    return 'jaw'
+
+
 def preview(rig, mesh, out_dir, name, cfg):
     scene = bpy.context.scene
     scene.render.engine = 'BLENDER_WORKBENCH'
@@ -510,10 +622,10 @@ def main():
             print('STRAIGHTENED', name, round(straightened, 1), 'degrees', flush=True)
         verts = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
         H = max(v.z for v in verts)
-        joints = biped_joints(verts, cfg) if cfg['kind'] == 'biped' else quad_joints(verts, cfg)
+        joints = {'biped': biped_joints, 'quad': quad_joints, 'spider': spider_joints}[cfg['kind']](verts, cfg)
         rig = build_armature(joints, cfg['kind'])
         missing = bind(mesh, rig, H, joints, cfg)
-        main_hand = biped_clips(rig, joints, cfg, H) if cfg['kind'] == 'biped' else quad_clips(rig, joints, cfg, H)
+        main_hand = {'biped': biped_clips, 'quad': quad_clips, 'spider': spider_clips}[cfg['kind']](rig, joints, cfg, H)
         rig.animation_data.action = bpy.data.actions['Idle']
         report[name] = {'straightened_head_degrees': round(straightened, 1), 'missing_weights': missing, 'verts': len(verts), 'main_hand': main_hand,
                         'joints': {k: [round(c, 3) for c in v] for k, v in joints.items() if not k.startswith('_')}}

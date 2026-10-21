@@ -32,7 +32,7 @@ func verify()->void:
 	run.state="running"
 	var event:Dictionary={}
 	for candidate in run.journey_events:
-		if candidate.kind=="monster" and candidate.archetype not in ["archer","dasher","wolf"]: event=candidate;break
+		if candidate.kind=="monster" and not run.Monsters.ranged(candidate) and not run.Monsters.charges(candidate): event=candidate;break
 	run.distance=event.y-300;run.a.position=Vector2(-42,event.y-300);run.b.position=Vector2(42,event.y-300)
 	game.sync_view()
 	var view:Node3D=game.event_views.get(event.id)
@@ -71,6 +71,38 @@ func verify()->void:
 		var far_ring:int=game.fx.ring_cursor
 		event.alert=true;EnemyView.monster_fx(game,view,event,Vector3.ZERO,true,false)
 		check(game.fx.ring_cursor==far_ring,"远处敌人不占粒子池")
+	# 第二批 Tripo：三种新怪物与三种新村民。
+	for kind in ["root_spider","goblin_bomber","river_crab_knight"]:
+		var holder:=Node3D.new();game.add_child(holder)
+		var actor:Node3D=EnemyView.make_monster(game,holder,kind)
+		var player:AnimationPlayer=actor.get_meta("anim") if actor.has_meta("anim") else null
+		var clips:=[]
+		if player!=null:
+			for clip in player.get_animation_list():clips.append(clip.get_slice("|",clip.get_slice_count("|")-1))
+		check(player!=null and ["Idle","Walk","Run","Attack","Hit"].all(func(c):return c in clips),"%s 绑骨模型带五个动作"%kind)
+		check(run.Monsters.NAMES.has(kind) and run.Monsters.HP.has(kind) and kind in run.Monsters.ROSTER,"%s 有名称、血量并参与轮换"%kind)
+		holder.queue_free()
+	check(run.Monsters.charges({"archetype":"root_spider"}) and run.Monsters.ranged({"archetype":"goblin_bomber"}) and not run.Monsters.ranged({"archetype":"river_crab_knight"}) and not run.Monsters.charges({"archetype":"river_crab_knight"}),"根须蛛扑咬、地精远程、钳甲兵近战")
+	# 每种新怪物在画面同步中走完蓄力、出手、受击、倒下，不报错。
+	for kind in ["root_spider","goblin_bomber","river_crab_knight"]:
+		var spawned:Dictionary=run.Monsters.add(run,Vector2(0,event.y+200),"forest",kind)
+		run.a.position=Vector2(-42,event.y);run.b.position=Vector2(42,event.y);run.distance=event.y
+		game.sync_view()
+		var spawned_view:Node3D=game.event_views.get(spawned.id)
+		check(spawned_view!=null,"%s 有显示节点"%kind)
+		if spawned_view!=null:
+			for phase in ["warning","active","recovery"]:
+				spawned.phase=phase;spawned.trigger=run.elapsed-0.3;EnemyView.sync(game,spawned_view,spawned)
+			spawned.hit_at=run.elapsed;spawned.hp=0;spawned.defeated_at=run.elapsed;EnemyView.sync(game,spawned_view,spawned)
+	for name in ["villager_fisher","villager_miner","villager_guard"]:
+		check(name in game.Landscape.VILLAGERS,"%s 加入村民轮换"%name)
+		var villager:Node3D=load("res://assets/landscape/rigged/%s.glb"%name).instantiate()
+		var players:=villager.find_children("*","AnimationPlayer",true,false)
+		var names:=[]
+		if not players.is_empty():
+			for clip in players[0].get_animation_list():names.append(clip.get_slice("|",clip.get_slice_count("|")-1))
+		check(["Idle","Talk","Look"].all(func(c):return c in names),"%s 绑骨模型带待机、说话、张望"%name)
+		villager.free()
 	for p in game.sfx.players:p.stop()
 	game.queue_free();await process_frame;await create_timer(.2).timeout
 	print("JOURNEY_MONSTER_POLISH failures=",failures)
