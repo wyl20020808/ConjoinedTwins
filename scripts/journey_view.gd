@@ -15,6 +15,10 @@ var preparation_peak_usec := 0
 var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
+# 失败演出 0.6 秒后即可按跳跃从存档继续；完整演出仍按原时长播放，直到玩家确认。
+const FAIL_SKIP_AFTER := 0.6
+const RESTORE_FADE := 0.25
+const CHECKPOINT_TOAST := 0.8
 # 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
 const ONLINE_CATCHUP_FRAMES := 8
 const ONLINE_CATCHUP_USEC := 8000
@@ -113,6 +117,11 @@ var fire_blocked := true
 var reload_requested := false
 var drop_requested := false
 var frame_costs := {}
+var restore_fade: ColorRect
+var restore_fade_left := 0.0
+var checkpoint_toast: Label
+var checkpoint_toast_left := 0.0
+var toasted_checkpoint := -INF
 var view_pending:=false
 var journey_camera_returning:=false
 const UNDERSTORY:=["fern","shrub","grass","detail_fern_bed"]
@@ -976,6 +985,13 @@ func build_journey_ui() -> void:
 		clear_controls())
 	canvas.add_child(pause_button)
 	build_rescue_hud(canvas)
+	checkpoint_toast=label("已存档",15,Color("f3e3b5"))
+	checkpoint_toast.name="CheckpointToast"
+	checkpoint_toast.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
+	checkpoint_toast.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	checkpoint_toast.add_theme_stylebox_override("normal",glass_style(0.5,0.3,10,6))
+	checkpoint_toast.visible=false
+	canvas.add_child(checkpoint_toast)
 	panel=PanelContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	panel.position=Vector2(240,170)
@@ -990,6 +1006,7 @@ func build_journey_ui() -> void:
 	subtitle=label("",16,Color("cfd6cc"))
 	subtitle.add_theme_constant_override("line_spacing",4)
 	subtitle.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	subtitle.custom_minimum_size.x=752
 	inner.add_child(subtitle)
 	primary=Button.new()
 	primary.custom_minimum_size=Vector2(0,54)
@@ -1028,6 +1045,17 @@ func build_journey_ui() -> void:
 	inner.add_child(restart_button)
 	style_button(restart_button)
 	touch.blockers.assign([panel,pause_button])
+	restore_fade=ColorRect.new()
+	restore_fade.name="RestoreFade"
+	restore_fade.color=Color(0,0,0,0)
+	restore_fade.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	restore_fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	restore_fade.visible=false
+	var fade_layer:=CanvasLayer.new()
+	fade_layer.name="RestoreFadeLayer"
+	fade_layer.layer=100
+	add_child(fade_layer)
+	fade_layer.add_child(restore_fade)
 	var modes:=HBoxContainer.new()
 	modes.add_theme_constant_override("separation",8)
 	inner.add_child(modes)
@@ -1192,6 +1220,9 @@ func apply_journey_primary() -> void:
 		"failed":
 			if not run.restore_checkpoint(): run.retry(true)
 			reset_journey_views()
+			# 纯画面转场：从黑场淡入，位置与判定已由快照恢复完成。
+			restore_fade_left=RESTORE_FADE
+			toasted_checkpoint=run.checkpoint.get("progress",-INF)
 		"complete": run.new_campaign();reset_journey_views()
 		"settlement":
 			run.confirm_step(false,false)
@@ -1208,6 +1239,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	elif event.keycode==KEY_R and run.state=="running": reload_requested=true
 	elif event.keycode==KEY_G and run.state=="running": drop_requested=true
 	elif event.keycode==KEY_ENTER and run.state in ["start","failed","complete"]: journey_primary()
+	elif event.keycode==KEY_SPACE and run.state=="failed": journey_primary()
 	elif event.keycode==KEY_F1:
 		if run.state in ["running","rescue"]: command("pause")
 		elif run.state=="start":run.paused_from="start";run.state="paused"
@@ -1259,6 +1291,7 @@ func _process(delta:float)->void:
 		damage_flash=maxf(0.0,damage_flash-delta*2.4)
 		vignette_mat.set_shader_parameter("damage",damage_flash)
 		vignette_mat.set_shader_parameter("low",low_health)
+	update_restore_feedback(delta)
 	# 每个画面帧只提交一次最终状态，本地与网页使用同一规则。
 	if scene_prepared and view_pending:
 		view_pending=false
@@ -1271,6 +1304,40 @@ func _process(delta:float)->void:
 			var duration:=Time.get_ticks_usec()-started
 			cost.samples+=1;cost.total_usec+=duration;cost.max_usec=maxi(cost.max_usec,duration)
 			frame_costs.render_view=cost
+
+# 面板尺寸按本帧可见按钮和文字计算；失败时改为底部紧凑条，不挡住仍在播放的失败演出。
+func layout_panel() -> void:
+	var viewport := get_viewport().get_visible_rect().size
+	var compact: bool=run.state=="failed"
+	title.add_theme_font_size_override("font_size",24 if compact else 38)
+	var panel_width:=minf(640.0 if compact else 800.0,viewport.x-32)
+	# 自动换行的文字要先给定宽度，最小高度才按实际行数计算；之后再收缩面板，避免容器按 1 像素宽的文字撑高。
+	var style:StyleBox=panel.get_theme_stylebox("panel")
+	var text_width:=maxf(0.0,panel_width-style.get_content_margin(SIDE_LEFT)-style.get_content_margin(SIDE_RIGHT))
+	subtitle.custom_minimum_size.x=text_width
+	subtitle.size.x=text_width
+	panel.size=Vector2(panel_width,0)
+	var panel_height:=clampf(panel.get_combined_minimum_size().y,0.0 if compact else 260.0,maxf(0.0,viewport.y-24))
+	panel.size=Vector2(panel_width,panel_height)
+	var panel_y:=viewport.y-panel_height-24 if compact else (viewport.y-panel_height)/2
+	panel.position=Vector2((viewport.x-panel_width)/2,maxf(12,panel_y))
+
+# 恢复转场与存档提示只读模拟状态，不影响联机同步。
+func update_restore_feedback(delta: float) -> void:
+	if is_instance_valid(restore_fade):
+		restore_fade_left=maxf(0.0,restore_fade_left-delta)
+		restore_fade.visible=restore_fade_left>0.0
+		restore_fade.color.a=restore_fade_left/RESTORE_FADE
+	if not is_instance_valid(checkpoint_toast) or not scene_prepared: return
+	var saved: float=run.checkpoint.get("progress",-INF)
+	if run.checkpoint.is_empty(): toasted_checkpoint=-INF
+	elif saved!=toasted_checkpoint and run.state=="running":
+		toasted_checkpoint=saved
+		checkpoint_toast_left=CHECKPOINT_TOAST
+		if is_instance_valid(sfx): sfx.play("coin_land",-14.0,0.7)
+	checkpoint_toast_left=maxf(0.0,checkpoint_toast_left-delta)
+	checkpoint_toast.visible=checkpoint_toast_left>0.0
+	checkpoint_toast.modulate.a=clampf(checkpoint_toast_left/0.25,0.0,1.0)
 
 func clear_controls() -> void:
 	if is_instance_valid(net) and net.active() and net.in_match:
@@ -1514,8 +1581,8 @@ func sync_journey_character(i:int)->void:
 		player.seek(clampf((Run.JUMP_SPEED-run.vertical_speed[i])/Run.GRAVITY/(2*Run.JUMP_SPEED/Run.GRAVITY),0,1)*player.current_animation_length,true)
 
 func fail_showing()->bool:
-	# 使用模拟死亡时间，联机双方对重试时机的判断一致。
-	return run.state=="failed" and run.death_time<(FAIL_FALL_SHOW if falling() else FAIL_HIT_SHOW)
+	# 使用模拟死亡时间，联机双方对重试时机的判断一致；演出开头 0.6 秒不接受确认，避免误触。
+	return run.state=="failed" and run.death_time<FAIL_SKIP_AFTER
 
 func camera_shot()->Transform3D:
 	if not run.rescue.is_empty() and run.state in ["rescue","paused"]:
@@ -1643,10 +1710,8 @@ func update_journey_ui() -> void:
 	pause_button.position=Vector2(viewport.x/2-20,inset)
 	pause_button.size=Vector2(40,40)
 	# 开始页和暂停页的按钮数量不同，面板高度跟内容走，避免底部留一大块空板。
-	var panel_width:=minf(800,viewport.x-32)
-	var panel_height:=maxf(260.0,panel.get_combined_minimum_size().y)
-	panel.size=Vector2(panel_width,panel_height)
-	panel.position=Vector2((viewport.x-panel_width)/2,maxf(12,(viewport.y-panel_height)/2))
+	checkpoint_toast.position=Vector2(viewport.x/2-60,inset+48)
+	checkpoint_toast.size=Vector2(120,0)
 	var role: int=net.role if play_mode=="online" and net.in_match else 0
 	combat_health.value=run.combat.health[role]
 	partner_health.value=run.combat.health[1-role]
@@ -1720,12 +1785,16 @@ func update_journey_ui() -> void:
 			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
 			if touch_device: subtitle.text="左侧摇杆移动 · 右侧跳跃、射击、换弹、丢枪\n金币 %d · 奖品 %d"%[run.coins,run.prizes]
 			primary.text="继续旅程"
-		"failed": title.text="两人共同重试";subtitle.text=run.reason+"\n回到最近的安全存档点，危险与奖励恢复原状态。";primary.text="从存档点继续"
+		"failed":
+			title.text=run.reason
+			subtitle.text="回到最近的安全存档点，危险与奖励恢复原状态。" if not run.checkpoint.is_empty() else "本关还没有存档，将从起点重新开始。"
+			primary.text=("从存档继续" if not run.checkpoint.is_empty() else "从起点重试")+("" if touch_device else "  ·  空格 / 回车")
 		"settlement":
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
 			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n点击按钮或松开后按跳跃键，进入下一关。"%[run.elapsed,run.coins,run.prizes]
 			primary.text="下一关"
 		"complete": title.text="训练完成" if run.combat_trial else "归航完成";subtitle.text="击退 %d 个敌人 · 团队总分 %d。\n可以重新出发。"%[run.combat.kills,run.total_score()];primary.text="重新出发"
+	layout_panel()
 	if run.state=="rescue": journey_hint.text="连点跳跃救援！进度 %.0f%% · 剩余 %.1f 秒"%[run.rescue.progress*100,maxf(0,Run.RESCUE_TIME-run.rescue.time)]
 
 func build_ambience() -> void:
