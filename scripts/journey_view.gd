@@ -15,6 +15,7 @@ var preparation_peak_usec := 0
 var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
+const AMBIENCE_DUCKED := 0.5
 # 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
 const ONLINE_CATCHUP_FRAMES := 8
 const ONLINE_CATCHUP_USEC := 8000
@@ -78,6 +79,7 @@ var canopy_light: DirectionalLight3D
 var world_environment: Environment
 var ambient: AudioStreamPlayer
 var ambience_region := ""
+var ambience_level := 1.0
 var ambience_streams := {}
 var forest_birds:AudioStreamPlayer
 var sound_events := {}
@@ -802,7 +804,8 @@ func sync_events() -> void:
 
 		if event.phase=="warning" and not sound_events.has(event.id):
 			sound_events[event.id]=true
-			sfx.play("warning",-8.0,0.75 if event.kind=="boar" else 1.0)
+			var center:Vector2=event.rect.get_center()
+			sfx.play_at("warning",Vector3(center.x/SCALE,1.0,-center.y/SCALE),-4.0,0.75 if event.kind=="boar" else 1.0)
 
 func build_gate(gate: Dictionary) -> Node3D:
 	var root:=Node3D.new()
@@ -1694,12 +1697,14 @@ func update_journey_ui() -> void:
 func build_ambience() -> void:
 	ambient=AudioStreamPlayer.new()
 	ambient.volume_db=-23
+	ambient.bus="Ambience"
 	add_child(ambient)
 	forest_birds=AudioStreamPlayer.new()
 	var birds:AudioStreamOggVorbis=load("res://assets/audio/forest_birds.ogg")
 	birds.loop=true
 	forest_birds.stream=birds
 	forest_birds.volume_db=-60
+	forest_birds.bus="Ambience"
 	add_child(forest_birds)
 	# 缓存有限 PCM 循环，避免流式生成器在退出时遗留音频播放句柄。
 	for kind in ["wind","forest","river"]:
@@ -1709,6 +1714,11 @@ func build_ambience() -> void:
 		stream.loop_end=7*22050
 		ambience_streams[kind]=stream
 
+func combat_nearby() -> bool:
+	for event in run.journey_events:
+		if event.kind=="monster" and event.hp>0 and event.alert and absf(event.y-run.distance)<900.0: return true
+	return false
+
 static func ambience_wave(t:float,kind:String)->float:
 	var wind:=sin(t*TAU*49)*sin(t*TAU*65)*0.08+sin(t*TAU*112)*0.03
 	var bird:=0.0
@@ -1716,8 +1726,12 @@ static func ambience_wave(t:float,kind:String)->float:
 	var water:=sin(t*TAU*101)*sin(t*TAU*67)*0.12 if kind=="river" else 0.0
 	return wind+bird+water
 
-func pump_ambience(_delta: float) -> void:
+func pump_ambience(delta: float) -> void:
 	if not is_instance_valid(ambient):return
+	# 附近有已察觉玩家的存活敌人时，环境声 0.4 秒内压低约 6 dB，脱战后 1.5 秒恢复。
+	var target:=AMBIENCE_DUCKED if run.state=="running" and combat_nearby() else 1.0
+	ambience_level=move_toward(ambience_level,target,delta*(1.5 if target<ambience_level else 0.35))
+	Sfx.set_bus_level("Ambience",ambience_level)
 	# 开始页和加载页无需创建一个立即暂停的播放句柄。
 	if run.state!="running":
 		if not ambient.stream_paused:ambient.stream_paused=true

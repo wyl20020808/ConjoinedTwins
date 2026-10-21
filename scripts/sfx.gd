@@ -9,17 +9,61 @@ var players: Array[AudioStreamPlayer] = []
 var next_player := 0
 var noise := RandomNumberGenerator.new()
 
+# 混音总线：音乐、音效、环境、界面分开调节；Master 末端限幅，叠音时不爆音。
+const BUSES := ["Music", "SFX", "Ambience", "UI"]
+const UI_SOUNDS := ["coin", "coin_land", "prize", "clear", "click"]
+# 定位音效：机关、敌人在世界中的位置发声，带距离衰减和左右声像。
+const POOL_3D := 8
+# 每次播放随机变化音高与音量，避免连续同一声音像机器复读；只影响本机听感。
+const PITCH_VARY := 0.05
+const VOLUME_VARY := 2.0
+var players_3d: Array[AudioStreamPlayer3D] = []
+var next_player_3d := 0
+var vary := RandomNumberGenerator.new()
 const SOUND_NAMES := ["coin", "coin_land", "prize", "shield", "shield_break", "jump", "land", "hit", "fall", "warning", "whoosh", "clear", "rope", "buckle", "click", "gunshot"]
 
 func _ready() -> void:
+	ensure_buses()
+	vary.randomize()
 	for n in range(POOL):
 		var player := AudioStreamPlayer.new()
 		add_child(player)
 		players.append(player)
+	for n in range(POOL_3D):
+		var player := AudioStreamPlayer3D.new()
+		player.bus = "SFX"
+		player.unit_size = 8.0
+		player.max_distance = 90.0
+		player.attenuation_model = AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+		player.panning_strength = 0.8
+		add_child(player)
+		players_3d.append(player)
 	for key in SOUND_NAMES:
 		streams[key] = load("res://assets/audio/%s.wav" % key)
 
+static func ensure_buses() -> void:
+	for name in BUSES:
+		if AudioServer.get_bus_index(name) >= 0: continue
+		AudioServer.add_bus()
+		var index := AudioServer.bus_count - 1
+		AudioServer.set_bus_name(index, name)
+		AudioServer.set_bus_send(index, "Master")
+	var master := AudioServer.get_bus_index("Master")
+	for n in range(AudioServer.get_bus_effect_count(master)):
+		if AudioServer.get_bus_effect(master, n) is AudioEffectHardLimiter: return
+	var limiter := AudioEffectHardLimiter.new()
+	limiter.ceiling_db = -0.5
+	AudioServer.add_bus_effect(master, limiter)
+
+# 按线性 0–1 平滑设置某条总线音量，用于战斗时压低环境声。
+static func set_bus_level(name: String, linear: float) -> void:
+	var index := AudioServer.get_bus_index(name)
+	if index >= 0: AudioServer.set_bus_volume_db(index, linear_to_db(maxf(0.0001, linear)))
+
 func _exit_tree() -> void:
+	for player in players_3d:
+		player.stop()
+		player.stream = null
 	for player in players:
 		player.stop()
 		player.stream = null
@@ -95,6 +139,18 @@ func play(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	var player := players[next_player]
 	next_player = (next_player + 1) % players.size()
 	player.stream = streams[name]
-	player.volume_db = volume_db
-	player.pitch_scale = pitch
+	player.bus = "UI" if name in UI_SOUNDS else "SFX"
+	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
+	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))
+	player.play()
+
+# 在世界坐标发声；距离超过 max_distance 自然听不到，不必调用方再判断。
+func play_at(name: String, position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	if not streams.has(name) or players_3d.is_empty(): return
+	var player := players_3d[next_player_3d]
+	next_player_3d = (next_player_3d + 1) % players_3d.size()
+	player.stream = streams[name]
+	player.global_position = position
+	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
+	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))
 	player.play()

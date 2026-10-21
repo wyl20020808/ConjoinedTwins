@@ -312,6 +312,10 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var burst:Node3D=view.get_node("HitBurst");burst.visible=hit_age<.12
 	burst.global_position=location+Vector3(0,run.Combat.enemy_height(event)/20,.1)
 	burst.global_basis=game.camera.global_basis.scaled(Vector3.ONE*(1+maxf(0,hit_age)*5))
+	# 敌人前摇：每次攻击在敌人位置响一声低沉的蓄力，方位可辨。
+	if event.kind=="monster" and event.get("phase","")=="warning" and not died and view.get_meta("warned_seq",-1)!=event.get("attack_seq",0):
+		view.set_meta("warned_seq",event.get("attack_seq",0))
+		game.sfx.play_at("whoosh",location+Vector3(0,1.2,0),-6.0,0.65)
 	if hit_age<.2 and event.hit_at!=view.get_meta("last_hit_at"):
-		game.sfx.play("buckle",-15.0,.7 if died else 1.25)
+		game.sfx.play_at("buckle",location+Vector3(0,1.4,0),-9.0,.7 if died else 1.25)
 	view.set_meta("last_hit_at",event.get("hit_at",-1.0))

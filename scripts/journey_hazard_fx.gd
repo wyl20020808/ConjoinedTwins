@@ -189,21 +189,31 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 	if stage != before:
 		match kind:
 			"press":
-				if stage == "hold": slam(base, maxf(2.2, size * 0.8))
+				if stage == "hold":
+					slam(base, maxf(2.2, size * 0.8))
+					cue("land", base, -2.0, 0.55)
 			"active_spikes":
 				if stage == "extend":
 					burst_debris(base + Vector3(0, 0.15, 0), Color("5b4a3a"))
 					fx.burst("spark", base + Vector3(0, 0.5, 0))
+					cue("buckle", base, -6.0, 0.8)
 			"collapse":
-				if stage == "crack": burst_debris(base + Vector3(0, 0.1, 0), Color("4d4136"))
+				if stage == "crack":
+					burst_debris(base + Vector3(0, 0.1, 0), Color("4d4136"))
+					cue("rope", base, -6.0, 0.6)
 				elif stage == "collapsed":
 					burst_debris(base, Color("4d4136"))
 					fx.burst("dust", base)
 					fx.impact(base, Color("c9b08a"), maxf(2.0, size * 0.6), 0.0, false)
+					cue("land", base, -2.0, 0.45)
 			"hammer":
-				if stage == "swing": fx.burst("dust", base + Vector3(0, 0.1, 0))
+				if stage == "swing":
+					fx.burst("dust", base + Vector3(0, 0.1, 0))
+					cue("whoosh", base, -6.0, 0.75)
 			"steam":
-				if stage == "pressure": fx.burst("dust", base + Vector3(0, 0.1, 0))
+				if stage == "pressure":
+					fx.burst("dust", base + Vector3(0, 0.1, 0))
+					cue("whoosh", base, -9.0, 1.35)
 	# 持续：蒸汽柱。原有喷流块的材质每帧由机关同步重设，这里每帧隐藏，改由粒子表现；碰撞与采样不变。
 	if kind == "steam":
 		var jet := view.get_node_or_null("jet")
@@ -241,6 +251,12 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 				if kind == "rocket" and before in ["active", "flight"]:
 					fx.impact(base, Color("ff7a2a"), 1.8, 3.0)
 					fx.burst("spark", base + Vector3(0, 0.5, 0))
+					cue("hit", base, -8.0, 1.25)
+
+# 机关阶段切换时在机关位置发声：玩家看不到预警标记，也能靠方位听出危险。
+func cue(name: String, point: Vector3, volume_db: float, pitch: float) -> void:
+	var sfx = game.get("sfx")
+	if sfx != null and sfx.has_method("play_at"): sfx.play_at(name, point, volume_db, pitch)
 
 # 未在本帧出现的机关（离开窗口或被释放）归还持续特效。
 func release_missing() -> void:
