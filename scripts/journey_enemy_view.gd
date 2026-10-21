@@ -383,10 +383,57 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var burst:Node3D=view.get_node("HitBurst");burst.visible=hit_age<.12
 	burst.global_position=location+Vector3(0,run.Combat.enemy_height(event)/20,.1)
 	burst.global_basis=game.camera.global_basis.scaled(Vector3.ONE*(1+maxf(0,hit_age)*5))
-	# 敌人前摇：每次攻击在敌人位置响一声低沉的蓄力，方位可辨。
+	# 敌人前摇：每次攻击在敌人位置响一声按种类区分的蓄力叫声，方位可辨。
 	if event.kind=="monster" and event.get("phase","")=="warning" and not died and view.get_meta("warned_seq",-1)!=event.get("attack_seq",0):
 		view.set_meta("warned_seq",event.get("attack_seq",0))
-		game.sfx.play_at("whoosh",location+Vector3(0,1.2,0),-6.0,0.65)
+		var cue:Array=WINDUP_VOICE.get(event.archetype,["snarl",1.0])
+		# 前摇是攻击预警，每次都响，不受环境叫声限频；只记下时间让低吼让路。
+		game.set_meta("enemy_voice_at",run.elapsed)
+		game.sfx.play_at(cue[0],location+Vector3(0,1.2,0),-8.0,cue[1])
+	if event.kind=="monster" and not died:monster_ambience(game,view,event,location)
 	if hit_age<.2 and event.hit_at!=view.get_meta("last_hit_at"):
 		game.sfx.play_at("punch_heavy" if died else "punch",location+Vector3(0,1.4,0),-4.0 if died else -7.0,0.9 if died else 1.05)
+		# 倒下时短促哀叫一声。
+		if died and event.kind=="monster":voice(game,"snarl",location+Vector3(0,1.2,0),-11.0,float(VOICE_PITCH.get(event.archetype,1.0))*1.45)
 	view.set_meta("last_hit_at",event.get("hit_at",-1.0))
+
+# —— 怪物小音效 ——
+# 各种类的嗓音音高：狼和蛛偏尖，石卫与钳甲兵低沉。
+const VOICE_PITCH := {"briar":1.25,"raider":1.0,"sentinel":0.65,"archer":1.1,"dasher":0.85,"wolf":1.15,
+	"root_spider":1.3,"goblin_bomber":1.6,"river_crab_knight":0.7}
+const WINDUP_VOICE := {"briar":["growl",1.4],"raider":["grunt",1.0],"sentinel":["growl",0.7],"archer":["creak",1.7],
+	"dasher":["snarl",0.8],"wolf":["snarl",1.2],"root_spider":["hiss",1.1],"goblin_bomber":["grunt",1.6],"river_crab_knight":["hiss",0.7]}
+const STEP_SOUND := {"sentinel":"rubble","river_crab_knight":"metal_light","root_spider":"step_wood"}
+# 近距离才有脚步与低吼；全局限频，几十只怪同时追来也不会把定位播放器占满。
+const VOICE_RANGE := 26.0
+const STEP_RANGE := 16.0
+const STEP_GAP := 0.09
+const VOICE_GAP := 0.35
+const IDLE_VOICE := 4.5
+
+static func voice(game,name:String,at:Vector3,volume:float,pitch:float)->void:
+	var now:float=game.run.elapsed
+	if now<float(game.get_meta("enemy_voice_at",-10.0))+VOICE_GAP*0.5:return
+	game.set_meta("enemy_voice_at",now)
+	game.sfx.play_at(name,at,volume,pitch)
+
+static func monster_ambience(game,view:Node3D,event:Dictionary,location:Vector3)->void:
+	var run=game.run
+	if run.state!="running":return
+	var distance:float=game.camera.global_position.distance_to(location)
+	var pitch:float=VOICE_PITCH.get(event.archetype,1.0)
+	# 首次发现玩家时吼一声；之后偶尔低吼，间隔按编号错开。
+	if event.get("alert",false) and not view.get_meta("alert_voiced",false) and distance<VOICE_RANGE*1.5:
+		view.set_meta("alert_voiced",true)
+		voice(game,"hiss" if event.archetype in ["root_spider","river_crab_knight"] else ("grunt" if event.archetype in ["raider","goblin_bomber"] else "growl"),location+Vector3(0,1.2,0),-9.0,pitch)
+		view.set_meta("idle_voice_at",run.elapsed+IDLE_VOICE+float(event.id%7)*0.6)
+	elif event.get("alert",false) and distance<VOICE_RANGE and run.elapsed>=float(view.get_meta("idle_voice_at",INF)):
+		view.set_meta("idle_voice_at",run.elapsed+IDLE_VOICE+float(event.id%5)*0.9)
+		if run.elapsed>=float(game.get_meta("enemy_voice_at",-10.0))+VOICE_GAP:
+			voice(game,"growl",location+Vector3(0,1.0,0),-14.0,pitch)
+	# 脚步：步幅每过半个周期落一脚。
+	var step:=floori(float(event.get("stride",0.0))/PI)
+	if step!=int(view.get_meta("step_count",step)) and distance<STEP_RANGE and run.elapsed>=float(game.get_meta("enemy_step_at",-10.0))+STEP_GAP:
+		game.set_meta("enemy_step_at",run.elapsed)
+		game.sfx.play_at(STEP_SOUND.get(event.archetype,"step_grass"),location,-15.0,pitch*0.8)
+	view.set_meta("step_count",step)

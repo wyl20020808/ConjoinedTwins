@@ -221,6 +221,62 @@ func _ready() -> void:
 		pellet_beams.append(spread)
 		casings.append(make_casings())
 
+# 弹药补给：橄榄绿金属弹药箱，翻边箱盖、提手、卡扣和黄色标识带，箱顶立着三发黄铜子弹。
+func make_ammo_can(model:Node3D)->void:
+	var olive:=pickup_material("ammo_olive",Color("4f5a34"),0.45,0.5)
+	var dark:=pickup_material("ammo_dark",Color("2f3622"),0.5,0.45)
+	var steel:=pickup_material("ammo_steel",Color("8a8f86"),0.85,0.3)
+	var brass:=pickup_material("ammo_brass",Color("d2a24a"),0.9,0.25)
+	var copper:=pickup_material("ammo_copper",Color("b5653a"),0.85,0.3)
+	var stripe:Material=game.material("ammo_stripe",Color("f2c33d"),0.35)
+	game.box(model,Vector3(0,0,0),Vector3(0.86,0.44,0.5),olive)
+	game.box(model,Vector3(0,0.25,0),Vector3(0.9,0.07,0.54),dark)
+	for x in [-0.38,0.38]:game.box(model,Vector3(x,0,0),Vector3(0.05,0.46,0.52),dark)
+	game.box(model,Vector3(0,0.02,0.255),Vector3(0.56,0.08,0.012),stripe)
+	game.box(model,Vector3(0,0.02,-0.255),Vector3(0.56,0.08,0.012),stripe)
+	for x in [-0.22,0.22]:game.box(model,Vector3(x,0.18,0.27),Vector3(0.08,0.12,0.04),steel)
+	for x in [-0.13,0.13]:game.box(model,Vector3(x,0.33,0),Vector3(0.04,0.08,0.05),steel)
+	game.box(model,Vector3(0,0.375,0),Vector3(0.32,0.035,0.06),steel)
+	for n in range(3):
+		var at:=Vector3(0.24+n*0.07-0.07,0.39,-0.13+n*0.03)
+		game.cylinder(model,at,0.032,0.2,brass)
+		game.cylinder(model,at+Vector3(0,0.13,0),0.026,0.07,copper)
+
+# 医疗补给：白色急救箱，四角深灰护角、红色十字（顶面和两个侧面），顶部提手与金属卡扣。
+func make_medkit(model:Node3D)->void:
+	var shell:=pickup_material("medkit_shell",Color("eef0ea"),0.05,0.35)
+	var trim:=pickup_material("medkit_trim",Color("3b4247"),0.2,0.55)
+	var red:Material=game.material("medkit_red",Color("d8423c"),0.45)
+	var steel:=pickup_material("ammo_steel",Color("8a8f86"),0.85,0.3)
+	game.box(model,Vector3.ZERO,Vector3(0.8,0.42,0.5),shell)
+	game.box(model,Vector3(0,0.0,0),Vector3(0.82,0.05,0.52),trim)
+	for x in [-0.39,0.39]:
+		for z in [-0.24,0.24]:game.box(model,Vector3(x,0,z),Vector3(0.07,0.44,0.07),trim)
+	game.box(model,Vector3(0,0.215,0),Vector3(0.42,0.015,0.13),red)
+	game.box(model,Vector3(0,0.215,0),Vector3(0.13,0.015,0.36),red)
+	for z in [-0.253,0.253]:
+		game.box(model,Vector3(0,0.1,z),Vector3(0.26,0.07,0.01),red)
+		game.box(model,Vector3(0,0.1,z),Vector3(0.08,0.2,0.01),red)
+	for x in [-0.12,0.12]:game.box(model,Vector3(x,0.26,0),Vector3(0.04,0.08,0.05),trim)
+	game.box(model,Vector3(0,0.3,0),Vector3(0.3,0.04,0.06),trim)
+	for x in [-0.25,0.25]:game.box(model,Vector3(x,-0.06,0.26),Vector3(0.07,0.08,0.03),steel)
+
+func pickup_material(name:String,color:Color,metallic:float,roughness:float)->StandardMaterial3D:
+	var mat:StandardMaterial3D=game.material(name,color)
+	mat.metallic=metallic;mat.roughness=roughness
+	return mat
+
+# 拾取声走二维播放器，任何站位都听得清；音量压低，不盖过枪声。
+func pickup_sound(kind:String)->void:
+	match kind:
+		"medkit":game.sfx.play("heal",-9.0)
+		"ammo":
+			game.sfx.play("metal_latch",-9.0,1.1)
+			game.sfx.play("metal_click",-10.0,0.85)
+		"gun":
+			game.sfx.play("metal_click",-8.0,0.9)
+			game.sfx.play("metal_latch",-11.0,1.2)
+
 var pillar_materials:={}
 func pillar_material(kind:String)->Material:
 	if pillar_materials.has(kind):return pillar_materials[kind]
@@ -263,6 +319,7 @@ func sync() -> void:
 			if fx!=null and is_instance_valid(collected) and collected.visible and collected.global_position.distance_to(game.robots[0].global_position)<60.0:
 				fx.burst("spark",collected.global_position+Vector3(0,0.4,0))
 				if game.get("coop_fx")!=null:game.coop_fx.pickup(collected.global_position)
+				pickup_sound(str(collected.get_meta("kind","")))
 			collected.queue_free()
 			pickup_views.erase(id)
 	for pickup in nearby.values():
@@ -270,17 +327,15 @@ func sync() -> void:
 			var view := Node3D.new()
 			add_child(view)
 			pickup_views[pickup.id]=view
+			view.set_meta("kind",pickup.kind)
 			if pickup.kind=="gun":
 				var gun := make_weapon(view,pickup.get("weapon_type","smg"))
 				gun.rotation.z=PI/2
 				gun.scale=Vector3.ONE*1.3
 			else:
-				var color := Color("d6ae48") if pickup.kind=="ammo" else Color("e8ebe2")
-				game.box(view,Vector3.ZERO,Vector3(0.75,0.5,0.65),game.material("pickup_"+pickup.kind,color))
-				if pickup.kind=="medkit":
-					var red: Material=game.material("medical_cross",Color("de5752"),0.3)
-					game.box(view,Vector3(0,0.28,0),Vector3(0.5,0.05,0.16),red)
-					game.box(view,Vector3(0,0.28,0),Vector3(0.16,0.05,0.5),red)
+				var model:=Node3D.new();model.name="Model";view.add_child(model)
+				if pickup.kind=="ammo":make_ammo_can(model)
+				else:make_medkit(model)
 			game.cylinder(view,Vector3(0,-0.4,0),0.75,0.04,game.material("pickup_ring",Color("62c7ba"),0.6))
 			# 竖直光柱：远处也能一眼看到拾取物，颜色按种类区分。
 			var pillar:MeshInstance3D=game.cylinder(view,Vector3(0,2.6,0),0.26,6.0,pillar_material(pickup.kind))
@@ -290,6 +345,8 @@ func sync() -> void:
 			game.add_sign(view,{"gun":gun_name,"ammo":"弹药补给","medkit":"医疗 +30"}[pickup.kind],Vector3(0,1.2,0),22)
 		var view: Node3D=pickup_views[pickup.id]
 		view.position=Vector3(pickup.position.x/20,0.65+sin(run.elapsed*2)*0.08,-pickup.position.y/20)
+		var spin:Node3D=view.get_node_or_null("Model")
+		if spin!=null:spin.rotation.y=run.elapsed*0.9+float(pickup.id)
 		view.visible=absf(pickup.position.y-run.distance)<3000
 		for child in view.get_children():
 			if child is Label3D:child.visible=visual_state not in ["rescue","failed"]

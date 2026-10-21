@@ -21,7 +21,9 @@ var last_seen := {}
 var last_position := {}
 # 工业机械（压机、锤、往复台、活塞）运转低鸣：最多同时 MACHINE_POOL 台，靠定位衰减区分远近。
 const MACHINE_POOL := 2
-const MACHINES := ["press", "hammer", "shuttle", "piston"]
+const MACHINES := ["press", "hammer", "shuttle", "piston", "forklift"]
+var sweep_half := {}
+var bounce_at := {}
 var machine_owner: Array[int] = []
 
 func _init(owner_game, owner_fx) -> void:
@@ -198,7 +200,19 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 					slam(base, maxf(2.2, size * 0.8))
 					cue("steam_hiss", base, -10.0, 1.3)
 					cue("metal_heavy", base, -1.0, 0.8)
+			"jump_bar":
+				# 跳绳木杆：预警时轴承吱嘎，落地时木头闷响。
+				if stage == "warning": cue("creak", base, -11.0, 0.9)
+				elif stage == "active":
+					cue("wood_knock", base, -5.0, 0.8)
+					cue("punch_heavy", base, -12.0, 0.7)
+			"forklift":
+				if stage == "warning": cue("warning", base, -12.0, 1.3)
+				elif stage == "crossing": cue("metal_heavy", base, -9.0, 0.7)
+			"drone":
+				if stage == "flight": cue("rocket_whoosh", base, -9.0, 1.5)
 			"active_spikes":
+				if stage == "retract": cue("metal_light", base, -14.0, 1.2)
 				if stage == "extend":
 					burst_debris(base + Vector3(0, 0.15, 0), Color("5b4a3a"))
 					fx.burst("spark", base + Vector3(0, 0.5, 0))
@@ -222,6 +236,19 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 					cue("steam_hiss", base, -13.0, 1.25)
 				elif stage == "jet":
 					cue("steam_hiss", base, -4.0, 0.9)
+	# 飞石：预警时破空声，飞行起始一声呼啸，落地碎石。
+	if stage != before and kind.begins_with("fly_"):
+		if stage == "warning": cue("whoosh", base, -11.0, 0.7)
+		elif stage == "active": cue("rocket_whoosh", base, -7.0, 0.6)
+		elif before == "active": cue("rubble", base, -5.0, 0.8)
+	# 滚球、木桶被绳子绊停或滚出窗口：一声撞击。
+	if stage != before and stage == "tripped":
+		cue("wood_knock" if kind == "barrel" else "rubble", base, -4.0, 0.8)
+	# 扫杆：每转半圈从身边掠过一次。
+	if kind == "sweeper" and sample.has("geometry"):
+		var half := floori(float(sample.geometry.angle) / PI)
+		if half != int(sweep_half.get(index, half)): cue("whoosh", base + Vector3(0, 1.0, 0), -13.0, 0.75)
+		sweep_half[index] = half
 	# 持续：蒸汽柱。原有喷流块的材质每帧由机关同步重设，这里每帧隐藏，改由粒子表现；碰撞与采样不变。
 	if kind == "steam":
 		var jet := view.get_node_or_null("jet")
@@ -257,13 +284,22 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 				trail_owner[slot] = index
 				style_trail(trails[slot], kind)
 				if kind == "rocket": cue("rocket_whoosh", base, -4.0, 1.0)
+				# 滚石、铁球、木桶起滚：先一声落地撞击。
+				elif kind == "barrel": cue("wood_knock", base, -5.0, 0.75)
+				elif game.run.Threats.is_ball(kind): cue("rubble", base, -4.0, 0.7 if kind == "iron_ball" else 0.85)
 		if slot >= 0:
 			var lift: float = 0.35 if kind != "rocket" else (float(sample.get("bottom", 0.0)) + float(sample.get("top", 40.0))) / 40.0
 			trails[slot].global_position = base + Vector3(0, lift, 0)
 			trails[slot].emitting = active
 			# 滚石、木桶滚动时持续地面滚动声，跟随拖尾槽位，数量受拖尾池约束。
+			# 木桶用空腔磕地的木头滚动声；石球与铁球压低音高，听起来更沉。
 			var rolling: bool = active and (kind == "barrel" or game.run.Threats.is_ball(kind))
-			loop("trail:%d" % slot, "stone_roll", rolling, base, -6.0, 0.8 if kind == "iron_ball" else 1.0)
+			if kind == "barrel": loop("trail:%d" % slot, "barrel_roll", rolling, base, -7.0, 1.0)
+			else: loop("trail:%d" % slot, "stone_roll", rolling, base, -4.0, 0.6 if kind == "iron_ball" else 0.78)
+			# 滚球每隔一段磕地弹跳，叠一下碎石声。
+			if rolling and kind != "barrel" and game.run.elapsed >= float(bounce_at.get(index, 0.0)):
+				bounce_at[index] = game.run.elapsed + 0.55 + float(index % 3) * 0.12
+				cue("rubble", base, -13.0, 0.65 if kind == "iron_ball" else 0.8)
 			if not active:
 				trail_owner[slot] = -1
 				if kind == "rocket" and before in ["active", "flight"]:
@@ -300,6 +336,8 @@ func release_missing() -> void:
 			machine_owner[slot] = -1
 	if last_stage.size() > 256:
 		last_position.clear()
+		sweep_half.clear()
+		bounce_at.clear()
 		for index in last_stage.keys():
 			if last_seen.get(index, -1) != frame:
 				last_stage.erase(index); last_seen.erase(index)

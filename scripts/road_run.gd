@@ -2505,6 +2505,7 @@ func terrain_move(from: Vector2, to: Vector2, foot: float, time: float) -> Vecto
 	if surface.supported and surface.height > foot+8.0: return from
 	return to
 
+const FLAT_TERRAIN := ["drawbridge", "lift", "ferry"]
 # 每个物理子步只收集一次地面环境，质点迭代不重复扫描全部机关或分配缺口数组。
 func rope_floor_query() -> Callable:
 	var gaps := ground_gaps(elapsed)
@@ -2517,7 +2518,8 @@ func rope_floor_query() -> Callable:
 		if kinds[index]=="ferry":envelope=envelope.grow(absf(hazard_specs[index].get("amplitude",28.0)))
 		if not bounds.intersects(envelope,true):continue
 		var sample := terrain_sample(index,elapsed,obstacles[index].get_center())
-		if bounds.intersects(sample.rect,true):local_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported})
+		# 吊桥、升降台与渡船整块等高：本子步高度只取一次，质点迭代不再逐点重算。
+		if bounds.intersects(sample.rect,true):local_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported,"flat":kinds[index] in FLAT_TERRAIN,"height":sample.height})
 	# 粒子通常只在两人附近；先筛本地几何，越界查询仍回退到完整列表。
 	# 不改变采样顺序、时间、碰撞半径或任何高度判定。
 	var local_gaps:Array=[]
@@ -2530,11 +2532,11 @@ func rope_floor_query() -> Callable:
 		if not nearby and fallback_patches.is_empty():
 			for index in terrain_indices:
 				var sample:=terrain_sample(index,query_time,obstacles[index].get_center())
-				fallback_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported})
+				fallback_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported,"flat":kinds[index] in FLAT_TERRAIN,"height":sample.height})
 		for gap in local_gaps if nearby else gaps:
 			if gap.has_point(point): supported=false
 		for patch in local_patches if nearby else fallback_patches:
-			if patch.rect.has_point(point) and patch.supported: return terrain_sample(patch.index,elapsed,point).height
+			if patch.rect.has_point(point) and patch.supported: return patch.height if patch.flat else terrain_sample(patch.index,elapsed,point).height
 		return 0.0 if supported else -INF
 
 func surface_rope_length(p: Vector2, q: Vector2, h0: float, h1: float) -> float:

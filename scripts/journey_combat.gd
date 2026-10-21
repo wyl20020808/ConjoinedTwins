@@ -115,7 +115,7 @@ static func collect(run, previous: Array) -> void:
 			if pickup.blocked_role==role and run.elapsed<pickup.blocked_until: continue
 			var weapon: Dictionary=run.combat.weapons[role]
 			if pickup.kind=="gun" and not weapon.is_empty() and not backup(run,role).is_empty(): continue
-			if pickup.kind=="ammo" and (weapon.is_empty() or weapon.reserve>=spec(weapon).max_reserve): continue
+			if pickup.kind=="ammo" and not needs_ammo(run,role): continue
 			if pickup.kind=="medkit" and run.combat.health[role]>=100: continue
 			var point: Vector2=run.a.position if role==0 else run.b.position
 			var distance: float=run.Rope.segment_distance(previous[role],point,pickup.position)
@@ -137,14 +137,25 @@ static func collect(run, previous: Array) -> void:
 					run.combat.backups[nearest]=picked
 					run.combat.notice="%02d 拾取%s，背在背上 · Q 换枪"%[nearest+1,weapon_name(picked)]
 			"ammo":
-				var held: Dictionary=run.combat.weapons[nearest]
-				var data: Dictionary=spec(held)
-				held.reserve=mini(data.max_reserve,held.reserve+data.ammo_pickup)
-				run.combat.notice="%02d %s备用弹药 +%d"%[nearest+1,data.name,data.ammo_pickup]
+				# 弹药箱同时补满手上与背上的枪，各按自身枪种的补给量。
+				var parts: Array=[]
+				for held: Dictionary in [run.combat.weapons[nearest],backup(run,nearest)]:
+					if held.is_empty(): continue
+					var data: Dictionary=spec(held)
+					var added: int=mini(data.max_reserve,held.reserve+data.ammo_pickup)-held.reserve
+					held.reserve+=added
+					if added>0: parts.append("%s +%d"%[data.name,added])
+				run.combat.notice="%02d 备用弹药 %s"%[nearest+1," · ".join(parts)]
 			"medkit":
 				run.combat.health[nearest]=mini(100,run.combat.health[nearest]+30)
 				run.combat.notice="%02d 血量 +30"%[nearest+1]
 		run.combat.pickups.erase(pickup)
+
+# 手上或背上任一把枪的备用弹药未满即可拾取弹药箱。
+static func needs_ammo(run, role: int) -> bool:
+	for held: Dictionary in [run.combat.weapons[role],backup(run,role)]:
+		if not held.is_empty() and held.reserve<spec(held).max_reserve: return true
+	return false
 
 static func enemy_position(event: Dictionary) -> Vector2:
 	if event.kind=="monster": return event.origin

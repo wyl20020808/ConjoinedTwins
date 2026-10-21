@@ -24,7 +24,7 @@ func _initialize()->void:
 		run.a.position.x=-240;run.b.position.x=-190
 		run.advance_events(run.FIXED_STEP)
 		check(event.locked_x==locked and event.trigger==trigger,kind+" lock does not track")
-		run.elapsed=trigger+3.1
+		run.elapsed=trigger+(run.TREE_WARNING+0.3 if kind=="tree" else 3.1)
 		run.advance_events(run.FIXED_STEP)
 		check(event.phase in ["active","falling"],kind+" activates")
 		var phase_before:String=event.phase
