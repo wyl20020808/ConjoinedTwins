@@ -82,6 +82,16 @@ var world_environment: Environment
 var ambient: AudioStreamPlayer
 var ambience_region := ""
 var ambience_level := 1.0
+# 章节音乐（OpenGameArt，CC0，见 ASSET_SOURCES.md）：探索层按章节切换，战斗层在附近敌人察觉时淡入。
+const MUSIC_EXPLORE := ["res://assets/audio/music/forest_ambience.mp3","res://assets/audio/music/village_2018.mp3","res://assets/audio/music/cathedral_forest.ogg"]
+const MUSIC_COMBAT := "res://assets/audio/music/cynic_battle_loop.ogg"
+const MUSIC_EXPLORE_DB := -16.0
+const MUSIC_COMBAT_DB := -15.0
+var music_explore: AudioStreamPlayer
+var music_combat: AudioStreamPlayer
+var music_chapter := -1
+var explore_level := 0.0
+var combat_level := 0.0
 var step_travel := [0.0,0.0]
 var step_last := [Vector2.INF,Vector2.INF]
 var ambience_streams := {}
@@ -277,6 +287,9 @@ func _exit_tree() -> void:
 		ambient.stream=null
 	if is_instance_valid(forest_birds):
 		forest_birds.stop();forest_birds.stream=null
+	# 暂停中的播放句柄要先恢复再停止，否则退出时 OGG 播放对象会残留。
+	for player in [music_explore,music_combat]:
+		if is_instance_valid(player):player.stream_paused=false;player.stop();player.stream=null
 	ambience_streams.clear()
 	if landscape!=null:landscape.game=null
 	run.dispose()
@@ -1191,7 +1204,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if run.state in ["running","rescue"]: command("pause")
 		elif run.state=="start":run.paused_from="start";run.state="paused"
 		title.text="素材与制作"
-		subtitle.text="角色、松树、草与灌木：Quaternius，CC0。\n扫描地面与石材、天空：Poly Haven，CC0。\n工业建筑：Kenney，CC0。\n房屋、野猪、推车、水车、门与吊桥：项目 Blender 制作脚本。\n字体：Noto Sans SC，SIL OFL 1.1。\n完整来源与修改记录见 ASSET_SOURCES.md。"
+		subtitle.text="角色、松树、草与灌木：Quaternius，CC0。\n扫描地面与石材、天空：Poly Haven，CC0。\n工业建筑：Kenney，CC0。\n房屋、野猪、推车、水车、门与吊桥：项目 Blender 制作脚本。\n音效：Kenney，CC0。音乐：TinyWorlds《Forest Ambience》、Komiku《Village, 2018》、congusbongus《Cathedral in the Forest》、Ferk 循环版《Cynic Battle Loop》（原曲 Alex Smith / cynicmusic），均 CC0。\n字体：Noto Sans SC，SIL OFL 1.1。\n完整来源与修改记录见 ASSET_SOURCES.md。"
 		set_meta("credits",true)
 
 func _physics_process(delta: float) -> void:
@@ -1711,6 +1724,11 @@ func build_ambience() -> void:
 	forest_birds.volume_db=-60
 	forest_birds.bus="Ambience"
 	add_child(forest_birds)
+	music_explore=AudioStreamPlayer.new();music_explore.bus="Music";music_explore.volume_db=-80.0
+	add_child(music_explore)
+	music_combat=AudioStreamPlayer.new();music_combat.bus="Music";music_combat.volume_db=-80.0
+	music_combat.stream=load(MUSIC_COMBAT)
+	add_child(music_combat)
 	# 缓存有限 PCM 循环，避免流式生成器在退出时遗留音频播放句柄。
 	for kind in ["wind","forest","river"]:
 		var stream:AudioStreamWAV=load("res://assets/audio/ambience_%s.wav"%kind).duplicate()
@@ -1743,6 +1761,29 @@ func play_footsteps(i:int)->void:
 	var surface:="step_grass" if theme in ["forest","edge","meadow","farm","ridge","broken"] else ("step_wood" if theme=="river" else "step_stone")
 	sfx.play_at(surface,body,-10.0,1.0 if i==0 else 1.08)
 
+# 探索层：游玩时满音量，菜单、失败与结算时降到一半，暂停时冻结；换章先淡出再换曲。
+# 战斗层：附近敌人察觉时 0.8 秒淡入、探索层同时降到 0.6；脱战后约 3 秒淡出，停在原处下次接着放。
+func pump_music(delta: float, fighting: bool) -> void:
+	if not is_instance_valid(music_explore):return
+	var paused: bool=run.state=="paused"
+	music_explore.stream_paused=paused and music_explore.playing
+	music_combat.stream_paused=paused and music_combat.playing
+	if paused:return
+	var chapter: int=clampi(run.level_index,0,MUSIC_EXPLORE.size()-1)
+	var explore_target: float=(0.6 if fighting else 1.0) if run.state in ["running","rescue"] else 0.5
+	if chapter!=music_chapter:explore_target=0.0
+	explore_level=move_toward(explore_level,explore_target,delta*(0.8 if explore_target<explore_level else 0.4))
+	if chapter!=music_chapter and explore_level<=0.0:
+		music_chapter=chapter
+		music_explore.stream=load(MUSIC_EXPLORE[chapter])
+		music_explore.play()
+	if music_explore.stream!=null and not music_explore.playing:music_explore.play()
+	music_explore.volume_db=MUSIC_EXPLORE_DB+linear_to_db(maxf(0.0001,explore_level))
+	combat_level=move_toward(combat_level,1.0 if fighting else 0.0,delta*(1.25 if fighting else 0.33))
+	if combat_level>0.0 and not music_combat.playing:music_combat.play()
+	music_combat.stream_paused=combat_level<=0.0 and music_combat.playing
+	music_combat.volume_db=MUSIC_COMBAT_DB+linear_to_db(maxf(0.0001,combat_level))
+
 func combat_nearby() -> bool:
 	for event in run.journey_events:
 		if event.kind=="monster" and event.hp>0 and event.alert and absf(event.y-run.distance)<900.0: return true
@@ -1761,6 +1802,7 @@ func pump_ambience(delta: float) -> void:
 	var target:=AMBIENCE_DUCKED if run.state=="running" and combat_nearby() else 1.0
 	ambience_level=move_toward(ambience_level,target,delta*(1.5 if target<ambience_level else 0.35))
 	Sfx.set_bus_level("Ambience",ambience_level)
+	pump_music(delta,target<1.0)
 	# 开始页和加载页无需创建一个立即暂停的播放句柄。
 	if run.state!="running":
 		if not ambient.stream_paused:ambient.stream_paused=true

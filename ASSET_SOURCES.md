@@ -254,11 +254,24 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 
 ## 2026-10-20 录制音效：Kenney Impact Sounds 与 RPG Audio（CC0）
 
-经用户同意，从 Kenney 官方页面公开下载链接下载两个音效包，各包内 `License.txt` 均声明 CC0 1.0（署名非必须），原文随素材保存为 `assets/audio/kenney/License_ImpactSounds.txt`、`License_RPGAudio.txt`。只挑选 57 个 OGG 进入 `assets/audio/kenney/`（共约 628 KB），文件名与内容未改动；其余文件未入库。
+经用户同意，从 Kenney 官方页面公开下载链接下载两个音效包，各包内 `License.txt` 均声明 CC0 1.0（署名非必须），原文随素材保存为 `assets/audio/kenney/License_ImpactSounds.txt`、`License_RPGAudio.txt`。只挑选 57 个音效进入 `assets/audio/kenney/`；其余文件未入库。原始 OGG（共约 628 KB）用 macOS `afconvert -f WAVE -d LEI16 -c 1` 解码为单声道 16 位 WAV（共约 2.6 MB），文件名除扩展名外不变，未做剪辑、混音或效果处理。改用 WAV 是因为短音效频繁起停时，OGG 播放句柄在退出时会偶发残留，触发资源生命周期检查失败。
 
 | 资源组 | 官方页面 / 下载文件 | 大小与 SHA-256 | 许可 | 入库文件与用途 |
 | --- | --- | --- | --- | --- |
-| Kenney / Impact Sounds 1.0 | https://kenney.nl/assets/impact-sounds ；https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip | 800,850 字节；`029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8` | CC0 1.0 | `footstep_grass/concrete/wood_000–004`：草地、石路、木板脚步与起跳；`impactSoft_heavy_*`：落地；`impactMetal_heavy_*`：压机落下；`impactMetal_light_*`：地刺弹出；`impactMining_*`：塌陷落地；`impactPlate_heavy_*`：火焰弩命中；`impactPunch_medium_*` / `impactPunch_heavy_*`：命中、击败敌人与角色受击 |
+| Kenney / Impact Sounds 1.0 | https://kenney.nl/assets/impact-sounds ；https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip | 800,850 字节；`029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8` | CC0 1.0 | （均为同名 `.wav`）`footstep_grass/concrete/wood_000–004`：草地、石路、木板脚步与起跳；`impactSoft_heavy_*`：落地；`impactMetal_heavy_*`：压机落下；`impactMetal_light_*`：地刺弹出；`impactMining_*`：塌陷落地；`impactPlate_heavy_*`：火焰弩命中；`impactPunch_medium_*` / `impactPunch_heavy_*`：命中、击败敌人与角色受击 |
 | Kenney / RPG Audio | https://kenney.nl/assets/rpg-audio ；https://kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip | 964,837 字节；`6dbeaf8544da958d8f2adcb4a4a4b76c1ade34a05f8ab9edccd327da7375f38b` | CC0 1.0 | `creak1–3`：塌陷路面开裂；`metalLatch` / `metalClick`：换弹开始与上膛；`doorOpen_1–2`：合作门打开 |
 
 运行时由 `scripts/sfx.gd` 的 `VARIANTS` 按组随机选取，并叠加音高 ±5%、音量 ±2 dB 变化；原合成音效保留用于界面与未替换的事件。
+
+## 2026-10-20 章节音乐（OpenGameArt，CC0）
+
+经用户选定并同意下载，从各曲 OpenGameArt 页面的公开下载链接获取原文件，未改动音频内容，只在 Godot 导入设置中开启循环（`loop=true`）。各页面许可均为 CC0 1.0；Cynic Battle Loop 页面附有致谢原作曲 Alex Smith（cynicmusic.com / pixelsphere.org）的说明，已在游戏 F1 素材署名中列出。
+
+| 曲目 / 作者 | 页面 / 下载文件 | 大小与 SHA-256 | 入库文件与用途 |
+| --- | --- | --- | --- |
+| Forest Ambience / TinyWorlds | https://opengameart.org/content/forest-ambience ；`https://opengameart.org/sites/default/files/Forest_Ambience.mp3` | 716,670 字节；`9850aa1d0d5d66bd9c5daf8bb77c6d852e01f2f4de22f283bd5621e8bed13b75` | `assets/audio/music/forest_ambience.mp3`：第一章“穿林入村”探索层；作者说明可无缝循环 |
+| Village, 2018 / Loyalty Freak Music（Komiku） | https://opengameart.org/content/village-2018 ；`https://opengameart.org/sites/default/files/Komiku%20-%20Tale%20on%20the%20Late%20-%2005%20Village%2C%202018.mp3` | 2,831,285 字节；`f0250f304d6ab11fcc3658a6606d38d1425c586d124524b814597abf8d1954c9` | `assets/audio/music/village_2018.mp3`：第二章“水车河道”探索层；页面未说明可循环，首尾衔接待试听 |
+| Cathedral in the Forest / congusbongus | https://opengameart.org/content/cathedral-in-the-forest-ambient-loop ；`https://opengameart.org/sites/default/files/forest_2_0.ogg` | 2,947,211 字节；`b9e05a1fcd5869b63193515e2a9c1bd578906a78e628e307f19527d387262593` | `assets/audio/music/cathedral_forest.ogg`：第三章“矿道归航”探索层；作者说明无缝循环 |
+| Cynic Battle Loop / Ferk（原曲 Alex Smith / cynicmusic） | https://opengameart.org/content/cynic-battle-loop ；`https://opengameart.org/sites/default/files/cynicbattleloop_0.ogg` | 1,861,815 字节；`39195451e23c929dce5bed687b0d78454c32eb574b06713ea3d079b6b37b6a86` | `assets/audio/music/cynic_battle_loop.ogg`：三章共用战斗层，附近敌人察觉时淡入 |
+
+四首合计约 8.4 MB，单个文件均小于 5 MB。
