@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-21",
+  "generator": "Tripo Studio 文生 3D，H3.1、2K、去光、PBR、三角面",
+  "license": "待用户按账号套餐确认",
+  "assets": [
+    {
+      "name": "root_colossus",
+      "download": "forest+guardian+3d+model.glb",
+      "download_sha256": "2090da99a5a3d6be27e139c31c77f92f2ef546b6a5fcdbf7967161b4e3894bcf",
+      "file": "build-tools/boss/source/root_colossus.glb",
+      "sha256": "2090da99a5a3d6be27e139c31c77f92f2ef546b6a5fcdbf7967161b4e3894bcf",
+      "bytes": 3702552,
+      "faces": 19177,
+      "texture": "2048 原样",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/efbfc048-704f-43ac-abfd-c30cdc73e9bf",
+      "rigged": "assets/boss/rigged/root_colossus.glb",
+      "rigged_sha256": "43e553921362a02085a04af287530b20101767ff9f63af202748168eaeafd66e",
+      "rigged_by": "build-tools/boss/rig_boss.py（Blender 5.2）"
+    },
+    {
+      "name": "root_spike",
+      "download": "twisted+root+spikes+3d+model.glb",
+      "download_sha256": "246885455be0d9651af43b93d30216af5737a3a0104ef921d306900e076bed9d",
+      "file": "assets/boss/root_spike.glb",
+      "sha256": "b76744b65c487c8fb02ed8c286a93a40d376d63d799a02b4b75622b94bdae7c0",
+      "bytes": 1262632,
+      "faces": 5868,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/cd6ca914-ed12-41fb-aad0-e010936c5c17"
+    },
+    {
+      "name": "seed_pod",
+      "download": "glowing+seed+pod+3d+model.glb",
+      "download_sha256": "93cf70f312cdfb80f320dd7ccf541b9d9f9b9bb4d0890ac92d9d38753ef803ca",
+      "file": "assets/boss/seed_pod.glb",
+      "sha256": "1f353d31301c899e8ddc26aca57030953557f1021635815f54beeeade50c8466",
+      "bytes": 1104776,
+      "faces": 5785,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/de2886e6-821f-4076-9913-1ab0f9e9872a"
+    },
+    {
+      "name": "binding_root",
+      "download": "fantasy+crystal+ring+3d+model.glb",
+      "download_sha256": "ed562d5024ca7c2276f6922ae60dfa314f981d4e3138f6379ac2a5aaafa65e7e",
+      "file": "assets/boss/binding_root.glb",
+      "sha256": "cbc52ca3698aacc7596f10ebb8621c14fb690e89ebd5f0267294602a87d98806",
+      "bytes": 625416,
+      "faces": 5964,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/755da1e3-5ce1-4643-9a71-3bab6c6dbcd9"
+    },
+    {
+      "name": "root_wall",
+      "download": "thorny+barrier+wall+3d+model.glb",
+      "download_sha256": "e320a7c0b8bd345d3ecf58a57654dd686f0b86c90a15fb6b3fd62bbd25704df1",
+      "file": "assets/boss/root_wall.glb",
+      "sha256": "5db7193fb21c67b85fae59fa7e383b6bed3e96df38ef91e85ea66b94d8a5bfb9",
+      "bytes": 1479504,
+      "faces": 5720,
+      "texture": "shrink_glb.py 缩到 1024"
+    }
+  ]
+}

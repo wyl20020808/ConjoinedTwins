@@ -2,7 +2,7 @@ extends "res://scripts/road_run.gd"
 
 # 主动前进的连续旅程。位置是固定世界坐标；镜头进度不驱动物理。
 const CHAPTERS := [
-	{"name":"穿林入村", "length":48000.0, "zones":["原野石板路","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["ridge","forest","broken","edge","village","village"]},
+	{"name":"穿林入村", "length":49800.0, "zones":["原野石板路","森林深处","坍塌林道","林缘与村口","村庄街道","村口防御"], "themes":["ridge","forest","broken","edge","village","village"]},
 	{"name":"水车河道", "length":37200.0, "zones":["村外田野","农田小路","河岸渡口","水车栈道","旧桥防线","河谷出口"], "themes":["farm","farm","river","river","village","river"]},
 	{"name":"矿道归航", "length":37200.0, "zones":["河谷山路","矿场入口","矿道深处","遗迹回廊","设施防线","归航出口"], "themes":["river","mine","mine","ruins","facility","facility"]}
 ]
@@ -13,6 +13,7 @@ const COLOR_GATE_LEASH := 10.0
 const Combat = preload("res://scripts/journey_combat.gd")
 const Monsters = preload("res://scripts/journey_monsters.gd")
 const Encounters = preload("res://scripts/journey_encounters.gd")
+const Boss = preload("res://scripts/journey_boss.gd")
 const ZONE_WEAPONS := ["smg","shotgun","flamer","launcher"]
 const TRIAL_ZONES := ["拾取与射击","单只冲锋兽","换弹与补给","交替应敌","护盾与医疗","共同抵达"]
 var combat: Dictionary = {}
@@ -121,6 +122,8 @@ func bounded(point: Vector2, _floor: float = INF) -> Vector2:
 		forward=minf(forward,hold)
 	# 颜色门：后面的人还没进门洞时，先过门的人最多离开门 10 单位，绳子不会被拉满，
 	# 后者始终能横移对准自己的门，不会被拽进中间能量帘的转角两人一起卡死。
+	# Boss 存活时不能越过树心前的站位线。
+	forward=minf(forward,Boss.hold_y(self))
 	var trailing:=minf(a.position.y,b.position.y)
 	for i in indexed_kinds(["color_gate"]):
 		var door:Rect2=obstacles[i]
@@ -155,6 +158,8 @@ func retry(count_failure: bool = false) -> void:
 	else:
 		build_journey()
 		Monsters.populate(self)
+		# 第一章终点 Boss 场地（章节最后 90 米），在怪物与补给之后登记。
+		Boss.add(self)
 		# 合作站是战斗间歇；补给位于已留空的到达区域，仍须实际走近拾取。
 		for gate in charge_gates:
 			for x in [-65,65]:Combat.add_pickup(self,"medkit",Vector2(x,gate.receiver.y-100))
@@ -297,6 +302,9 @@ func advance_events(_dt: float) -> void:
 		if event.kind=="monster":
 			Monsters.advance(self,event)
 			continue
+		if event.kind=="boss":
+			Boss.advance(self,event)
+			continue
 		# 以最快合法前进速度预留 >2.8 秒；锁定后不跟踪改道。
 		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-maxf(620.0,WALK_SPEED*3.0):
 			event.trigger=elapsed
@@ -360,6 +368,7 @@ func update_checkpoint() -> void:
 
 # 区域入口存档：两人贴地、绳未挂障碍，附近没有进行中的攻击，脚下不压机关。
 func checkpoint_ground_clear() -> bool:
+	if boss_fighting(): return false
 	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return false
 	# 入口 8 秒缓冲内存档，不把活跃攻击或塌陷危险保存到脚下。
 	for event in journey_events:
@@ -370,8 +379,14 @@ func checkpoint_ground_clear() -> bool:
 		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return false
 	return true
 
+# Boss 开战时已在场地入口存档；战斗中不再顺延存档，失败从入口重打。
+func boss_fighting() -> bool:
+	var event:=Boss.boss(self)
+	return Boss.alive(event) and event.phase!="dormant"
+
 # 补充存档的额外条件：先查廉价的血量、机关、敌人与窄路，再由调用方做完整危险走廊检查。
 func mid_checkpoint_clear() -> bool:
+	if boss_fighting(): return false
 	if heights[0]>0 or heights[1]>0 or not ground_support[0] or not ground_support[1] or rope.touching()>0: return false
 	if combat.is_empty() or combat.health[0]<MID_CHECKPOINT_HEALTH or combat.health[1]<MID_CHECKPOINT_HEALTH: return false
 	var low:=minf(a.position.y,b.position.y)
@@ -437,6 +452,8 @@ func arena_at(y: float) -> Dictionary:
 
 func active_hint() -> String:
 	if combat_trial: return combat.get("notice","")
+	var boss_hint:=Boss.hint(self)
+	if not boss_hint.is_empty(): return boss_hint
 	var narrow:Dictionary=Encounters.narrow_at(self,progress(),maxf(a.position.y,b.position.y))
 	if not narrow.is_empty():return {"center_path":"中央独木道：对准中线，前后依次通过", "edge_path":"崖边单行道：提前靠边，前后依次通过", "twin_paths":"双线镂空桥：各走一条，保持同步", "triple_paths":"三线镂空桥：选择相邻通道，别把绳拉满"}[narrow.kind]
 	if charge_gate.active and not charge_gate.open and charge_gate.receiver.y-progress()<800:
@@ -461,7 +478,7 @@ func active_hint() -> String:
 		var left:=journey_events.filter(func(e):return e.kind=="monster" and e.hp>0 and e.y>=arena.start and e.y<arena.end).size()
 		return "怪物潮：剩余 %d 只，边打边推进"%left if left>0 and progress()>=arena.start else "怪物潮专区：没有机关，专心清理敌群"
 	for marker in encounter_markers:
-		if marker.y>=progress()-40 and marker.y<=progress()+450 and not marker.kind in EVENT_NAMES:
+		if marker.y>=progress()-40 and marker.y<=progress()+450 and not marker.kind in EVENT_NAMES and marker.kind!="boss":
 			return {"slope":"起伏坡道：观察前方高低，保持同侧", "steps":"石阶：留意高低差，依次通过", "tilt":"倾斜桥面：保持靠近，留意两侧高度", "lift":"升降平台：等平台接近地面再上桥"}.get(marker.kind,hazard_name(marker.kind))
 	return ["主动前进，松开按键即可停下；两人保持同侧","注意树干与草丛的预警","裂纹地面会塌陷，提前选择落脚点","看见村庄了，整理站位后前进","观察村民抬手和推车轨迹","前方供能装置与双人踏板需要合作"][zone_index()]
 

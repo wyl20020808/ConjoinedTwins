@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-21",
+  "settings": "Tripo Studio 文生 3D；纹理开启 2K PBR、去光；导出 GLB；不使用 Tripo 自带骨骼。",
+  "assets": [
+    {
+      "file": "assets/boss/root_colossus.glb",
+      "face_limit": 20000,
+      "prompt": "A colossal corrupted forest guardian boss monster for a stylized fantasy adventure game: a giant humanoid upper body made of twisted dark tree roots and cracked bark, rising out of a wide mass of tangled roots instead of legs, two very long powerful root arms with clawed wooden fingers held away from the body, broad mossy shoulders with small mushrooms and hanging vines, a hollow cracked chest cavity holding a glowing amber heart core wrapped in roots, a heavy wooden head with a crown of broken branches and two glowing amber eyes. Hand-painted PBR textures, dark brown bark, moss green and warm amber glow, imposing readable silhouette, single creature, facing forward, symmetrical T-like pose with arms spread, no base platform, no ground, no background, no text."
+    },
+    {
+      "file": "assets/boss/root_spike.glb",
+      "face_limit": 6000,
+      "prompt": "A cluster of sharp twisted tree root spikes bursting upward out of the ground for a stylized fantasy game, three to five pointed wooden roots of different heights leaning outward, dark bark with moss and faint amber glowing cracks, hand-painted PBR textures, game-ready prop, single object, no base, no background, no text."
+    },
+    {
+      "file": "assets/boss/seed_pod.glb",
+      "face_limit": 6000,
+      "prompt": "A round explosive seed pod thrown by a forest monster, stylized fantasy game prop: a woody spherical husk with deep cracks glowing bright amber and yellow-green from inside, a short twisted stem with two small leaves on top, hand-painted PBR textures, single object, no base, no background, no text."
+    },
+    {
+      "file": "assets/boss/binding_root.glb",
+      "face_limit": 6000,
+      "prompt": "A low coiled knot of thick tree roots lying on the ground, forming a ring around a glowing amber crystal seed in the center, stylized fantasy game prop, dark bark, moss and warm amber glow, flat bottom, wider than tall, hand-painted PBR textures, single object, no background, no text."
+    },
+    {
+      "file": "assets/boss/root_wall.glb",
+      "face_limit": 6000,
+      "prompt": "A long horizontal barrier wall of tangled thorny tree roots and brambles blocking a road, stylized fantasy game prop, about four times wider than tall, dark twisted roots with sharp thorns, moss and a few faint amber glowing cracks, flat bottom, hand-painted PBR textures, single object, no background, no text."
+    }
+  ]
+}

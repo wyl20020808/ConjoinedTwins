@@ -124,6 +124,7 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 			near_hazards.append({"index":i,"samples":samples})
 	for event in run.journey_events:
 		if event.has("hp") and event.hp<=0:continue
+		if event.kind=="boss":continue
 		if event.y>=me.y-900 and event.y<=me.y+700:
 			attack_jump=attack_jump or jump_for_attack(run,event,me)
 			var samples:Array=[]

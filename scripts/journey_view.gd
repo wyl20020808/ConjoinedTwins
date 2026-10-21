@@ -67,6 +67,7 @@ var atmosphere
 const Fx = preload("res://scripts/journey_fx.gd")
 var fx
 const Buddy=preload("res://scripts/journey_buddy.gd")
+const BossView=preload("res://scripts/journey_boss_view.gd")
 var buddy=Buddy.new()
 var play_mode:="solo"
 var mode_buttons:Array[Button]=[]
@@ -706,6 +707,7 @@ func prepare_journey_frame() -> bool:
 			"swing":retained.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["cart","stone"]:retained.append("res://assets/journey/villager_actions.glb")
 		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():retained.append(CombatView.EnemyView.model_path(event.archetype))
+		if event.kind=="boss":retained.append_array(BossView.PATHS)
 	for gate in run.charge_gates:
 		if model_resident(gate.receiver.y):
 			retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
@@ -767,6 +769,7 @@ func prepare_event_views(deadline: int) -> bool:
 			"swing": paths.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["stone","cart"]: paths.append("res://assets/journey/villager_actions.glb")
 		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():paths.append(CombatView.EnemyView.model_path(event.archetype))
+		if event.kind=="boss":paths.append_array(BossView.PATHS)
 		chunk_assets.request(paths)
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
 			event_views[event.id]=build_event(event)
@@ -827,6 +830,9 @@ func build_event(event: Dictionary) -> Node3D:
 	road.add_child(root)
 	root.set_meta("id",event.id)
 	var kind:String=event.kind
+	if kind=="boss":
+		BossView.build(self,root,event)
+		return root
 	var body:=Node3D.new()
 	body.name="Body"
 	root.add_child(body)
@@ -900,6 +906,9 @@ func sync_events() -> void:
 		var view:Node3D=event_views[event.id]
 		view.show()
 		view.position=Vector3(0,0,-event.y/SCALE)
+		if event.kind=="boss":
+			BossView.sync(self,view,event)
+			continue
 		var body:Node3D=view.get_node("Body")
 		var rect:Rect2=event.sample
 		body.position=Vector3(rect.get_center().x/SCALE,event.bottom/SCALE,-(rect.get_center().y-event.y)/SCALE)
@@ -2317,6 +2326,8 @@ func update_journey_ui() -> void:
 	journey_hint.visible=run.state=="rescue" or (run.state=="running" and run.charge_gate.get("active",false) and not run.charge_gate.open and absf(run.a.position.y-run.charge_gate.receiver.y)<180)
 	# 怪物潮专区显示剩余敌人数，离开专区后自动收起。
 	if run.state=="running" and not run.combat_trial and not run.arena_at(run.progress()).is_empty():journey_hint.visible=true
+	# Boss 战全程显示当前招式的躲避提示。
+	if run.state=="running" and not run.Boss.hint(run).is_empty():journey_hint.visible=true
 	if journey_hint.visible: journey_hint.text=run.active_hint()
 	update_settings_panel()
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
@@ -2454,6 +2465,7 @@ func pump_music(delta: float, fighting: bool) -> void:
 func combat_nearby() -> bool:
 	for event in run.journey_events:
 		if event.kind=="monster" and event.hp>0 and event.alert and absf(event.y-run.distance)<900.0: return true
+		if event.kind=="boss" and event.hp>0 and event.phase!="dormant": return true
 	return false
 
 static func ambience_wave(t:float,kind:String)->float:

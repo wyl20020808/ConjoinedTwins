@@ -1,6 +1,7 @@
 extends RefCounted
 # 平均 12 米主节拍搭配前置地形组合；共享安全走廊，门前后保留操作空间。
 const RandomLayout=preload("res://scripts/journey_random.gd")
+const Boss=preload("res://scripts/journey_boss.gd")
 const STEP:=240.0
 const REUSED:=["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
 const RIDGE:=["rail","pillar","cargo","road_gap","active_spikes","rail","collapse","pillar"]
@@ -31,7 +32,10 @@ static func build(run)->void:
 	var layout=RandomLayout.new(run.seed_value,run.level_index,1)
 	var cut_list:=cuts(run)
 	# 基准长度不含专区；地域主题、终点与护盾按真实坐标计算。
-	var finish:float=run.finish_distance()-cut_list.size()*ARENA
+	# 有 Boss 的章节末尾留出 Boss 场地，机关、合作门与怪物都在场地之前结束。
+	# 额外 400 单位让最后一拍的地形组合（最长 160）与入口留白都落在场地之外。
+	var boss_arena:float=Boss.ARENA+400.0 if Boss.enabled(run) else 0.0
+	var finish:float=run.finish_distance()-cut_list.size()*ARENA-boss_arena
 	var real:=func(y:float)->float:return y+shift_at(cut_list,y)
 	var anchors:Array=[]
 	var tag:=func(y:float)->void:
@@ -163,6 +167,10 @@ static func build(run)->void:
 		# 专区中线标记：保持遭遇覆盖与换侧留白，危险侧为 0，两人走中路。
 		for y in range(int(start)+160,int(start+ARENA),400):
 			run.encounter_markers.append({"y":float(y),"kind":"arena","blocked":0.0,"formation":false})
+	# Boss 场地（含入口前留白）本身就是本段遭遇：同样按 400 单位登记中线标记。
+	if boss_arena>0.0:
+		for y in range(int(run.finish_distance()-boss_arena)+160,int(run.finish_distance()),400):
+			run.encounter_markers.append({"y":float(y),"kind":"boss","blocked":0.0,"formation":false})
 	run.encounter_markers.sort_custom(func(p,q):return p.y<q.y)
 	ground_mechanisms(run)
 	for beat in small_beats:small_hazards(run,beat[0],real.call(beat[1]),beat[2],layout)
