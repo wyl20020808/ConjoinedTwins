@@ -5,7 +5,8 @@ const EXTENT := 140.0
 const WIDTH := 80.0
 const SHADER = preload("res://scripts/journey_ground.gdshader")
 # Tripo 文生 3D 村民（静态，约 5.7k 三角面、1024 贴图），原生高 1、朝 +X；按 3 米身高摆放。
-const VILLAGERS := ["villager_farmer","villager_elder","villager_blacksmith","villager_merchant"]
+# 第二批 Tripo 新增渔夫、老矿工、卫兵，与原四种依次轮换。
+const VILLAGERS := ["villager_farmer","villager_elder","villager_blacksmith","villager_merchant","villager_fisher","villager_miner","villager_guard"]
 const VILLAGER_HEIGHT := 3.0
 const TRIPO_HOUSES := ["tripo_cottage","tripo_workshop","tripo_roadside_inn","tripo_corner_townhouse","tripo_stone_cottage","tripo_riverside_house","tripo_thatched_farmhouse","tripo_storage_barn","tripo_forester_cabin"]
 const SURFACE_KINDS := ["tripo_cobble_road_panel","tripo_flagstone_road_panel","tripo_muddy_wheel_ruts","tripo_grass_soil_border","tripo_leaf_litter_patch","tripo_stone_road_curb","tripo_crumbled_pit_rim","tripo_layered_cliff_face"]

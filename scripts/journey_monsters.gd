@@ -14,13 +14,30 @@ const GRID := 40.0
 const PATROL_RANGE := 2800.0
 const PATROL_SPEED := 70.0
 const PATROL_SPAN := Vector2(150,100)
-const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"dasher":260.0,"wolf":270.0}
-const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼"}
+const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"dasher":260.0,"wolf":270.0,
+	"root_spider":290.0,"goblin_bomber":200.0,"river_crab_knight":150.0}
+const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼",
+	"root_spider":"根须蛛", "goblin_bomber":"矿灯地精", "river_crab_knight":"河岸钳甲兵"}
+const HP := {"briar":30,"raider":40,"sentinel":50,"archer":40,"dasher":60,"wolf":40,"root_spider":30,"goblin_bomber":35,"river_crab_knight":90}
+# 攻击方式：远程（直线飞行物）、冲锋（沿锁定方向扑咬）、近战（向落点砸下）。新怪物按方式复用既有攻击逻辑。
+const RANGED := ["archer","goblin_bomber"]
+const CHARGERS := ["dasher","wolf","root_spider"]
+# 全部种类每章都可能出现，敌群之间轮流换主力，避免长时间同几种。
+const ROSTER := ["briar","raider","sentinel","archer","dasher","wolf","root_spider","goblin_bomber","river_crab_knight"]
 const PROFILES := {
 	"archer":{"windup":0.65,"active":1.15,"cycle":2.1,"range":740.0,"damage":34,"speed":720.0},
 	"dasher":{"windup":0.65,"active":0.65,"cycle":2.8,"range":420.0,"damage":45,"speed":680.0},
-	"wolf":{"windup":0.45,"active":0.45,"cycle":1.8,"range":230.0,"damage":28,"speed":430.0}}
+	"wolf":{"windup":0.45,"active":0.45,"cycle":1.8,"range":230.0,"damage":28,"speed":430.0},
+	# 根须蛛：更短更快的扑咬；地精：飞得更慢、预警更长的炸药包。
+	"root_spider":{"windup":0.4,"active":0.4,"cycle":1.6,"range":220.0,"damage":22,"speed":460.0},
+	"goblin_bomber":{"windup":0.8,"active":1.3,"cycle":2.6,"range":620.0,"damage":38,"speed":520.0}}
 const MELEE := {"windup":WINDUP,"active":FLIGHT,"cycle":CYCLE,"range":ATTACK_RANGE,"damage":32,"speed":0.0}
+
+static func ranged(event:Dictionary)->bool:
+	return event.get("archetype","") in RANGED
+
+static func charges(event:Dictionary)->bool:
+	return event.get("archetype","") in CHARGERS
 
 static func profile(event:Dictionary)->Dictionary:
 	return PROFILES.get(event.archetype,MELEE)
@@ -49,10 +66,16 @@ static func safe_supply(run,point:Vector2)->bool:
 static func populate(run) -> void:
 	var layout=RandomLayout.new(run.seed_value,run.level_index,2)
 	var pack := 0
+	var previous_lead := ""
 	for anchor in range(900,int(run.finish_distance())-1200,900):
 		# 每四群计划 16 只；局部 3~5 只波动，实体与合作门安全检查优先。
 		var base:float=anchor+float(layout.draw("spacing",[-120,-60,0,60,120]))
 		var count:int=layout.draw("pack_size",[3,4,4,5])
+		# 每群一主一辅两种怪物交替站位；主力从全部种类的洗牌袋抽取，相邻两群主力不同。
+		var lead:String=layout.draw("pack_lead",ROSTER)
+		if lead==previous_lead: lead=layout.draw("pack_lead",ROSTER)
+		var support:String=layout.draw("pack_support",ROSTER)
+		if support==lead: support=layout.draw("pack_support",ROSTER)
 		var points: Array[Vector2]=[]
 		for member in range(count):
 			var found := false
@@ -62,11 +85,13 @@ static func populate(run) -> void:
 				for x in lanes:
 					var point := Vector2(x,base+member*100+offset)
 					if points.any(func(p):return p.distance_to(point)<90) or not safe_spawn(run,point): continue
-					var variant:String=layout.draw("archetype",["archer","dasher","wolf",""])
-					add(run,point,run.theme_at(point.y),variant)
+					var variant:String=lead if points.size()%2==0 else support
+					add(run,point,run.theme_at(point.y),variant).pack=anchor
 					points.append(point);found=true;break
 				if found: break
+		# 只有实际放下怪物的群才算“上一群”，空群不打断轮换。
 		if points.is_empty(): continue
+		previous_lead=lead
 		pack+=1
 		# 每两群附近补给一次，避开实体、缺口与门；不凭空补满玩家弹药。
 		if pack%2==0:
@@ -87,7 +112,7 @@ static func populate(run) -> void:
 
 static func add(run, position: Vector2, theme: String, variant:String="") -> Dictionary:
 	var archetype := variant if not variant.is_empty() else ("briar" if theme in ["forest","broken","edge","meadow","river","ridge"] else ("sentinel" if theme in ["mine","ruins","facility"] else "raider"))
-	var hp: int={"briar":30,"raider":40,"sentinel":50,"archer":40,"dasher":60,"wolf":40}[archetype]
+	var hp: int=HP[archetype]
 	var rect := Rect2(position-Vector2(28,28),Vector2(56,56))
 	var event := {"id":run.event_serial,"kind":"monster","archetype":archetype,"origin":position,
 		"y":position.y,"side":signf(position.x),"rect":rect,"sample":rect,"previous":rect,
@@ -111,11 +136,11 @@ static func sample(event: Dictionary, time: float) -> Dictionary:
 	var center:Vector2=event.landing
 	var size:=Vector2(56,56)
 	var height:=18.0
-	if event.archetype=="archer":
+	if ranged(event):
 		center=event.launch+event.attack_direction*maxf(0,age-data.windup)*data.speed
 		bottom=event.get("launch_height",0.0)+24.0;size=Vector2(12,12);height=8.0
-	elif event.archetype in ["dasher","wolf"]:
-		center=event.origin;bottom=event.get("ground_height",0.0);height=42.0 if event.archetype=="dasher" else 26.0
+	elif charges(event):
+		center=event.origin;bottom=event.get("ground_height",0.0);height={"dasher":42.0,"root_spider":22.0}.get(event.archetype,26.0)
 	elif phase=="active": bottom=event.get("ground_height",0.0)+maxf(0,70-(age-WINDUP)*180)
 	if event.get("attack_blocked",false) and phase=="active":phase="recovery"
 	return {"rect":Rect2(center-size/2,size),"phase":phase,"bottom":bottom,"top":bottom+height}
@@ -136,14 +161,14 @@ static func advance(run, event: Dictionary) -> void:
 	if patrolling: target=event.origin
 	elif event.origin.distance_to(target)>200:
 		target.x=clampf(target.x+(-90 if event.id%2==0 else 90),-run.EDGE+40,run.EDGE-40)
-	if event.archetype in ["dasher","wolf"] and age>=0 and age<data.windup+data.active:
+	if charges(event) and age>=0 and age<data.windup+data.active:
 		if age>=data.windup and not event.attack_blocked:
 			var destination:Vector2=event.origin+event.attack_direction*data.speed*run.FIXED_STEP
 			if clear_path(run,event.origin,destination,blockers(run,event.origin,destination)):
 				place(run,event,destination)
 			else:event.attack_blocked=true
 	elif patrolling and age<0: patrol(run,event)
-	elif event.archetype!="archer" or age<0 or age>=data.windup+data.active:
+	elif not ranged(event) or age<0 or age>=data.windup+data.active:
 		move(run,event,target)
 	if event.trigger>=0 and age>=data.cycle: event.trigger=-1.0
 	if event.trigger<0 and not protected and absf(event.y-run.distance)<NOTICE_RANGE:
@@ -166,7 +191,7 @@ static func advance(run, event: Dictionary) -> void:
 			event.attack_blocked=false
 			for role in range(2): run.combat.hits.erase("monster:%d:%d"%[event.id,role])
 	var next := sample(event,run.elapsed+run.FIXED_STEP)
-	if event.archetype=="archer" and next.phase=="active":
+	if ranged(event) and next.phase=="active":
 		# 箭矢沿锁定方向飞行，实体挡住后本轮停止，不在墙后重新出现。
 		if not run.Combat.line_of_sight(run,event.launch,next.rect.get_center(),next.bottom+4,next.bottom+4):
 			event.attack_blocked=true;next.phase="recovery"

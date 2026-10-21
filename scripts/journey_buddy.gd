@@ -211,7 +211,7 @@ func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2
 # 一次思考生成四个采样点，所有候选输入复用，避免重复计算攻击轨迹。
 static func predict_event(run,event:Dictionary,offset:float)->Dictionary:
 	var spec:Dictionary=run.event_sample(event,run.elapsed+offset)
-	if event.kind=="monster" and event.archetype in ["dasher","wolf"] and event.trigger>=0 and not event.attack_blocked:
+	if event.kind=="monster" and run.Monsters.charges(event) and event.trigger>=0 and not event.attack_blocked:
 		var data:Dictionary=run.Monsters.profile(event)
 		var start:float=maxf(run.elapsed,event.trigger+data.windup)
 		var finish:float=minf(run.elapsed+offset,event.trigger+data.windup+data.active)
@@ -225,18 +225,18 @@ static func jump_for_attack(run,event:Dictionary,point:Vector2)->bool:
 	var data:Dictionary=run.Monsters.profile(event)
 	var age:float=run.elapsed-event.trigger
 	var impact:float=data.windup-age+.28
-	if event.archetype in ["archer","dasher","wolf"]:
-		var origin:Vector2=event.launch if event.archetype=="archer" else event.origin
+	if run.Monsters.ranged(event) or run.Monsters.charges(event):
+		var origin:Vector2=event.launch if run.Monsters.ranged(event) else event.origin
 		var delta:Vector2=point-origin
 		if absf(delta.cross(event.attack_direction))>70 or delta.dot(event.attack_direction)<-40:return false
 		impact=maxf(0,data.windup-age)+maxf(0,delta.dot(event.attack_direction)-42)/data.speed
-		if event.archetype=="archer":impact=data.windup-age+maxf(0,delta.dot(event.attack_direction)-20)/data.speed
+		if run.Monsters.ranged(event):impact=data.windup-age+maxf(0,delta.dot(event.attack_direction)-20)/data.speed
 	elif point.distance_to(event.landing)>80:return false
 	return impact>.25 and impact<.40
 
 static func dodge_target(run,me:Vector2,human:Vector2,target:Vector2)->Vector2:
 	for event in run.journey_events:
-		if event.kind!="monster" or event.get("hp",0)<=0 or event.archetype not in ["dasher","wolf"] or event.phase not in ["warning","active"] or event.attack_blocked:continue
+		if event.kind!="monster" or event.get("hp",0)<=0 or not run.Monsters.charges(event) or event.phase not in ["warning","active"] or event.attack_blocked:continue
 		var data:Dictionary=run.Monsters.profile(event)
 		var direction:Vector2=event.attack_direction
 		var delta:Vector2=me-event.origin

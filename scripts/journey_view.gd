@@ -823,6 +823,12 @@ func build_event(event: Dictionary) -> Node3D:
 			ball.hide()
 			box(body,Vector3.ZERO,Vector3(.08,.08,1.2),material("arrow_wood",Color("b7a176")))
 			box(body,Vector3(0,0,.65),Vector3(.24,.1,.3),material("arrow_tip",Color("bec8c8")))
+		elif kind=="monster" and event.archetype=="goblin_bomber":
+			# 炸药包：黑色圆弹加一截发光引信。
+			ball.scale=Vector3.ONE*.42
+			ball.material_override=material("bomb_shell",Color("202326"))
+			var fuse:Node3D=box(body,Vector3(0,.26,0),Vector3(.05,.16,.05),material("bomb_fuse",Color("ffb347"),2.5))
+			fuse.rotation.z=.4
 	elif kind=="cart": asset(body,"cart",Vector3.ZERO,3.2,PI/2)
 	else:
 		var wood:=material("swing_wood",Color("9c805c"))
@@ -895,13 +901,13 @@ func sync_events() -> void:
 		warning.position.x=event.locked_x/SCALE if event.kind in ["stone","monster"] else event.rect.get_center().x/SCALE
 		if event.kind=="monster":
 			warning.position.z=-(event.landing.y-event.y)/SCALE
-			if event.archetype in ["archer","dasher","wolf"]:
+			if run.Monsters.ranged(event) or run.Monsters.charges(event):
 				var data:Dictionary=run.Monsters.profile(event)
 				var length:float=data.speed*data.active/SCALE
 				var center:Vector2=event.launch+event.attack_direction*length*SCALE/2
 				warning.position=Vector3(center.x/SCALE,.04+event.get("ground_height",0.0)/SCALE,-(center.y-event.y)/SCALE)
 				warning.rotation.y=atan2(event.attack_direction.x,-event.attack_direction.y)
-				warning.scale=Vector3(.32 if event.archetype=="archer" else 1.0,1,length/2.5)
+				warning.scale=Vector3({"archer":.32,"goblin_bomber":.5}.get(event.archetype,1.0),1,length/2.5)
 				body.rotation.y=warning.rotation.y
 		view.get_node("Hint").visible=event.phase=="warning"
 		if view.has_node("Villager"):
