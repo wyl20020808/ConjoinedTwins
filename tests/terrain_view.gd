@@ -30,7 +30,10 @@ func verify()->void:
 		check("生产视图完整创建 "+route,game.hazard_views.size()==run.obstacles.size())
 		for i in range(run.kinds.size()):
 			if run.kinds[i] in run.Terrain.MOVING:
-				check("平台显示与生产高度一致 "+route,absf(game.hazard_views[i].position.y-run.terrain_sample(i,run.elapsed,run.obstacles[i].get_center()).height/20.0)<0.001)
+				# 升降台支柱留在地面，只有 TerrainDeck 升降；桥板中心在 -0.12、厚 0.24，顶面即生产高度。
+				var shown:float=game.hazard_views[i].position.y
+				if run.kinds[i]=="lift":shown+=game.hazard_views[i].get_node("TerrainDeck").position.y+0.12
+				check("平台显示与生产高度一致 "+route,absf(shown-run.terrain_sample(i,run.elapsed,run.obstacles[i].get_center()).height/20.0)<0.001)
 		check("麻绳画面消费生产质点 "+route,game.rope_view.points.size()==run.rope.physical.points.size())
 		check("麻绳无自发光 "+route,not game.rope_view.rope_material.emission_enabled)
 	run.fallen=[true,true]
