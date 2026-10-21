@@ -129,18 +129,40 @@ func verify()->void:
 		await sync(game)
 	check(rig.final_pose(foot).origin.distance_to(skeleton.get_bone_global_pose(foot).origin)>0.01,"侧步混合作用于最终骨骼姿势")
 
-	# 持枪：右臂取持枪姿势，枪挂在修改后的手腕上；换弹时手臂交还战斗画面的手部 IK。
+	# 持枪：持枪层只带胸口，双臂由战斗画面的手部 IK 握住枪；平时抱枪跑，开火时抬枪瞄准；换弹时手臂同样交给手部 IK。
 	run.combat.weapons[0]=run.Combat.gun()
 	for n in range(40):
 		run.fixed_step(Vector2(0,1),Vector2(0,1))
 		await sync(game)
 	var hand:int=skeleton.find_bone("RightHand")
-	check(is_equal_approx(rig.gun_weight,1.0) and rig.gun_arms,"拿枪后上半身持枪层完全生效")
+	var left_hand:int=skeleton.find_bone("LeftHand")
+	check(is_equal_approx(rig.gun_weight,1.0) and not rig.gun_arms,"拿枪后持枪层只带胸口，双臂交给手部 IK")
 	check(player.current_animation.ends_with("Run") and player.speed_scale>1.0,"持枪时下半身继续跑步")
-	check(rig.final_pose(hand).origin.distance_to(skeleton.get_bone_global_pose(hand).origin)>0.02,"右臂离开跑步摆臂，改为持枪")
 	game.sync_view()
-	var gun:Node3D=game.combat_view.guns[0]
-	check(gun.global_position.distance_to(skeleton.global_transform*rig.final_pose(hand).origin)<0.001,"枪挂在持枪层修改后的手腕上")
+	var view=game.combat_view
+	var gun:Node3D=view.guns[0]
+	var anchor:Dictionary=view.chest_anchor(0,skeleton)
+	check(gun.to_global(view.GRIP_RIGHT).distance_to(view.offset(anchor,view.CARRY_GRIP))<0.05,"不开火时抱枪：握把在右腹前")
+	var muzzle:Vector3=-gun.global_basis.z
+	check(muzzle.dot(anchor.right)<-0.4 and muzzle.y>0.3,"抱枪时枪身斜横胸前、枪口朝左上方")
+	var right_world:Vector3=skeleton.global_transform*skeleton.get_bone_global_pose(hand).origin
+	var left_world:Vector3=skeleton.global_transform*skeleton.get_bone_global_pose(left_hand).origin
+	check(right_world.distance_to(gun.to_global(view.GRIP_RIGHT))<0.12,"右手握住握把（%.2f）"%right_world.distance_to(gun.to_global(view.GRIP_RIGHT)))
+	check(left_world.distance_to(gun.to_global(view.GRIP_LEFT))<0.12,"左手托住护木（%.2f）"%left_world.distance_to(gun.to_global(view.GRIP_LEFT)))
+	run.combat.fire[0]=true
+	for n in range(12):
+		run.fixed_step(Vector2(0,1),Vector2(0,1))
+		await sync(game)
+		run.combat.fire[0]=true
+	game.sync_view()
+	anchor=view.chest_anchor(0,skeleton)
+	check(view.aim_level[0]>0.95,"开火时抬枪瞄准")
+	check(gun.to_global(view.GRIP_RIGHT).distance_to(view.offset(anchor,view.AIM_GRIP))<0.15,"瞄准时枪贴身抬到胸口高度")
+	check((-gun.global_basis.z).dot(anchor.forward)>0.6,"瞄准时枪口朝前")
+	var aim_right:Vector3=skeleton.global_transform*skeleton.get_bone_global_pose(hand).origin
+	var aim_left:Vector3=skeleton.global_transform*skeleton.get_bone_global_pose(left_hand).origin
+	check(aim_right.distance_to(gun.to_global(view.GRIP_RIGHT))<0.12 and aim_left.distance_to(gun.to_global(view.GRIP_LEFT))<0.12,"瞄准时双手握枪（右 %.2f、左 %.2f）"%[aim_right.distance_to(gun.to_global(view.GRIP_RIGHT)),aim_left.distance_to(gun.to_global(view.GRIP_LEFT))])
+	run.combat.fire[0]=false
 	run.combat.weapons[0].reload=10
 	await sync(game)
 	check(not rig.gun_arms,"换弹时持枪层不覆盖双臂")

@@ -18,6 +18,7 @@ var action_fingers := {}
 var fire_tapped := false
 var reload_tapped := false
 var drop_tapped := false
+var swap_tapped := false
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -37,6 +38,7 @@ func reset() -> void:
 	fire_tapped=false
 	reload_tapped=false
 	drop_tapped=false
+	swap_tapped=false
 	queue_redraw()
 
 # 跳跃按住期间持续为真；极短的一次轻点也至少上报一帧，不会被漏掉。
@@ -46,10 +48,11 @@ func take_jump() -> bool:
 	return pressed
 
 func take_combat() -> Dictionary:
-	var result := {"fire":fire_tapped or "fire" in action_fingers.values(),"reload":reload_tapped,"drop":drop_tapped}
+	var result := {"fire":fire_tapped or "fire" in action_fingers.values(),"reload":reload_tapped,"drop":drop_tapped,"swap":swap_tapped}
 	fire_tapped=false
 	reload_tapped=false
 	drop_tapped=false
+	swap_tapped=false
 	return result
 
 func action_circles() -> Dictionary:
@@ -59,7 +62,8 @@ func action_circles() -> Dictionary:
 	return {"jump":Vector3(origin.x-72*scale,origin.y-72*scale,64*scale),
 		"fire":Vector3(origin.x-235*scale,origin.y-80*scale,74*scale),
 		"reload":Vector3(origin.x-65*scale,origin.y-212*scale,36*scale),
-		"drop":Vector3(origin.x-175*scale,origin.y-225*scale,36*scale)}
+		"drop":Vector3(origin.x-175*scale,origin.y-225*scale,36*scale),
+		"swap":Vector3(origin.x-285*scale,origin.y-195*scale,36*scale)}
 
 func action_at(point: Vector2) -> String:
 	for action in action_circles():
@@ -97,6 +101,7 @@ func _input(event: InputEvent) -> void:
 					if action=="fire": fire_tapped=true
 					elif action=="reload": reload_tapped=true
 					elif action=="drop": drop_tapped=true
+					elif action=="swap": swap_tapped=true
 		else:
 			if event.index == stick_finger:
 				stick_finger = -1
@@ -126,7 +131,7 @@ func _draw() -> void:
 	if not enabled: return
 	if combat_buttons:
 		var font := ThemeDB.fallback_font
-		var titles := {"fire":"射击","jump":"跳跃","reload":"换弹","drop":"丢弃"}
+		var titles := {"fire":"射击","jump":"跳跃","reload":"换弹","drop":"丢弃","swap":"换枪"}
 		for action in action_circles():
 			var circle: Vector3=action_circles()[action]
 			var center := Vector2(circle.x,circle.y)
