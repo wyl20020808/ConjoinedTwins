@@ -109,7 +109,8 @@ func verify()->void:
 	ticks(game.run,20);game.sync_view()
 	check(not actor.get_node("LeftLeg").transform.is_equal_approx(pose),"legs animate while running")
 	game.run.step(game.run.FIXED_STEP,Vector2.DOWN,Vector2.DOWN);game.sync_view()
-	check(game.animation_players[0].current_animation.ends_with("Run") and is_equal_approx(game.animation_players[0].speed_scale,2.2),"production running clip and doubled cadence")
+	# 步频随实际水平速度：倍率 = 速度 / 自然步速，见 tests/hero_locomotion.gd。
+	check(game.animation_players[0].current_animation.ends_with("Run") and is_equal_approx(game.animation_players[0].speed_scale,clampf(game.hero_velocity[0].length()/game.HERO_STRIDE_SPEED[0],0.6,4.0)) and game.animation_players[0].speed_scale>3.0,"production running clip with speed-matched cadence")
 	pose=actor.transform;game.run.pause();ticks(game.run,60);game.sync_view()
 	check(actor.transform.is_equal_approx(pose) and game.animation_players[0].speed_scale==0,"pause freezes both visual locomotion paths")
 	for player in game.sfx.players:player.stop()

@@ -11,7 +11,11 @@
 - 全程只用关节位置和世界空间旋转，不依赖两套骨骼各自的局部轴向。
 - 髋部位移按身高比例缩放后保留（倒地、翻滚需要）。
 - 骨骼改为 Godot 人形名，便于游戏里的手部 IK 等代码查找；Godot 导入时不再做重定向。
+- 动作源没有跳跃：在动作源的世界空间里，以 Idle 第 0 帧为底，按关键姿势参数（屈髋、屈膝、
+  脚尖、前倾、摆臂）合成 Jump_Start / Jump_Air / Jump_Land / Jump_Land_Heavy，
+  再与其他动作走同一条重定向，不下载新动作素材。
 """
+import math
 import bpy, sys, os
 from mathutils import Matrix, Vector, Quaternion
 
@@ -86,6 +90,105 @@ def record(path, only=None, rename=None):
     return out, rest_q, rest_p
 
 
+# 跳跃关键姿势（弧度；thigh 为大腿向前摆、shin 为小腿世界摆角，负值向后；foot 正值脚尖上翘；
+# swing 为手臂向前摆、out 为手臂侧抬、elbow 为前臂额外前屈；lean 为上身前倾；plant 表示双脚踩地，
+# 由大腿角自动求小腿角与髋部下沉，保证脚掌留在原地）。
+def planted(thigh, **extra):
+    return dict(plant=thigh, **extra)
+
+
+POSES = {
+    'idle': planted(0.0),
+    'crouch': planted(0.78, lean=0.38, swing=-0.75, elbow=0.35, out=0.12),
+    'extend': dict(thigh=(-0.08, -0.04), shin=(-0.1, -0.06), foot=-0.65, lean=0.06, swing=1.65, elbow=0.2, out=0.18, lift=0.04),
+    'tuck': dict(thigh=(1.15, 0.6), shin=(-0.35, -0.55), foot=-0.3, lean=0.16, swing=0.85, elbow=0.55, out=0.55),
+    'reach': dict(thigh=(0.38, 0.18), shin=(-0.12, -0.28), foot=0.12, lean=0.04, swing=0.45, elbow=0.3, out=0.7),
+    'contact': planted(0.3, lean=0.1, swing=0.35, elbow=0.3, out=0.5),
+    'land_light': planted(0.62, lean=0.3, swing=0.5, elbow=0.4, out=0.32),
+    'land_heavy': planted(1.08, lean=0.58, swing=0.9, elbow=0.65, out=0.22),
+}
+# (动作名, [(帧, 姿势)])：帧间按 smoothstep 插值参数。
+JUMP_CLIPS = [
+    ('Jump_Start', [(0, 'crouch'), (6, 'extend')]),
+    ('Jump_Air', [(0, 'extend'), (8, 'tuck'), (18, 'reach')]),
+    ('Jump_Land', [(0, 'contact'), (4, 'land_light'), (12, 'idle')]),
+    ('Jump_Land_Heavy', [(0, 'contact'), (6, 'land_heavy'), (10, 'land_heavy'), (21, 'idle')]),
+]
+PARAMS = ('lean', 'swing', 'elbow', 'out', 'foot', 'lift')
+
+
+def synth_jumps(base, rest_p):
+    """以 Idle 第 0 帧为底合成跳跃动作，返回与 record() 相同结构的帧序列。"""
+    up = Vector((0, 0, 1))
+    down = -up
+    left = (base['UpperLeg.L'][1] - base['UpperLeg.R'][1])
+    left.z = 0
+    left.normalize()
+    forward = left.cross(up)
+    lateral = down.cross(forward)  # 绕此轴正转：下垂肢体向前摆
+    thigh_len = (rest_p['LowerLeg.L'] - rest_p['UpperLeg.L']).length
+    shin_len = (rest_p['Foot.L'] - rest_p['LowerLeg.L']).length
+
+    def params(name):
+        """姿势换算为可直接插值的参数；踩地姿势按两段腿长求小腿角和髋部下沉。"""
+        pose = POSES[name]
+        flat = {k: float(pose.get(k, 0.0)) for k in PARAMS}
+        flat['drop'] = -flat['lift']
+        flat['planted'] = 1.0 if 'plant' in pose else 0.0
+        for i, s in enumerate('LR'):
+            if 'plant' in pose:
+                thigh = pose['plant']
+                shin = -math.asin(min(0.99, thigh_len * math.sin(thigh) / shin_len))
+                flat['drop'] = thigh_len * (1 - math.cos(thigh)) + shin_len * (1 - math.cos(shin))
+            else:
+                thigh, shin = pose.get('thigh', (0.0, 0.0))[i], pose.get('shin', (0.0, 0.0))[i]
+            flat['thigh' + s], flat['shin' + s] = thigh, shin
+        return flat
+
+    def q(axis, angle):
+        return Quaternion(axis, angle)
+
+    def build(p):
+        pose = dict(base)
+
+        def turn(bone, rot):
+            d, pos = pose[bone]
+            pose[bone] = (rot @ d, pos)
+
+        lean = p['lean']
+        for bone, share in (('Body', 0.3), ('Abdomen', 0.5), ('Torso', 0.8), ('Chest', 1.0), ('Neck', 0.6), ('Head', 0.3)):
+            turn(bone, q(lateral, -lean * share))
+        for s, side in (('L', left), ('R', -left)):
+            turn(f'UpperLeg.{s}', q(lateral, p['thigh' + s]))
+            turn(f'LowerLeg.{s}', q(lateral, p['shin' + s]))
+            turn(f'Foot.{s}', q(lateral, p['foot']))
+            arm = q(down.cross(side), p['out']) @ q(lateral, p['swing'] - lean)
+            forearm = q(lateral, p['elbow']) @ arm
+            turn(f'Shoulder.{s}', q(lateral, -lean))
+            turn(f'UpperArm.{s}', arm)
+            turn(f'LowerArm.{s}', forearm)
+            turn(f'Wrist.{s}', forearm)
+        d, pos = pose['Body']
+        pose['Body'] = (d, pos - up * p['drop'])
+        # 踩地帧在目标骨架上再按正向运动学校正髋高，两套骨架腿长比例不同。
+        pose['_plant'] = p['planted']
+        return pose
+
+    out = {}
+    for name, keys in JUMP_CLIPS:
+        frames = []
+        for f in range(keys[-1][0] + 1):
+            for (f0, a), (f1, b) in zip(keys, keys[1:]):
+                if f0 <= f <= f1:
+                    t = (f - f0) / max(f1 - f0, 1)
+                    t = t * t * (3 - 2 * t)
+                    pa, pb = params(a), params(b)
+                    frames.append(build({k: pa[k] + (pb[k] - pa[k]) * t for k in pa}))
+                    break
+        out['CharacterArmature|' + name] = frames
+        print('SYNTH', name, len(frames), flush=True)
+    return out
+
 def main():
     argv = sys.argv[sys.argv.index('--') + 1:]
     hero_path, out_path = argv[0], argv[1]
@@ -94,6 +197,7 @@ def main():
         extra, _, _ = record(path, only=True, rename=name)
         clips.update(extra)
     src_height = rest_p['Body'].z - rest_p['Root'].z
+    clips.update(synth_jumps(clips['CharacterArmature|Idle'][0], rest_p))
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.context.scene.render.fps = 30
@@ -121,6 +225,22 @@ def main():
 
     def to_tgt(q):
         return T.inverted() @ q @ T
+
+    up_tgt = (T.inverted() @ Vector((0, 0, 1))).normalized()
+
+    def lowest_foot(D, move):
+        """目标骨架空间里两只脚踝关节中较低一只的高度（沿竖直方向）。"""
+        lowest = None
+        for side in ('Left', 'Right'):
+            chain = ['Hips', side + 'UpperLeg', side + 'LowerLeg', side + 'Foot']
+            pos = P['Hips'] + move
+            for a, b in zip(chain[:-1], chain[1:]):
+                pos = pos + D[a] @ (P[b] - P[a])
+            h = pos.dot(up_tgt)
+            lowest = h if lowest is None else min(lowest, h)
+        return lowest
+
+    plant_ref = None
 
     for name, frames in clips.items():
         action = bpy.data.actions.new(name)
@@ -150,6 +270,10 @@ def main():
             hips = tgt.pose.bones['Hips']
             # 以 Root 为参照：动作源静止姿势里 Root 带一个整体偏移，动画里 Root 归零，直接相减会把角色抬走。
             move = T.inverted() @ ((pose['Body'][1] - pose['Root'][1]) - (rest_body - rest_p['Root'])) * scale
+            if name.endswith('|Idle') and f == 0:
+                plant_ref = lowest_foot(D, move)
+            elif pose.get('_plant', 0.0) > 0.0 and plant_ref is not None:
+                move = move + up_tgt * (plant_ref - lowest_foot(D, move)) * pose['_plant']
             hips.location = R['Hips'].inverted() @ move
             hips.keyframe_insert('location', frame=f)
         action.frame_range = (0, len(frames) - 1)

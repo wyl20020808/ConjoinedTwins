@@ -23,7 +23,8 @@ const CHECKPOINT_TOAST := 0.8
 const IMPACT_TIME := 0.05
 const SETTINGS_PATH := "user://settings.cfg"
 const AMBIENCE_DUCKED := 0.5
-const STEP_LENGTH := 1.7
+# Run 片段 0.8 秒迈两步：每步距离 = 自然步速 × 0.4 秒，脚步声与画面步频一致（01 约 1.8 米、02 约 2.1 米）。
+const RUN_STEP_TIME := 0.4
 const STEP_TELEPORT := 3.0
 # 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
 const ONLINE_CATCHUP_FRAMES := 8
@@ -152,7 +153,21 @@ var last_kills := 0
 var last_open_gates := 0
 var low_health := 0.0
 var last_health := [100, 100]
-var visual_yaw := [0.0, 0.0]
+# 主角步态：Run 片段的自然步速（世界单位/秒，按支撑脚滑过地面的速度测得，tests/hero_locomotion.gd 复核）。
+# 播放倍率 = 实际水平速度 / 自然步速，脚不打滑；02 腿更长，步速更高。
+const HERO_STRIDE_SPEED := [4.56, 5.16]
+const HeroLocomotion = preload("res://scripts/hero_locomotion.gd")
+# 落地缓冲：下落高度超过普通跳跃顶点的 1.25 倍改用重落地。
+const HEAVY_LANDING := 1.25
+var hero_rigs := [null, null]
+var hero_velocity := [Vector2.ZERO, Vector2.ZERO]
+var hero_last_pos := [Vector2.ZERO, Vector2.ZERO]
+var hero_last_time := [-1.0, -1.0]
+var hero_strafe := [{"Run_Back": 0.0, "Run_Left": 0.0, "Run_Right": 0.0}, {"Run_Back": 0.0, "Run_Left": 0.0, "Run_Right": 0.0}]
+var air_top := [0.0, 0.0]
+var landing_clip := ["", ""]
+var landing_left := [0.0, 0.0]
+var landing_strength := [0.0, 0.0]
 var visual_last_heights := [0.0, 0.0]
 var land_impact := [0.0, 0.0]
 var training_button: Button
@@ -1847,28 +1862,32 @@ func sync_journey_character(i:int)->void:
 	for child in robots[i].get_children():
 		if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
 	robots[i].rotation=Vector3.ZERO
-	# 横向移动时身体朝移动方向轻微转向，不再像横向滑移。
-	var target_yaw:float=0.0
-	if visual_state=="running":
-		target_yaw=-run.move_directions[i].x*0.42
-	visual_yaw[i]=lerpf(visual_yaw[i],target_yaw,clampf(frame_delta*10.0,0.0,1.0))
-	if visual_state in ["running","start","settlement","complete"]:
-		robots[i].rotation.y=visual_yaw[i]
-	if visual_state=="running":
-		robots[i].rotation.x=-0.13-run.move_directions[i].y*0.07 if run.actions[i]=="Run" else 0.0
-		robots[i].rotation.z=-run.move_directions[i].x*0.06
-	# 起跳/落地只做视觉压缩，不改物理高度和碰撞。
-	if visual_last_heights[i]>6.0 and run.heights[i]<=0.5:
-		land_impact[i]=1.0
-		if i==(net.role if play_mode=="online" and net.in_match else 0): rumble(0.25,0.15,0.06)
+	track_hero_motion(i)
+	# 横移与后退由侧步/后退步混合表现，身体保持朝前；前进时上身前倾，后退时近乎直立。
+	if visual_state=="running" and run.actions[i]=="Run":
+		var direction:Vector2=run.move_directions[i]
+		robots[i].rotation.x=-0.06-0.14*maxf(direction.y,0.0)+0.05*maxf(-direction.y,0.0)
+		robots[i].rotation.z=-direction.x*0.06
+	# 落地缓冲：下落高度决定轻/重缓冲动作和整体压缩幅度；只改画面，不改物理高度和碰撞。
+	if run.heights[i]>0.0:air_top[i]=maxf(air_top[i],run.foot_height(i))
+	if visual_last_heights[i]>0.0 and run.heights[i]<=0.0:
+		var drop:float=maxf(0.0,air_top[i]-run.floor_heights[i])
+		landing_strength[i]=clampf(drop/(Run.JUMP_APEX*2.0),0.0,1.0)
+		landing_clip[i]="Jump_Land_Heavy" if drop>Run.JUMP_APEX*HEAVY_LANDING else "Jump_Land"
+		landing_left[i]=1.0
+		if visual_last_heights[i]>6.0:
+			land_impact[i]=landing_strength[i]
+			if i==(net.role if play_mode=="online" and net.in_match else 0): rumble(0.25,0.15,0.06)
+	if run.heights[i]<=0.0:air_top[i]=run.floor_heights[i]
 	if visual_state=="running": play_footsteps(i)
 	visual_last_heights[i]=run.heights[i]
 	land_impact[i]=maxf(0.0,land_impact[i]-frame_delta*7.0)
 	if i<character_models.size():
 		var model_node:Node3D=character_models[i]
 		var base:Vector3=model_node.get_meta("base_scale",model_node.scale)
+		# 缓冲动作已经屈膝，整体压缩只留一点重量感。
 		var squash:float=land_impact[i]
-		var target_scale:Vector3=base*Vector3(1.0+squash*0.10,1.0-squash*0.16,1.0+squash*0.10)
+		var target_scale:Vector3=base*Vector3(1.0+squash*0.05,1.0-squash*0.08,1.0+squash*0.05)
 		if not model_node.scale.is_equal_approx(target_scale):model_node.scale=target_scale
 	if rescuing:
 		var body:Vector3=run.rescue_body_position(i)
@@ -1896,6 +1915,10 @@ func sync_journey_character(i:int)->void:
 	shadows[i].visible=not falling() and not hanging
 	if i>=animation_players.size():return
 	var player:AnimationPlayer=animation_players[i]
+	var rig=hero_rig(i)
+	# 救援、受击/死亡与坠落只播放原有整段动作，步态层全部让位。
+	var locomotion:bool=visual_state in ["running","start","settlement","complete"] and not rescuing and not falling()
+	if rig!=null:sync_hero_rig(i,rig,locomotion,visual_state)
 	if run.state=="paused":
 		player.speed_scale=0
 		return
@@ -1911,16 +1934,89 @@ func sync_journey_character(i:int)->void:
 		play_action(player,"RopePull" if not hanging else ("Run" if climb>0.5 else "Climb"))
 		player.speed_scale=1.1 if player.current_animation.ends_with("Run") else 0.8+rescue_pulse[i]*1.6+(0.6 if climb>0 else 0.0)
 		return
-	var action:String="Jump" if run.heights[i]>0 else run.actions[i]
+	var action:String=run.actions[i]
+	if action not in ["Idle","Run"]:action="Run"
 	if run.state in ["start","settlement","complete"]:action="Idle"
+	if run.heights[i]>0.0:
+		landing_left[i]=0.0
+		# 起跳段：竖直速度从起跳速度降到 60%；腾空段：从 60% 一直到落地前的下落速度。
+		var rising:float=run.vertical_speed[i]
+		action="Jump_Start" if rising>Run.JUMP_SPEED*0.6 else "Jump_Air"
+		var phase:float=(Run.JUMP_SPEED-rising)/(Run.JUMP_SPEED*0.4) if action=="Jump_Start" else (Run.JUMP_SPEED*0.6-rising)/(Run.JUMP_SPEED*1.6)
+		play_action(player,action)
+		player.seek(clampf(phase,0,1)*player.current_animation_length,true)
+		return
+	if landing_left[i]>0.0 and visual_state=="running":
+		# 轻落地 0.25–0.4 秒，重落地约 0.7 秒；轻缓冲越轻播得越快。
+		play_action(player,landing_clip[i])
+		var heavy:bool=landing_clip[i]=="Jump_Land_Heavy"
+		player.speed_scale=lerpf(1.6,1.0,landing_strength[i]/0.625) if not heavy else lerpf(1.1,0.9,landing_strength[i])
+		landing_left[i]=maxf(0.0,landing_left[i]-frame_delta*player.speed_scale/maxf(player.current_animation_length,0.01))
+		return
 	play_action(player,action)
-	var pace:float=run.WALK_SPEED/160.0*(run.Combat.MOVE_SCALE if not run.combat.weapons[i].is_empty() else 1.0)
 	if action=="Run":
-		player.speed_scale=1.1*pace
-	else:
-		player.speed_scale=1.0
-	if run.heights[i]>0:
-		player.seek(clampf((Run.JUMP_SPEED-run.vertical_speed[i])/Run.GRAVITY/(2*Run.JUMP_SPEED/Run.GRAVITY),0,1)*player.current_animation_length,true)
+		player.speed_scale=clampf(hero_velocity[i].length()/HERO_STRIDE_SPEED[i],0.6,4.0)
+
+# 水平速度取模拟时间内的真实位移；重试、读档或换章的整段位移不计。
+func track_hero_motion(i:int)->void:
+	var point:Vector2=run.a.position if i==0 else run.b.position
+	var elapsed:float=run.elapsed
+	var dt:float=elapsed-hero_last_time[i]
+	if hero_last_time[i]<0.0 or dt<0.0 or (dt>0.0 and point.distance_to(hero_last_pos[i])/SCALE>STEP_TELEPORT):
+		hero_velocity[i]=Vector2.ZERO
+	elif dt>0.0:
+		hero_velocity[i]=(point-hero_last_pos[i])/dt/SCALE
+	if dt!=0.0 or hero_last_time[i]<0.0:
+		hero_last_pos[i]=point
+		hero_last_time[i]=elapsed
+
+func hero_rig(i:int):
+	if hero_rigs[i]!=null and is_instance_valid(hero_rigs[i]):return hero_rigs[i]
+	hand_point(i)
+	var skeleton:Skeleton3D=hand_skeletons.get(i)
+	if not is_instance_valid(skeleton) or i>=animation_players.size():return null
+	var rig:=HeroLocomotion.new()
+	rig.name="HeroLocomotion"
+	skeleton.add_child(rig)
+	rig.setup(animation_players[i])
+	rig.ground=hero_ground
+	hero_rigs[i]=rig
+	return rig
+
+func hero_ground(world:Vector3)->float:
+	var surface:Dictionary=run.surface_at(Vector2(world.x*SCALE,-world.z*SCALE),run.elapsed)
+	return float(surface.height)/SCALE if surface.supported else NAN
+
+func sync_hero_rig(i:int,rig,locomotion:bool,visual_state:String)->void:
+	var player:AnimationPlayer=animation_players[i]
+	var blend:float=clampf(frame_delta*10.0,0.0,1.0)
+	# 侧步权重：以实际水平速度方向分解为前/后/左/右，前后先合成，再按侧向占比混入侧步。
+	var targets:={"Run_Back":0.0,"Run_Left":0.0,"Run_Right":0.0}
+	var velocity:Vector2=hero_velocity[i]
+	if locomotion and visual_state=="running" and run.heights[i]<=0.0 and run.actions[i]=="Run" and velocity.length()>0.5:
+		var forward:float=velocity.y/velocity.length()
+		var side:float=velocity.x/velocity.length()
+		var total:float=absf(forward)+absf(side)
+		var back:float=maxf(-forward,0.0)/total
+		targets.Run_Back=back/maxf(back+maxf(forward,0.0)/total,0.001)
+		targets.Run_Right=maxf(side,0.0)/total
+		targets.Run_Left=maxf(-side,0.0)/total
+	for clip in targets:hero_strafe[i][clip]=lerpf(hero_strafe[i][clip],targets[clip],blend)
+	rig.strafe=hero_strafe[i] if player.current_animation.ends_with("Run") else {"Run_Back":0.0,"Run_Left":0.0,"Run_Right":0.0}
+	if player.current_animation!="":rig.run_phase=player.current_animation_position/maxf(player.current_animation_length,0.001)
+	var weapon:Dictionary=run.combat.weapons[i]
+	var armed:bool=not weapon.is_empty() and visual_state not in ["rescue","failed","complete","settlement"] and not falling()
+	rig.gun_weight=move_toward(rig.gun_weight,1.0,frame_delta*6.0) if armed else 0.0
+	rig.gun_arms=int(weapon.get("reload",0))<=0
+	# 双脚贴地只在着地行进时启用；离地、救援、死亡与坠落立即关闭。
+	rig.foot_weight=1.0 if locomotion and run.heights[i]<=0.0 else 0.0
+	rig.ground_ref=run.floor_heights[i]/SCALE
+
+# 战斗画面按此读取手腕：持枪层改过手臂时取修改后的最终姿势，枪不会脱手。
+func final_bone_pose(skeleton:Skeleton3D,bone:int)->Transform3D:
+	var rig=skeleton.get_node_or_null("HeroLocomotion")
+	if rig!=null and rig.has_pose(bone):return rig.final_pose(bone)
+	return skeleton.get_bone_global_pose(bone)
 
 # 手柄与手机触觉，只在本机执行，不进入联机状态。
 func rumble(weak: float, strong: float, seconds: float) -> void:
@@ -2212,7 +2308,7 @@ func build_ambience() -> void:
 		ambience_streams[kind]=stream
 
 # 脚步、起跳与落地：按画面帧读取模拟位置与高度，只发声，不影响判定。
-# 每走约 1.7 米一步，地面材质按当前地貌选草地、木板或石路。
+# 每走一个 Run 步幅发一声，地面材质按当前地貌选草地、木板或石路。
 func play_footsteps(i:int)->void:
 	var body:Vector3=robots[i].global_position
 	if visual_last_heights[i]==0.0 and run.heights[i]>0.0:
@@ -2229,7 +2325,7 @@ func play_footsteps(i:int)->void:
 		step_travel[i]=0.0
 		return
 	step_travel[i]+=moved
-	if step_travel[i]<STEP_LENGTH:return
+	if step_travel[i]<HERO_STRIDE_SPEED[i]*RUN_STEP_TIME:return
 	step_travel[i]=0.0
 	var theme:String=run.theme_at(run.distance)
 	var surface:="step_grass" if theme in ["forest","edge","meadow","farm","ridge","broken"] else ("step_wood" if theme=="river" else "step_stone")

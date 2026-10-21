@@ -79,14 +79,14 @@ func verify()->void:
 	var picked:={}
 	for n in range(40): picked[sfx.pick("punch")]=true
 	check(picked.size()>2,"同名音效随机选取不同录音")
-	# 脚步：贴地行走约 1.7 米一步，起跳与落地各一声。
+	# 脚步：贴地行走一个 Run 步幅（01 约 1.8 米）一步，起跳与落地各一声。
 	run.state="running";run.heights[0]=0.0
 	game.visual_last_heights[0]=0.0;game.step_travel[0]=0.0;game.step_last[0]=Vector2.INF
 	game.robots[0].global_position=Vector3(0,0,-10);game.play_footsteps(0)
 	sfx.started_frame.clear();var step_before:int=sfx.next_player_3d
 	game.robots[0].global_position=Vector3(0,0,-11);game.play_footsteps(0)
 	check(sfx.next_player_3d==step_before,"不足一步不发声")
-	sfx.started_frame.clear();game.robots[0].global_position=Vector3(0,0,-11.8);game.play_footsteps(0)
+	sfx.started_frame.clear();game.robots[0].global_position=Vector3(0,0,-11.9);game.play_footsteps(0)
 	var foot:AudioStreamPlayer3D=sfx.players_3d[(sfx.next_player_3d-1+sfx.players_3d.size())%sfx.players_3d.size()]
 	check(sfx.next_player_3d!=step_before and str(foot.stream.resource_path).contains("footstep"),"走满一步播放脚步录音")
 	sfx.started_frame.clear();run.heights[0]=4.0;game.play_footsteps(0);game.visual_last_heights[0]=8.0
