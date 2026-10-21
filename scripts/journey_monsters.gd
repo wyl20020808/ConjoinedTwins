@@ -73,8 +73,19 @@ static func populate(run) -> void:
 	var layout=RandomLayout.new(run.seed_value,run.level_index,2)
 	var packs:=0
 	# 全部种类轮换：每群一主一辅交替站位，主力从全部种类抽取，相邻两群（含怪物潮各波）主力不同。
+	# 零星小队与专区各波按道路位置排成一条序列再分配主力，专区前后相邻的两群也不重复。
 	var rotation:={"previous":""}
-	for slot in run.pack_slots:
+	var groups:Array=[]
+	for slot in run.pack_slots:groups.append({"y":slot})
+	for arena in run.arenas:
+		arena_supply(run,arena,layout)
+		for wave in range(WAVES.size()):groups.append({"y":arena.start+WAVES[wave],"last_wave":wave==WAVES.size()-1})
+	groups.sort_custom(func(p,q):return p.y<q.y)
+	for group in groups:
+		if group.has("last_wave"):
+			arena_wave(run,group.y,group.last_wave,layout,rotation)
+			continue
+		var slot:float=group.y
 		var count:int=layout.draw("pack_size",[1,2,2,3])
 		var pair:=draw_pair(layout,rotation)
 		var placed:=0
@@ -89,7 +100,6 @@ static func populate(run) -> void:
 		rotation.previous=pair[0]
 		packs+=1
 		pack_supply(run,slot+260,packs%2==0)
-	for arena in run.arenas:arena_waves(run,arena,layout,rotation)
 
 static func draw_pair(layout,rotation:Dictionary)->Array:
 	var lead:String=layout.draw("pack_lead",ROSTER)
@@ -115,34 +125,34 @@ static func pack_supply(run,supply_y:float,with_medkit:bool)->void:
 				if safe_supply(run,recovery):run.Combat.add_pickup(run,"medkit",recovery)
 		return
 
-static func arena_waves(run,arena:Dictionary,layout,rotation:Dictionary)->void:
+static func arena_supply(run,arena:Dictionary,layout)->void:
 	var start:float=arena.start
 	# 入口先补给，前 40 米不放怪，两人整理站位、拾取后再迎战。
 	for x in [-60.0,60.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,start+260))
 	run.Combat.add_pickup(run,"medkit",Vector2(0,start+330))
 	run.Combat.add_pickup(run,"gun",Vector2(0,start+200),{},layout.draw("arena_weapon",run.ZONE_WEAPONS))
-	for wave in range(WAVES.size()):
-		var front:float=start+WAVES[wave]
-		var count:int=layout.draw("wave_size",[6,7,7,8])
-		var rows:Array=[ceili(count/2.0),count-ceili(count/2.0)]
-		var pair:=draw_pair(layout,rotation)
-		var placed:=0
-		for row in range(2):
-			var members:int=rows[row]
-			for member in range(members):
-				var x:=-WAVE_ROW/2+WAVE_ROW*(member+.5)/members
-				var point:=Vector2(x,front+row*110)
-				if safe_spawn(run,point):
-					# 首只与偶数位为本波主力，其余从全部种类混抽，避免大波次让少数种类占比过高。
-					var variant:String=pair[0] if placed%2==0 else layout.draw("wave_mix",ROSTER)
-					add(run,point,run.theme_at(point.y),variant).pack=front
-					placed+=1
-		if placed>0:rotation.previous=pair[0]
-		# 每波打完后的回复点，位于下一波前方 300 单位以外。
-		if wave<WAVES.size()-1:
-			var supply:=front+330
-			run.Combat.add_pickup(run,"medkit",Vector2(-60,supply))
-			run.Combat.add_pickup(run,"ammo",Vector2(60,supply))
+
+static func arena_wave(run,front:float,last_wave:bool,layout,rotation:Dictionary)->void:
+	var count:int=layout.draw("wave_size",[6,7,7,8])
+	var rows:Array=[ceili(count/2.0),count-ceili(count/2.0)]
+	var pair:=draw_pair(layout,rotation)
+	var placed:=0
+	for row in range(2):
+		var members:int=rows[row]
+		for member in range(members):
+			var x:=-WAVE_ROW/2+WAVE_ROW*(member+.5)/members
+			var point:=Vector2(x,front+row*110)
+			if safe_spawn(run,point):
+				# 首只与偶数位为本波主力，其余从全部种类混抽，避免大波次让少数种类占比过高。
+				var variant:String=pair[0] if placed%2==0 else layout.draw("wave_mix",ROSTER)
+				add(run,point,run.theme_at(point.y),variant).pack=front
+				placed+=1
+	if placed>0:rotation.previous=pair[0]
+	# 每波打完后的回复点，位于下一波前方 300 单位以外。
+	if not last_wave:
+		var supply:=front+330
+		run.Combat.add_pickup(run,"medkit",Vector2(-60,supply))
+		run.Combat.add_pickup(run,"ammo",Vector2(60,supply))
 
 static func add(run, position: Vector2, theme: String, variant:String="") -> Dictionary:
 	var archetype := variant if not variant.is_empty() else ("briar" if theme in ["forest","broken","edge","meadow","river","ridge"] else ("sentinel" if theme in ["mine","ruins","facility"] else "raider"))

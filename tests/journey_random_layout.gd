@@ -48,11 +48,13 @@ func _initialize()->void:
 			# 九种怪物每章都出现，没有一种超过总数四分之一。
 			check(run.Monsters.ROSTER.all(func(kind):return types.get(kind,0)>=3),"多种子下九种怪物每章都出现")
 			check(types.values().max()<=total*0.25,"没有一种怪物占比过高")
-			# 相邻两群主力不同：按怪群编号分组，比较各群第一只。
-			var leads:=[];var last_pack:=-1
+			# 相邻两群主力不同：按怪群编号（道路 y）排序分组，比较道路上相邻各群的第一只，含专区前后。
+			var pack_leads:={}
 			for event in run.journey_events:
 				if event.kind!="monster" or not event.has("pack"):continue
-				if event.pack!=last_pack:leads.append(event.archetype);last_pack=event.pack
+				if not pack_leads.has(event.pack):pack_leads[event.pack]=event.archetype
+			var ys:=pack_leads.keys();ys.sort()
+			var leads:=ys.map(func(y):return pack_leads[y])
 			var repeats:=0
 			for n in range(1,leads.size()):
 				if leads[n]==leads[n-1]:repeats+=1
