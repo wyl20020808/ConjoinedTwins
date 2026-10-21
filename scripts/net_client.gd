@@ -7,6 +7,8 @@ signal match_stopped(reason: String)
 
 const Relay = preload("res://scripts/net_relay.gd")
 const HASH_INTERVAL := 60
+# 输入只在变化时上传（服务器沿用上一份），另每秒补发一次以防万一；静止或按住方向时几乎没有上行流量。
+const INPUT_REFRESH_MSEC := 1000
 
 var peer: MultiplayerPeer = null
 var api := SceneMultiplayer.new()
@@ -16,6 +18,11 @@ var frames: Array = []
 var next_frame := 0
 var desynced := false
 var connected := false
+var last_input := PackedByteArray()
+var last_input_msec := 0
+# 联机流量统计（字节，含本层负载，不含传输层头部），供测试与网页验证读取。
+var bytes_sent := 0
+var bytes_received := 0
 
 func _ready() -> void:
 	get_tree().set_multiplayer(api, get_path())
@@ -110,6 +117,7 @@ func disconnect_from() -> void:
 	role = -1
 	in_match = false
 	frames.clear()
+	last_input = PackedByteArray()
 
 func stop(reason: String) -> void:
 	var was_in_match := in_match
@@ -121,10 +129,20 @@ func active() -> bool:
 	return peer != null
 
 func send(message: Array, mode := MultiplayerPeer.TRANSFER_MODE_RELIABLE) -> void:
-	if connected: api.send_bytes(var_to_bytes(message), 1, mode, 0)
+	send_raw(var_to_bytes(message), mode)
+
+func send_raw(bytes: PackedByteArray, mode := MultiplayerPeer.TRANSFER_MODE_RELIABLE) -> void:
+	if not connected: return
+	api.send_bytes(bytes, 1, mode, 0)
+	bytes_sent += bytes.size()
 
 func send_input(move: Vector2, jump: bool) -> void:
-	send(["in", roundi(clampf(move.x, -1, 1) * 100), roundi(clampf(move.y, -1, 1) * 100), jump])
+	var bytes := Relay.encode_input(roundi(clampf(move.x, -1, 1) * 100), roundi(clampf(move.y, -1, 1) * 100), jump)
+	var now := Time.get_ticks_msec()
+	if bytes == last_input and now - last_input_msec < INPUT_REFRESH_MSEC: return
+	last_input = bytes
+	last_input_msec = now
+	send_raw(bytes)
 
 func send_command(name: String, arg := "") -> void:
 	send(["cmd", name, arg])
@@ -134,6 +152,13 @@ func report(frame: int, state_hash: int) -> void:
 	if frame % HASH_INTERVAL == 0: send(["hash", frame, state_hash])
 
 func _on_packet(_id: int, bytes: PackedByteArray) -> void:
+	bytes_received += bytes.size()
+	if not bytes.is_empty() and bytes[0] == Relay.FRAME_TAG:
+		var frame := Relay.decode_frame(bytes)
+		if in_match and not frame.is_empty() and int(frame.index) == next_frame + frames.size():
+			frame.erase("index")
+			frames.append(frame)
+		return
 	var message = bytes_to_var(bytes)
 	if not message is Array or message.is_empty(): return
 	match message[0]:
@@ -150,6 +175,7 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			stop("房间已满（已有两人）。")
 		"match":
 			frames.clear()
+			last_input = PackedByteArray()
 			next_frame = 0
 			desynced = false
 			in_match = true
@@ -163,10 +189,6 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 		"desync":
 			desynced = true
 			status_changed.emit("两端画面不同步（第 %d 帧），请回到开始页重新联机。" % int(message[1]))
-		"f":
-			if in_match and int(message[1]) == next_frame + frames.size():
-				frames.append({"a": Vector2(message[2], message[3]) / 100.0, "ja": bool(message[4]),
-					"b": Vector2(message[5], message[6]) / 100.0, "jb": bool(message[7]), "cmds": message[8]})
 
 # 取出本次物理帧要模拟的帧：通常一帧；积压时追帧，保留少量缓冲吸收网络抖动。
 func take_frames(maximum: int = -1) -> Array:

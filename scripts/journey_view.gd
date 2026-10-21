@@ -76,7 +76,7 @@ var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
 var last_fire_sent:=false
-const WEB_BUILD:="journey-minimal-hud-damage-20261017"
+const WEB_BUILD:="chapter-menu-online-cache-20261021"
 var world_chunks := {}
 var event_views := {}
 var gate_views := {}
@@ -112,6 +112,26 @@ const CombatView = preload("res://scripts/journey_combat_view.gd")
 const PAD_HELP := "左摇杆 / 十字键移动 · A 跳跃 · RT 射击\nX 换弹 · LB 换枪 · Y 丢枪"
 const WEAPON_ICONS := {"smg":preload("res://assets/ui/smg.svg"),"shotgun":preload("res://assets/ui/shotgun.svg"),"flamer":preload("res://assets/ui/flamer.svg"),"launcher":preload("res://assets/ui/launcher.svg")}
 @export var training_entry := false
+@export var start_chapter := 0
+# 由主界面启动时连接：回到主页即回到章节选择。
+signal home_requested
+var menu_entry := false
+const LoadingScreen = preload("res://scripts/loading_screen.gd")
+const Catalog = preload("res://scripts/chapter_catalog.gd")
+# 章节数据未就绪（网页按章下载）或联机入场时覆盖全屏的载入画面。
+var pack_overlay
+var pack_overlay_key := ""
+# 联机章节同步：开局或 01 号换章后，两端各自确认本章数据与场景就绪，“出发”等双方都就绪才生效。
+# 这些状态只在应用共同帧时修改，两端一致。
+var online_ready := [true,true]
+var online_start_pending := false
+var partner_load := [-1,-1]
+var chapter_epoch := 0
+var ready_sent_epoch := -1
+var load_sent := -1
+var online_entry := false
+var last_prepare_ok := false
+var prefetch_clock := 0.0
 var combat_view: Node3D
 var combat_status: Label
 var combat_health: ProgressBar
@@ -217,6 +237,10 @@ func _ready() -> void:
 	if training_entry:
 		run.combat_trial=true
 		run.retry()
+	elif start_chapter>0:
+		# 主界面选定的章节：只准备这一章，其余章节数据按需下载。
+		run.level_index=clampi(start_chapter,0,Journey.CHAPTERS.size()-1)
+		run.retry()
 	run.state="start"
 	add_child(road)
 	build_lighting()
@@ -287,11 +311,11 @@ func _ready() -> void:
 	set_physics_process(true)
 	set_process_unhandled_key_input(true)
 
+# 网页首帧预热的植被模型；章节拆包巡检把它们并入每一章的用量（见 build-tools/chapter_usage.py）。
+const WEB_WARM_PATHS:=["res://assets/landscape/natural_oak_7.glb","res://assets/landscape/natural_oak_17.glb","res://assets/landscape/natural_birch.glb","res://assets/landscape/natural_oak_7_lod.glb","res://assets/landscape/natural_oak_17_lod.glb","res://assets/landscape/natural_birch_lod.glb","res://assets/landscape/grass.glb","res://assets/landscape/fern.glb","res://assets/landscape/shrub.glb","res://assets/landscape/woodpile.glb"]
 func warm_web_landscape()->void:
 	# 首次绘制的 WebGL 上传/着色器编译放在加载页，避免走入森林时同步阻塞。
-	var paths:Array=[]
-	for kind in ["natural_oak_7","natural_oak_17","natural_birch","natural_oak_7_lod","natural_oak_17_lod","natural_birch_lod","grass","fern","shrub","woodpile"]:
-		paths.append("res://assets/landscape/%s.glb"%kind)
+	var paths:Array=WEB_WARM_PATHS
 	chunk_assets.request(paths)
 	while not chunk_assets.ready(paths):
 		chunk_assets.poll(Time.get_ticks_usec()+Run.PRELOAD_SLICE_USEC)
@@ -1140,6 +1164,10 @@ func build_journey_ui() -> void:
 	training_button.text="战斗训练 · 持枪步行约 90 秒"
 	training_button.custom_minimum_size=Vector2(0,46)
 	training_button.pressed.connect(func():
+		# 主界面启动时这里是“选择其他章节”；独立运行生产场景时保留原来的训练切换。
+		if from_menu():
+			return_home()
+			return
 		run.combat_trial=not run.combat_trial
 		run.new_campaign()
 		# new_campaign 内部的 retry 会把状态置为 running；切换地图后仍停在开始页，由玩家确认出发。
@@ -1197,6 +1225,17 @@ func build_journey_ui() -> void:
 	fade_layer.layer=100
 	add_child(fade_layer)
 	fade_layer.add_child(restore_fade)
+	var pack_layer:=CanvasLayer.new()
+	pack_layer.name="ChapterLoadingLayer"
+	pack_layer.layer=110
+	add_child(pack_layer)
+	pack_overlay=LoadingScreen.new()
+	pack_overlay.visible=false
+	pack_layer.add_child(pack_overlay)
+	pack_overlay.retry_pressed.connect(func():ChapterPacks.request(chapter_key(),true))
+	pack_overlay.cancel_pressed.connect(func():
+		online_entry=false
+		if net.active():toggle_online())
 	var modes:=HBoxContainer.new()
 	modes.add_theme_constant_override("separation",8)
 	inner.add_child(modes)
@@ -1625,6 +1664,10 @@ func _physics_process(delta: float) -> void:
 	if net.active():
 		online_process(delta)
 		return
+	# 本局章节的数据还没挂载（网页按章下载，例如结算后进入下一章）：暂停模拟，载入画面显示下载进度。
+	if not ChapterPacks.is_ready(chapter_key()):
+		ChapterPacks.request(chapter_key(),true)
+		return
 	if incremental_loading and not prepare_journey_frame():
 		update_journey_ui()
 		journey_hint.text="正在准备前方路段…" if chunk_assets.error.is_empty() else "资源读取失败，请刷新网页重试："+chunk_assets.error.get_file()
@@ -1667,6 +1710,8 @@ func _process(delta:float)->void:
 		vignette_mat.set_shader_parameter("impact",impact_flash if impact_effects else 0.0)
 		vignette_mat.set_shader_parameter("low",low_health)
 	update_restore_feedback(delta)
+	update_pack_overlay()
+	prefetch_next_chapter(delta)
 	# 每个画面帧只提交一次最终状态，本地与网页使用同一规则。
 	if scene_prepared and view_pending:
 		view_pending=false
@@ -2277,8 +2322,10 @@ func update_journey_ui() -> void:
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
 	update_chapter_bar(viewport,inset,hud_width)
 	primary.visible=true
-	training_button.visible=run.state=="start" and play_mode=="solo"
+	training_button.visible=run.state=="start" and (play_mode=="solo" or (from_menu() and not net.active()))
 	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
+	if from_menu():training_button.text="返回主界面 · 选择其他章节"
+	home_button.text="回到主界面 · 重新选择章节" if from_menu() else "回到主页 · 重新选择单人或联机"
 	restart_button.visible=run.state in ["paused","failed"]
 	checkpoint_button.visible=run.state=="paused"
 	checkpoint_button.text="回到存档点继续" if not run.checkpoint.is_empty() else "从本关开头继续"
@@ -2293,10 +2340,12 @@ func update_journey_ui() -> void:
 	match run.state:
 		"start":
 			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
+			if from_menu() or run.level_index>0:title.text=Catalog.title(chapter_key())
 			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · Q 换枪 · G 丢枪 · Esc 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
 			if gamepad_active: subtitle.text=PAD_HELP+" · Start 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
 			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
 			primary.text="开始训练" if run.combat_trial else "出发"
+			if play_mode=="online" and net.in_match and online_start_pending:primary.text="等待队友载入完成…"
 		"paused":
 			title.text="暂停"
 			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · Q 换枪 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
@@ -2311,6 +2360,9 @@ func update_journey_ui() -> void:
 			title.text="共同抵达 · "+run.CHAPTERS[run.level_index].name
 			subtitle.text="本关 %.1f 秒 · 金币 %d · 奖品 %d\n点击按钮或松开后按跳跃键，进入下一关。"%[run.elapsed,run.coins,run.prizes]
 			primary.text="下一关"
+			var next:=next_chapter_key()
+			if next>=0 and not ChapterPacks.is_ready(next):
+				subtitle.text+="\n下一章数据下载中 %d%%，完成后即可继续。"%int(ChapterPacks.progress(next)*100)
 		"complete": title.text="训练完成" if run.combat_trial else "归航完成";subtitle.text="击退 %d 个敌人 · 团队总分 %d。\n可以重新出发。"%[run.combat.kills,run.total_score()];primary.text="重新出发"
 	layout_panel()
 	if run.state=="rescue": journey_hint.text="连点跳跃救援！进度 %.0f%% · 剩余 %.1f 秒"%[run.rescue.progress*100,maxf(0,Run.RESCUE_TIME-run.rescue.time)]
@@ -2860,7 +2912,21 @@ func command(name:String,arg:="")->void:
 
 func apply_command(name:String,arg:="")->void:
 	match name:
-		"primary":apply_journey_primary()
+		"primary":
+			# 联机开局要等两端都确认本章数据与场景就绪；先按下的“出发”记为待定，就绪后自动出发。
+			if run.state=="start" and play_mode=="online" and net.in_match and not online_ready.all(func(value):return value):
+				online_start_pending=true
+				return
+			apply_journey_primary()
+		"chapter":
+			# 联机章节由 01 号决定；只在开始页生效，两端在同一帧换章并重新确认就绪。
+			if run.state!="start":return
+			run.combat_trial=false
+			run.level_index=clampi(int(arg),0,Journey.CHAPTERS.size()-1)
+			run.retry()
+			run.state="start"
+			begin_chapter_sync()
+			reset_journey_views()
 		"pause":
 			if (arg=="paused" and run.state in ["running","rescue"]) or (arg!="paused" and run.state=="paused"):run.pause()
 			clear_controls()
@@ -2876,7 +2942,12 @@ func online_process(delta:float)->void:
 		sync_view()
 		return
 	var input:=sample_local_input()
-	net.send_input(input.a,input.ja)
+	announce_chapter_readiness()
+	# 结算时本机还没拿到下一章数据，就先不确认，队友会等到双方都按下。
+	var next:=next_chapter_key()
+	var confirm_blocked:bool=run.state=="settlement" and next>=0 and not ChapterPacks.is_ready(next)
+	if confirm_blocked:ChapterPacks.request(next,true)
+	net.send_input(input.a,input.ja and not confirm_blocked)
 	var fire: bool=input.get("fire",false)
 	if fire!=last_fire_sent or input.get("reload",false) or input.get("drop",false) or input.get("swap",false):
 		net.send_command("combat","%d,%d,%d,%d"%[int(fire),int(input.get("reload",false)),int(input.get("drop",false)),int(input.get("swap",false))])
@@ -2897,11 +2968,18 @@ func online_process(delta:float)->void:
 				var key:=str(entry[0])+":"+str(entry[1])+":"+str(entry[2])
 				if not seen.has(key):
 					if entry[1]=="combat":apply_combat_command(int(entry[0]),str(entry[2]))
+					elif entry[1] in ["ready","load"]:apply_peer_status(int(entry[0]),entry[1],str(entry[2]))
 					else:apply_command(entry[1],entry[2])
 					seen[key]=true
 			prepared_online_frame=index
+		# 本章数据未挂载时同样保留整帧：下载完成后按原编号追帧，两端模拟结果不变。
+		if not ChapterPacks.is_ready(chapter_key()):
+			ChapterPacks.request(chapter_key(),true)
+			last_prepare_ok=false
+			break
 		# 保留完整帧等待分帧准备，命令只执行一次，不跳帧或推进模拟时间。
-		if incremental_loading and not prepare_journey_frame(): break
+		last_prepare_ok=not incremental_loading or prepare_journey_frame()
+		if not last_prepare_ok: break
 		net.take_frames(1)
 		var before:String=run.state
 		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
@@ -2925,7 +3003,112 @@ func start_online_match(seed:int)->void:
 	run.seed_value=seed
 	run.new_campaign()
 	run.state="start"
+	begin_chapter_sync()
 	reset_journey_views()
+	# 01 号把自己在主界面选的章节告诉双方；02 号的选择以 01 号为准。
+	if net.role==0 and start_chapter>0 and start_chapter<Journey.CHAPTERS.size():
+		net.send_command("chapter",str(start_chapter))
+
+func begin_chapter_sync()->void:
+	chapter_epoch+=1
+	online_ready=[false,false]
+	partner_load=[-1,-1]
+	online_start_pending=false
+	online_entry=true
+
+func chapter_key()->int:
+	return Catalog.TRAINING if run.combat_trial else run.level_index
+
+func next_chapter_key()->int:
+	if run.combat_trial or run.state!="settlement" or run.level_index>=Journey.CHAPTERS.size()-1:return -1
+	return run.level_index+1
+
+# 本机就绪后告诉对方（带换章序号，旧章节的确认不会算到新章节上）；下载中每 10% 报一次进度供对方显示。
+func announce_chapter_readiness()->void:
+	if run.state!="start":return
+	if ChapterPacks.is_ready(chapter_key()) and last_prepare_ok:
+		if ready_sent_epoch!=chapter_epoch:
+			net.send_command("ready",str(chapter_epoch))
+			ready_sent_epoch=chapter_epoch
+		return
+	var percent:=int(ChapterPacks.progress(chapter_key())*10.0)*10
+	if percent!=load_sent:
+		net.send_command("load",str(percent))
+		load_sent=percent
+
+func apply_peer_status(role:int,name:String,arg:String)->void:
+	if role<0 or role>1:return
+	if name=="load":
+		partner_load[role]=int(arg)
+		return
+	if int(arg)!=chapter_epoch:return
+	online_ready[role]=true
+	partner_load[role]=100
+	if online_start_pending and online_ready.all(func(value):return value) and run.state=="start":
+		online_start_pending=false
+		apply_journey_primary()
+
+# 预取下一章：本章游玩期间在后台排队下载，结算时通常已就绪，不打断两人。
+func prefetch_next_chapter(delta:float)->void:
+	if not ChapterPacks.enabled or run.combat_trial:return
+	prefetch_clock+=delta
+	if prefetch_clock<2.0:return
+	prefetch_clock=0.0
+	if run.state in ["running","rescue","settlement","paused"] and run.level_index<Journey.CHAPTERS.size()-1:
+		ChapterPacks.request(run.level_index+1,false)
+
+func update_pack_overlay()->void:
+	if pack_overlay==null:return
+	var key:=chapter_key()
+	var need_data:=not ChapterPacks.is_ready(key)
+	var online:bool=online_entry and net.active()
+	if online and net.in_match and run.state!="start":online_entry=false;online=false
+	if not need_data and not online:
+		pack_overlay.visible=false
+		pack_overlay_key=""
+		return
+	var kind:="online" if online else "between"
+	if pack_overlay_key!="%s:%d"%[kind,key]:
+		pack_overlay_key="%s:%d"%[kind,key]
+		pack_overlay.setup(key,kind)
+	pack_overlay.visible=true
+	var total:=ChapterPacks.bytes_total(key)
+	var done:=ChapterPacks.bytes_done(key)
+	var sizes:="%s / %s"%[ChapterPacks.megabytes(done),ChapterPacks.megabytes(total)] if total>0 else ""
+	pack_overlay.show_error(ChapterPacks.failure)
+	if not online:
+		pack_overlay.set_stage("正在下载 %s 的章节数据"%Catalog.title(key),ChapterPacks.progress(key),sizes)
+		return
+	# 联机入场：连接 → 等队友 → 同步章节 → 下载 → 准备场景 → 双方就绪。
+	var steps:=[]
+	var connected:bool=net.connected
+	var matched:bool=net.in_match
+	var synced:bool=matched and net.next_frame>0
+	var data_ready:bool=synced and not need_data
+	var scene_ready:bool=data_ready and last_prepare_ok
+	var both:bool=scene_ready and online_ready.all(func(value):return value)
+	steps.append(["连接联机服务器","done" if connected else "active"])
+	steps.append(["等待队友加入","done" if matched else ("active" if connected else "pending")])
+	steps.append(["同步章节：%s"%Catalog.title(key),"done" if synced else ("active" if matched else "pending")])
+	if ChapterPacks.enabled:steps.append(["下载章节数据 %s"%sizes,"done" if data_ready else ("active" if synced else "pending")])
+	steps.append(["准备沿途场景","done" if scene_ready else ("active" if data_ready else "pending")])
+	steps.append(["等待双方就绪","done" if both else ("active" if scene_ready else "pending")])
+	pack_overlay.set_steps(steps)
+	var players:=[]
+	for role in range(2):
+		var mine:bool=role==net.role
+		var status:="未加入"
+		if online_ready[role] and matched:status="已就绪"
+		elif mine and matched:status="下载中 %d%%"%int(ChapterPacks.progress(key)*100) if need_data else "准备场景中"
+		elif matched:status="载入中 %d%%"%partner_load[role] if partner_load[role]>=0 else "载入中"
+		elif mine or (net.role<0 and role==0):status="连接中"
+		players.append({"role":role,"name":"你" if mine else "队友","status":status,"ready":online_ready[role] and matched})
+	pack_overlay.set_players(players)
+	var done_steps:=steps.filter(func(step):return step[1]=="done").size()
+	var stage:String=steps.filter(func(step):return step[1]!="done").map(func(step):return step[0]).front() if done_steps<steps.size() else "准备完成"
+	var fraction:=(float(done_steps)+(ChapterPacks.progress(key) if synced and need_data else 0.0))/steps.size()
+	pack_overlay.set_stage(stage,fraction,net_status.text if is_instance_valid(net_status) else "",not connected)
+	if both:online_entry=false
 
 func stop_online_match(_reason:String)->void:
 	if run.state in ["running","rescue"]:run.pause()
@@ -2938,6 +3121,11 @@ func journey_net_status(message:String)->void:
 # 不重新加载游戏资源，已准备的场景继续复用。
 func return_home()->void:
 	if fail_showing():return
+	# 由主界面启动时回到章节选择；联机先断开，对方会收到断线提示。
+	if from_menu():
+		if net.active():net.disconnect_from()
+		home_requested.emit()
+		return
 	if net.active():
 		toggle_online()
 	else:
@@ -2949,8 +3137,13 @@ func return_home()->void:
 	if is_instance_valid(net_status):net_status.text="远程双人：连接同一版本网页"
 	clear_controls()
 
+# 只有真正经过主界面进入时，开始页按钮才改为“返回主界面”；自动化入口跳过主界面时保留原训练切换。
+func from_menu()->bool:
+	return menu_entry and not home_requested.get_connections().is_empty()
+
 func toggle_online()->void:
 	if net.active():
+		online_entry=false
 		net.disconnect_from()
 		run.lockstep=false
 		run.random_seed=true
@@ -2959,6 +3152,7 @@ func toggle_online()->void:
 		net_status.text="已断开，可重新连接或选择单人模式"
 	else:
 		play_mode="online"
+		online_entry=true
 		net.connect_to(net_address.text)
 	update_journey_ui()
 

@@ -3,12 +3,16 @@ extends Node
 # 两台客户端按同一种子、同一帧序列各自模拟，因此画面与判定完全一致（帧同步）。
 # 同时监听两种传输：ENet（UDP，原生客户端）和 WebSocket（TCP，网页版客户端），两种连接进同一个房间。
 
-const PROTOCOL := 6
+# 7：输入与逐帧广播改为紧凑二进制（见 encode_frame / encode_input），输入只在变化时上传。
+const PROTOCOL := 7
 const DEFAULT_PORT := 24680
 const DEFAULT_WS_PORT := 24681
 const TICK := 1.0 / 60.0
 const ENET := 0
 const WEBSOCKET := 1
+# 高频消息用首字节标记的定长二进制；var_to_bytes 编码的数组首字节是类型号 28，不会与之混淆。
+const INPUT_TAG := 0xC1
+const FRAME_TAG := 0xF1
 
 var links: Array = []    # [{"api": SceneMultiplayer, "peer": MultiplayerPeer, "name": String}]，下标即传输类型
 var roles := {}          # Vector2i(传输类型, peer_id) -> 0 / 1；两种传输各自分配 peer_id，可能重复
@@ -69,9 +73,44 @@ func log_line(text: String) -> void:
 	print("[%s] %s" % [Time.get_time_string_from_system(), text])
 
 func send(key: Vector2i, message: Array, mode := MultiplayerPeer.TRANSFER_MODE_RELIABLE) -> void:
+	send_raw(key, var_to_bytes(message), mode)
+
+func send_raw(key: Vector2i, bytes: PackedByteArray, mode := MultiplayerPeer.TRANSFER_MODE_RELIABLE) -> void:
 	if not links[key.x].api.get_peers().has(key.y):return
 	if links[key.x].peer is WebSocketMultiplayerPeer and links[key.x].peer.get_peer(key.y).get_ready_state()!=WebSocketPeer.STATE_OPEN:return
-	links[key.x].api.send_bytes(var_to_bytes(message), key.y, mode, 0)
+	links[key.x].api.send_bytes(bytes, key.y, mode, 0)
+
+# 一帧双人输入：标记 1 + 帧号 4 + 四个轴各 1（-100..100）+ 跳跃位 1 = 11 字节；
+# 本帧有操作命令时才在末尾追加 var_to_bytes(命令数组)。旧格式每帧约 100 字节。
+static func encode_frame(index: int, a: Array, b: Array, ja: bool, jb: bool, cmds: Array) -> PackedByteArray:
+	var bytes := PackedByteArray()
+	bytes.resize(11)
+	bytes[0] = FRAME_TAG
+	bytes.encode_u32(1, index)
+	bytes.encode_s8(5, a[0])
+	bytes.encode_s8(6, a[1])
+	bytes.encode_s8(7, b[0])
+	bytes.encode_s8(8, b[1])
+	bytes[9] = int(ja) | (int(jb) << 1)
+	bytes[10] = 1 if not cmds.is_empty() else 0
+	if not cmds.is_empty(): bytes.append_array(var_to_bytes(cmds))
+	return bytes
+
+static func decode_frame(bytes: PackedByteArray) -> Dictionary:
+	if bytes.size() < 11 or bytes[0] != FRAME_TAG: return {}
+	var cmds: Array = []
+	if bytes[10] == 1:
+		var decoded = bytes_to_var(bytes.slice(11))
+		if decoded is Array: cmds = decoded
+	return {"index": bytes.decode_u32(1), "a": Vector2(bytes.decode_s8(5), bytes.decode_s8(6)) / 100.0,
+		"ja": bytes[9] & 1 != 0, "b": Vector2(bytes.decode_s8(7), bytes.decode_s8(8)) / 100.0, "jb": bytes[9] & 2 != 0, "cmds": cmds}
+
+# 输入：标记 1 + 两个轴各 1 + 跳跃 1 = 4 字节。
+static func encode_input(x: int, y: int, jump: bool) -> PackedByteArray:
+	var bytes := PackedByteArray([INPUT_TAG, 0, 0, int(jump)])
+	bytes.encode_s8(1, clampi(x, -100, 100))
+	bytes.encode_s8(2, clampi(y, -100, 100))
+	return bytes
 
 func _on_connected(key: Vector2i) -> void:
 	var free := [0, 1].filter(func(r): return not roles.values().has(r))
@@ -112,9 +151,14 @@ func start_match() -> void:
 
 func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 	if not roles.has(key): return
+	var role: int = roles[key]
+	if bytes.size() == 4 and bytes[0] == INPUT_TAG:
+		var jump := bytes[3] != 0
+		inputs[role] = [bytes.decode_s8(1), bytes.decode_s8(2), jump]
+		if jump: jump_latch[role] = true
+		return
 	var message = bytes_to_var(bytes)
 	if not message is Array or message.is_empty(): return
-	var role: int = roles[key]
 	match message[0]:
 		"in":
 			if message.size() < 4: return
@@ -145,8 +189,8 @@ func _physics_process(delta: float) -> void:
 		clock -= TICK
 		var a: Array = inputs[0]
 		var b: Array = inputs[1]
-		var packet := ["f", frame, a[0], a[1], a[2] or jump_latch[0], b[0], b[1], b[2] or jump_latch[1], commands.duplicate()]
+		var packet := encode_frame(frame, a, b, a[2] or jump_latch[0], b[2] or jump_latch[1], commands)
 		jump_latch = [false, false]
 		commands.clear()
-		for key in roles: send(key, packet)
+		for key in roles: send_raw(key, packet)
 		frame += 1

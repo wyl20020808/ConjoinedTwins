@@ -3,6 +3,7 @@ import ctypes
 from ctypes import wintypes
 from pathlib import Path
 import subprocess
+import os
 import time
 import sys
 
@@ -32,8 +33,9 @@ def main():
                 while child.poll() is None:
                     if user32.IsWindowVisible(parent):
                         raise RuntimeError('Hidden host unexpectedly visible; capture aborted')
-                    if time.monotonic() - started > 90:
-                        raise TimeoutError('Capture exceeded 90 seconds')
+                    # 多机位取景（如章节封面）可用 CAPTURE_TIMEOUT 放宽；默认仍为 90 秒。
+                    if time.monotonic() - started > float(os.environ.get('CAPTURE_TIMEOUT', '90')):
+                        raise TimeoutError('Capture exceeded timeout')
                     message = wintypes.MSG()
                     while user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 1):
                         user32.TranslateMessage(ctypes.byref(message))
