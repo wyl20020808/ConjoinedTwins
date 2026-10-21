@@ -251,3 +251,14 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 | `assets/landscape/landmark_shrine.glb` | 25,000 | 2.5 MB | small medieval roadside stone shrine, wooden roof, glowing lantern | 全章路侧 x=17.8 米，缩放 3 |
 
 另生成但未接入：廊桥（缺少水面支撑）、橡树（纹理生成无贴图且下载截断）。原始导出与提示词保存工程外，不入库。许可同前：Tripo 生成内容的授权取决于账号套餐（免费套餐通常为公开且需署名，付费套餐归用户所有），正式发布前须由用户在账号中确认并按需补充署名。
+
+## 2026-10-20 录制音效：Kenney Impact Sounds 与 RPG Audio（CC0）
+
+经用户同意，从 Kenney 官方页面公开下载链接下载两个音效包，各包内 `License.txt` 均声明 CC0 1.0（署名非必须），原文随素材保存为 `assets/audio/kenney/License_ImpactSounds.txt`、`License_RPGAudio.txt`。只挑选 57 个 OGG 进入 `assets/audio/kenney/`（共约 628 KB），文件名与内容未改动；其余文件未入库。
+
+| 资源组 | 官方页面 / 下载文件 | 大小与 SHA-256 | 许可 | 入库文件与用途 |
+| --- | --- | --- | --- | --- |
+| Kenney / Impact Sounds 1.0 | https://kenney.nl/assets/impact-sounds ；https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip | 800,850 字节；`029d734af1582474edf3a694d1b0cebc97c1c152f2f39fa34d4c2bafc5de77f8` | CC0 1.0 | `footstep_grass/concrete/wood_000–004`：草地、石路、木板脚步与起跳；`impactSoft_heavy_*`：落地；`impactMetal_heavy_*`：压机落下；`impactMetal_light_*`：地刺弹出；`impactMining_*`：塌陷落地；`impactPlate_heavy_*`：火焰弩命中；`impactPunch_medium_*` / `impactPunch_heavy_*`：命中、击败敌人与角色受击 |
+| Kenney / RPG Audio | https://kenney.nl/assets/rpg-audio ；https://kenney.nl/media/pages/assets/rpg-audio/8e99002d76-1677590336/kenney_rpg-audio.zip | 964,837 字节；`6dbeaf8544da958d8f2adcb4a4a4b76c1ade34a05f8ab9edccd327da7375f38b` | CC0 1.0 | `creak1–3`：塌陷路面开裂；`metalLatch` / `metalClick`：换弹开始与上膛；`doorOpen_1–2`：合作门打开 |
+
+运行时由 `scripts/sfx.gd` 的 `VARIANTS` 按组随机选取，并叠加音高 ±5%、音量 ±2 dB 变化；原合成音效保留用于界面与未替换的事件。

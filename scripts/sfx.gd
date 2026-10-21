@@ -20,6 +20,27 @@ const VOLUME_VARY := 2.0
 var players_3d: Array[AudioStreamPlayer3D] = []
 var next_player_3d := 0
 var vary := RandomNumberGenerator.new()
+# 录制音效（Kenney Impact Sounds / RPG Audio，CC0，见 ASSET_SOURCES.md）：同名多条，播放时随机选一条。
+const KENNEY := "res://assets/audio/kenney/%s.ogg"
+const VARIANTS := {
+	"step_grass": ["footstep_grass_000", "footstep_grass_001", "footstep_grass_002", "footstep_grass_003", "footstep_grass_004"],
+	"step_stone": ["footstep_concrete_000", "footstep_concrete_001", "footstep_concrete_002", "footstep_concrete_003", "footstep_concrete_004"],
+	"step_wood": ["footstep_wood_000", "footstep_wood_001", "footstep_wood_002", "footstep_wood_003", "footstep_wood_004"],
+	"land_soft": ["impactSoft_heavy_000", "impactSoft_heavy_001", "impactSoft_heavy_002", "impactSoft_heavy_003", "impactSoft_heavy_004"],
+	"metal_heavy": ["impactMetal_heavy_000", "impactMetal_heavy_001", "impactMetal_heavy_002", "impactMetal_heavy_003", "impactMetal_heavy_004"],
+	"metal_light": ["impactMetal_light_000", "impactMetal_light_001", "impactMetal_light_002", "impactMetal_light_003", "impactMetal_light_004"],
+	"rubble": ["impactMining_000", "impactMining_001", "impactMining_002", "impactMining_003", "impactMining_004"],
+	"plate_heavy": ["impactPlate_heavy_000", "impactPlate_heavy_001", "impactPlate_heavy_002", "impactPlate_heavy_003", "impactPlate_heavy_004"],
+	"punch": ["impactPunch_medium_000", "impactPunch_medium_001", "impactPunch_medium_002", "impactPunch_medium_003", "impactPunch_medium_004"],
+	"punch_heavy": ["impactPunch_heavy_000", "impactPunch_heavy_001", "impactPunch_heavy_002", "impactPunch_heavy_003", "impactPunch_heavy_004"],
+	"creak": ["creak1", "creak2", "creak3"],
+	"metal_click": ["metalClick"],
+	"metal_latch": ["metalLatch"],
+	"door_open": ["doorOpen_1", "doorOpen_2"],
+}
+var variants := {}
+# 退出场景树后不再新建播放句柄，否则 OGG 播放对象会在退出时残留。
+var closing := false
 const SOUND_NAMES := ["coin", "coin_land", "prize", "shield", "shield_break", "jump", "land", "hit", "fall", "warning", "whoosh", "clear", "rope", "buckle", "click", "gunshot"]
 
 func _ready() -> void:
@@ -40,6 +61,19 @@ func _ready() -> void:
 		players_3d.append(player)
 	for key in SOUND_NAMES:
 		streams[key] = load("res://assets/audio/%s.wav" % key)
+	for key in VARIANTS:
+		var list: Array[AudioStream] = []
+		for file in VARIANTS[key]: list.append(load(KENNEY % file))
+		variants[key] = list
+
+func has_sound(name: String) -> bool:
+	return not closing and is_inside_tree() and (streams.has(name) or variants.has(name))
+
+func pick(name: String) -> AudioStream:
+	if variants.has(name):
+		var list: Array = variants[name]
+		return list[vary.randi() % list.size()]
+	return streams.get(name)
 
 static func ensure_buses() -> void:
 	for name in BUSES:
@@ -61,6 +95,7 @@ static func set_bus_level(name: String, linear: float) -> void:
 	if index >= 0: AudioServer.set_bus_volume_db(index, linear_to_db(maxf(0.0001, linear)))
 
 func _exit_tree() -> void:
+	closing = true
 	for player in players_3d:
 		player.stop()
 		player.stream = null
@@ -68,6 +103,7 @@ func _exit_tree() -> void:
 		player.stop()
 		player.stream = null
 	streams.clear()
+	variants.clear()
 
 func synthesize() -> void:
 	noise.seed = 7
@@ -135,10 +171,10 @@ func render(length: float, wave: Callable) -> AudioStreamWAV:
 	return stream
 
 func play(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
-	if not streams.has(name): return
+	if not has_sound(name): return
 	var player := players[next_player]
 	next_player = (next_player + 1) % players.size()
-	player.stream = streams[name]
+	player.stream = pick(name)
 	player.bus = "UI" if name in UI_SOUNDS else "SFX"
 	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
 	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))
@@ -146,10 +182,10 @@ func play(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 
 # 在世界坐标发声；距离超过 max_distance 自然听不到，不必调用方再判断。
 func play_at(name: String, position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
-	if not streams.has(name) or players_3d.is_empty(): return
+	if not has_sound(name) or players_3d.is_empty(): return
 	var player := players_3d[next_player_3d]
 	next_player_3d = (next_player_3d + 1) % players_3d.size()
-	player.stream = streams[name]
+	player.stream = pick(name)
 	player.global_position = position
 	player.volume_db = volume_db + vary.randf_range(-VOLUME_VARY, VOLUME_VARY)
 	player.pitch_scale = pitch * (1.0 + vary.randf_range(-PITCH_VARY, PITCH_VARY))

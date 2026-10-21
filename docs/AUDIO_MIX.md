@@ -1,8 +1,8 @@
-# A2 第一步：混音总线与定位音效（未换素材）
+# A2：混音总线、定位音效与录制音效
 
 日期：2026-10-20。分支：`feature/audio-mix`（从本地 `test@01f1b4d` 新建，独立 worktree `/Users/apple/ConjoinedTwins-a2`）。对应 [质感升级方案](GAME_QUALITY_UPGRADE_PLAN.md) 的 A2。
 
-本步只用仓库已有音效，**没有下载或新增任何音频素材，也还没有背景音乐**。素材替换和分层音乐需用户先同意下载，见文末。
+第一步只用仓库已有音效；第二步经用户同意下载 Kenney 两个 CC0 音效包并替换主要动作音效。**还没有背景音乐**，候选曲目待用户挑选。
 
 ## 改动
 
@@ -21,17 +21,20 @@
 - 新增 `tests/journey_audio_mix.gd`：29 项 0 失败（总线与限幅、重复初始化、环境声路由、随机变化范围与分布、UI 路由、定位播放位置、敌人前摇只响一次且下次再响、压机落下定位发声、战斗压低与恢复）。
 - `python3 build-tools/check_journey_performance.py --godot /Applications/Godot.app/Contents/MacOS/Godot`：26 组全部通过，报告 `/Users/apple/ConjoinedTwins-task-temp/audio-mix-perf-20261020/summary.json`。
 
-## 下一步：需要用户同意下载的素材
+## 第二步：录制音效（Kenney，CC0）
 
-以下都是 CC0（公有领域），登记到 `ASSET_SOURCES.md` 后入库；页面没有标注文件大小，下载前会先确认体积（单个新增文件超过 5 MB 另行说明）。
+用户同意后下载 `kenney_impact-sounds.zip`（800,850 字节）和 `kenney_rpg-audio.zip`（964,837 字节），挑 57 个 OGG（约 628 KB）放入 `assets/audio/kenney/`，许可原文一并保存。来源、SHA-256 与用途登记在 `ASSET_SOURCES.md`。
 
-| 用途 | 来源 | 文件 |
-| --- | --- | --- |
-| 命中、脚步、落地、机关撞击 | Kenney Impact Sounds（130 个，CC0） | `kenney_impact-sounds.zip`，https://kenney.nl/assets/impact-sounds |
-| 脚步、武器、拟音 | Kenney RPG Audio（50 个，CC0） | `kenney_rpg-audio.zip`，https://kenney.nl/assets/rpg-audio |
-| 章节音乐候选 | OpenGameArt 上标注 CC0 的循环曲（如 Forest Ambience、Dark Forest Theme），逐首核对授权页 | 待用户选定 |
+- `scripts/sfx.gd` 新增 `VARIANTS` 音效组，同名多条录音随机选取。
+- 脚步（`journey_view.gd`）：贴地每走约 1.7 米一步，按地貌选草地、木板（河道）或石路；起跳和落地各一声，落差大时落地更重。原来旅程里没有起跳、落地声。
+- 机关：压机落下改金属重击，地刺弹出改金属轻击，路面开裂改木头吱嘎，塌落改碎石，火焰弩命中改金属板撞击。
+- 战斗：命中敌人、击败敌人、自己受击改用拳击录音；换弹开始卸弹匣、结束上膛各一声；合作门打开播放开门声。
+- 界面与未替换事件（金币、奖品、通关、救援等）仍用原合成音效。
+
+验证：`tests/journey_audio_mix.gd` 扩展到 47 项 0 失败（各音效组全部加载、随机选取、不足一步不发声、走满一步播放脚步录音、落地录音、压机播放金属重击）；`journey_combat`、`journey_world_view`、`journey_failure_presentation` 0 失败。
+- 性能检查第一轮 `journey_environment_lifetime` 失败：测试退出时仍有 OGG 播放句柄（14 个对象）残留。原因是退出场景树后仍触发了脚步声，测试中整段瞬移也被当成走路。修正为退出后不再新建播放，单帧位移超过 3 米视为读档/换章、不算脚步。重跑 `check_journey_performance.py` 26 组全部通过，报告 `/Users/apple/ConjoinedTwins-task-temp/audio-kenney-perf-20261020-r2/summary.json`。
 
 ## 待试玩
 
-- 定位音量与衰减距离（固定镜头离角色约 20 米）；合成音效在 3D 下是否刺耳。
+- 定位音量与衰减距离（固定镜头离角色约 20 米）；脚步密度与音量，两人同时走时是否嘈杂。
 - 战斗压低环境声的幅度。

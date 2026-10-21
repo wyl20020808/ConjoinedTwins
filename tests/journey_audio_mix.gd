@@ -64,8 +64,29 @@ func verify()->void:
 	var quiet:int=sfx.next_player_3d
 	game.hazard_fx.track(99999,"press",{"stage":"hold","rect":Rect2(0,0,80,80)},marker)
 	var last3d:AudioStreamPlayer3D=sfx.players_3d[(sfx.next_player_3d-1+sfx.players_3d.size())%sfx.players_3d.size()]
-	check(sfx.next_player_3d!=quiet and last3d.global_position==marker.global_position,"压机落下在机关位置发声")
+	check(sfx.next_player_3d!=quiet and last3d.global_position==marker.global_position and str(last3d.stream.resource_path).contains("impactMetal_heavy"),"压机落下在机关位置播放金属重击")
 	marker.queue_free()
+	# 录制音效：每组都能加载，同名随机选一条。
+	for group in sfx.VARIANTS:
+		check(sfx.variants[group].size()==sfx.VARIANTS[group].size() and not sfx.variants[group].has(null),"录制音效组 %s 全部加载"%group)
+	var picked:={}
+	for n in range(40): picked[sfx.pick("punch")]=true
+	check(picked.size()>2,"同名音效随机选取不同录音")
+	# 脚步：贴地行走约 1.7 米一步，起跳与落地各一声。
+	run.state="running";run.heights[0]=0.0
+	game.visual_last_heights[0]=0.0;game.step_travel[0]=0.0;game.step_last[0]=Vector2.INF
+	game.robots[0].global_position=Vector3(0,0,-10);game.play_footsteps(0)
+	var step_before:int=sfx.next_player_3d
+	game.robots[0].global_position=Vector3(0,0,-11);game.play_footsteps(0)
+	check(sfx.next_player_3d==step_before,"不足一步不发声")
+	game.robots[0].global_position=Vector3(0,0,-11.8);game.play_footsteps(0)
+	var foot:AudioStreamPlayer3D=sfx.players_3d[(sfx.next_player_3d-1+sfx.players_3d.size())%sfx.players_3d.size()]
+	check(sfx.next_player_3d!=step_before and str(foot.stream.resource_path).contains("footstep"),"走满一步播放脚步录音")
+	run.heights[0]=4.0;game.play_footsteps(0);game.visual_last_heights[0]=8.0
+	run.heights[0]=0.0;game.play_footsteps(0)
+	var landed:AudioStreamPlayer3D=sfx.players_3d[(sfx.next_player_3d-1+sfx.players_3d.size())%sfx.players_3d.size()]
+	check(str(landed.stream.resource_path).contains("impactSoft_heavy"),"落地播放落地录音")
+	game.visual_last_heights[0]=0.0
 	# 战斗时压低环境声，脱战后恢复。
 	event.alert=true
 	for n in range(60): game.pump_ambience(1.0/60)

@@ -317,5 +317,5 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 		view.set_meta("warned_seq",event.get("attack_seq",0))
 		game.sfx.play_at("whoosh",location+Vector3(0,1.2,0),-6.0,0.65)
 	if hit_age<.2 and event.hit_at!=view.get_meta("last_hit_at"):
-		game.sfx.play_at("buckle",location+Vector3(0,1.4,0),-9.0,.7 if died else 1.25)
+		game.sfx.play_at("punch_heavy" if died else "punch",location+Vector3(0,1.4,0),-4.0 if died else -7.0,0.9 if died else 1.05)
 	view.set_meta("last_hit_at",event.get("hit_at",-1.0))

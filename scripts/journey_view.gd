@@ -16,6 +16,8 @@ var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
 const AMBIENCE_DUCKED := 0.5
+const STEP_LENGTH := 1.7
+const STEP_TELEPORT := 3.0
 # 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
 const ONLINE_CATCHUP_FRAMES := 8
 const ONLINE_CATCHUP_USEC := 8000
@@ -80,6 +82,8 @@ var world_environment: Environment
 var ambient: AudioStreamPlayer
 var ambience_region := ""
 var ambience_level := 1.0
+var step_travel := [0.0,0.0]
+var step_last := [Vector2.INF,Vector2.INF]
 var ambience_streams := {}
 var forest_birds:AudioStreamPlayer
 var sound_events := {}
@@ -1428,6 +1432,7 @@ func sync_journey_character(i:int)->void:
 		robots[i].rotation.z=-run.move_directions[i].x*0.06
 	# 起跳/落地只做视觉压缩，不改物理高度和碰撞。
 	if visual_last_heights[i]>6.0 and run.heights[i]<=0.5:land_impact[i]=1.0
+	if visual_state=="running": play_footsteps(i)
 	visual_last_heights[i]=run.heights[i]
 	land_impact[i]=maxf(0.0,land_impact[i]-frame_delta*7.0)
 	if i<character_models.size():
@@ -1713,6 +1718,30 @@ func build_ambience() -> void:
 		stream.loop_begin=0
 		stream.loop_end=7*22050
 		ambience_streams[kind]=stream
+
+# 脚步、起跳与落地：按画面帧读取模拟位置与高度，只发声，不影响判定。
+# 每走约 1.7 米一步，地面材质按当前地貌选草地、木板或石路。
+func play_footsteps(i:int)->void:
+	var body:Vector3=robots[i].global_position
+	if visual_last_heights[i]==0.0 and run.heights[i]>0.0:
+		sfx.play_at("step_wood",body,-6.0,1.25)
+	elif visual_last_heights[i]>0.0 and run.heights[i]==0.0:
+		sfx.play_at("land_soft",body,-4.0 if visual_last_heights[i]>6.0 else -9.0,1.0)
+		step_travel[i]=0.0
+	if run.heights[i]>0.0:return
+	var flat:=Vector2(body.x,body.z)
+	var moved:float=flat.distance_to(step_last[i]) if step_last[i]!=Vector2.INF else 0.0
+	step_last[i]=flat
+	# 读档、重试或换章时整段位移，不算脚步。
+	if moved>STEP_TELEPORT:
+		step_travel[i]=0.0
+		return
+	step_travel[i]+=moved
+	if step_travel[i]<STEP_LENGTH:return
+	step_travel[i]=0.0
+	var theme:String=run.theme_at(run.distance)
+	var surface:="step_grass" if theme in ["forest","edge","meadow","farm","ridge","broken"] else ("step_wood" if theme=="river" else "step_stone")
+	sfx.play_at(surface,body,-10.0,1.0 if i==0 else 1.08)
 
 func combat_nearby() -> bool:
 	for event in run.journey_events:

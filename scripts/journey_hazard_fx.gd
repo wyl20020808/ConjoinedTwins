@@ -191,21 +191,21 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 			"press":
 				if stage == "hold":
 					slam(base, maxf(2.2, size * 0.8))
-					cue("land", base, -2.0, 0.55)
+					cue("metal_heavy", base, -1.0, 0.8)
 			"active_spikes":
 				if stage == "extend":
 					burst_debris(base + Vector3(0, 0.15, 0), Color("5b4a3a"))
 					fx.burst("spark", base + Vector3(0, 0.5, 0))
-					cue("buckle", base, -6.0, 0.8)
+					cue("metal_light", base, -4.0, 1.0)
 			"collapse":
 				if stage == "crack":
 					burst_debris(base + Vector3(0, 0.1, 0), Color("4d4136"))
-					cue("rope", base, -6.0, 0.6)
+					cue("creak", base, -4.0, 0.9)
 				elif stage == "collapsed":
 					burst_debris(base, Color("4d4136"))
 					fx.burst("dust", base)
 					fx.impact(base, Color("c9b08a"), maxf(2.0, size * 0.6), 0.0, false)
-					cue("land", base, -2.0, 0.45)
+					cue("rubble", base, 0.0, 0.85)
 			"hammer":
 				if stage == "swing":
 					fx.burst("dust", base + Vector3(0, 0.1, 0))
@@ -251,7 +251,7 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 				if kind == "rocket" and before in ["active", "flight"]:
 					fx.impact(base, Color("ff7a2a"), 1.8, 3.0)
 					fx.burst("spark", base + Vector3(0, 0.5, 0))
-					cue("hit", base, -8.0, 1.25)
+					cue("plate_heavy", base, -4.0, 1.0)
 
 # 机关阶段切换时在机关位置发声：玩家看不到预警标记，也能靠方位听出危险。
 func cue(name: String, point: Vector3, volume_db: float, pitch: float) -> void:
