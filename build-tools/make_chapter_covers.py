@@ -5,6 +5,9 @@
   python build-tools/make_chapter_covers.py
 输出 assets/ui/covers/chapter_<n>.jpg（960×540，主界面卡片、章节载入画面和网页启动页共用）。
 封面直接取自生产场景渲染，不另行绘制，保证与对应章节的实际画面一致。
+
+2026-10-21 起 assets/ui/covers/ 改用用户提供的美术图（主页 home.jpg 与四章封面，1280×720），
+本脚本保留，需要时可重新从游戏画面取景；运行会覆盖现有封面。
 """
 from pathlib import Path
 from PIL import Image, ImageEnhance
