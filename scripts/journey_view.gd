@@ -15,6 +15,9 @@ var preparation_peak_usec := 0
 var preparation_waits := 0
 var chunk_install_count := 0
 const CHUNK := 80.0
+# 受击画面冲击只持续约 3 帧；触觉反馈与之共用“画面冲击与震动”开关，保存在本机设置。
+const IMPACT_TIME := 0.05
+const SETTINGS_PATH := "user://settings.cfg"
 # 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
 const ONLINE_CATCHUP_FRAMES := 8
 const ONLINE_CATCHUP_USEC := 8000
@@ -97,6 +100,11 @@ var weapon_panel: PanelContainer
 var post_canvas: CanvasLayer
 var vignette_mat: ShaderMaterial
 var damage_flash := 0.0
+var impact_flash := 0.0
+var impact_effects := true
+var impact_button: Button
+var last_kills := 0
+var last_open_gates := 0
 var low_health := 0.0
 var last_health := [100, 100]
 var visual_yaw := [0.0, 0.0]
@@ -130,6 +138,7 @@ func model_resident(y: float) -> bool:
 func _ready() -> void:
 	# 本地也限制长帧追赶，避免补算持续挤占输入和绘制。
 	Engine.max_physics_steps_per_frame=3
+	load_feel_settings()
 	if OS.has_feature("web"):web_verify=bool(JavaScriptBridge.eval("new URLSearchParams(location.search).has('verify')",true))
 	ThemeDB.fallback_font=preload("res://assets/fonts/web_ui_font.tres")
 	finish_view.free()
@@ -999,6 +1008,14 @@ func build_journey_ui() -> void:
 		command("retry"))
 	inner.add_child(restart_button)
 	style_button(restart_button)
+	impact_button=Button.new()
+	impact_button.custom_minimum_size=Vector2(0,40)
+	impact_button.pressed.connect(func():
+		impact_effects=not impact_effects
+		save_feel_settings()
+		update_journey_ui())
+	inner.add_child(impact_button)
+	style_button(impact_button)
 	touch.blockers.assign([panel,pause_button])
 	var modes:=HBoxContainer.new()
 	modes.add_theme_constant_override("separation",8)
@@ -1113,6 +1130,7 @@ func build_post_fx() -> void:
 	vignette_mat.shader=preload("res://scripts/journey_vignette.gdshader")
 	vignette_mat.set_shader_parameter("damage",0.0)
 	vignette_mat.set_shader_parameter("low",0.0)
+	vignette_mat.set_shader_parameter("impact",0.0)
 	vignette.material=vignette_mat
 	post_canvas.add_child(vignette)
 	vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1229,7 +1247,9 @@ func _process(delta:float)->void:
 	# 受击红边和低血量暗角先于视图更新，暂停时也自然衰减。
 	if is_instance_valid(vignette_mat):
 		damage_flash=maxf(0.0,damage_flash-delta*2.4)
+		impact_flash=maxf(0.0,impact_flash-delta/IMPACT_TIME)
 		vignette_mat.set_shader_parameter("damage",damage_flash)
+		vignette_mat.set_shader_parameter("impact",impact_flash if impact_effects else 0.0)
 		vignette_mat.set_shader_parameter("low",low_health)
 	# 每个画面帧只提交一次最终状态，本地与网页使用同一规则。
 	if scene_prepared and view_pending:
@@ -1424,7 +1444,9 @@ func sync_journey_character(i:int)->void:
 		robots[i].rotation.x=-0.13-run.move_directions[i].y*0.07 if run.actions[i]=="Run" else 0.0
 		robots[i].rotation.z=-run.move_directions[i].x*0.06
 	# 起跳/落地只做视觉压缩，不改物理高度和碰撞。
-	if visual_last_heights[i]>6.0 and run.heights[i]<=0.5:land_impact[i]=1.0
+	if visual_last_heights[i]>6.0 and run.heights[i]<=0.5:
+		land_impact[i]=1.0
+		if i==(net.role if play_mode=="online" and net.in_match else 0): rumble(0.25,0.15,0.06)
 	visual_last_heights[i]=run.heights[i]
 	land_impact[i]=maxf(0.0,land_impact[i]-frame_delta*7.0)
 	if i<character_models.size():
@@ -1484,6 +1506,22 @@ func sync_journey_character(i:int)->void:
 		player.speed_scale=1.0
 	if run.heights[i]>0:
 		player.seek(clampf((Run.JUMP_SPEED-run.vertical_speed[i])/Run.GRAVITY/(2*Run.JUMP_SPEED/Run.GRAVITY),0,1)*player.current_animation_length,true)
+
+# 手柄与手机触觉，只在本机执行，不进入联机状态。
+func rumble(weak: float, strong: float, seconds: float) -> void:
+	if not impact_effects: return
+	for device in Input.get_connected_joypads(): Input.start_joy_vibration(device,weak,strong,seconds)
+	if touch_device: Input.vibrate_handheld(int(seconds*1000.0),clampf(maxf(weak,strong),0.1,1.0))
+
+func load_feel_settings() -> void:
+	var config:=ConfigFile.new()
+	if config.load(SETTINGS_PATH)==OK: impact_effects=bool(config.get_value("feel","impact_effects",true))
+
+func save_feel_settings() -> void:
+	var config:=ConfigFile.new()
+	config.load(SETTINGS_PATH)
+	config.set_value("feel","impact_effects",impact_effects)
+	config.save(SETTINGS_PATH)
 
 func fail_showing()->bool:
 	# 使用模拟死亡时间，联机双方对重试时机的判断一致。
@@ -1627,6 +1665,10 @@ func update_journey_ui() -> void:
 	# 受击红边与低血量暗角：只读取同步后的真实血量，不参与判定。
 	var top_health: int = run.combat.health[role]
 	var second_health: int = run.combat.health[1-role]
+	if top_health<last_health[0]:
+		# 只有本机角色受击才做画面冲击和震动，队友受击保留红边与特效。
+		impact_flash=1.0
+		rumble(0.55,0.9,0.18)
 	if top_health<last_health[0] or second_health<last_health[1]:
 		damage_flash=1.0
 		for hurt_role in range(2):
@@ -1634,6 +1676,11 @@ func update_journey_ui() -> void:
 			if run.combat.health[hurt_role]<before and is_instance_valid(fx):
 				fx.impact(robots[hurt_role].global_position,Color("ff3b2a"),1.8,2.6)
 	last_health[0]=top_health;last_health[1]=second_health
+	if run.combat.kills>last_kills: rumble(0.35,0.0,0.07)
+	last_kills=run.combat.kills
+	var open_gates:int=run.charge_gates.filter(func(g):return g.open).size()
+	if open_gates>last_open_gates and run.state=="running": rumble(0.4,0.4,0.22)
+	last_open_gates=open_gates
 	low_health=clampf((35.0-minf(top_health,second_health))/35.0,0.0,1.0)
 	var role_color:=Color("8fe3d2") if role==0 else Color("f0c089")
 	if hud.get_meta("role_color",Color(-1,-1,-1))!=role_color:
@@ -1667,6 +1714,8 @@ func update_journey_ui() -> void:
 	training_button.visible=run.state=="start" and play_mode=="solo"
 	training_button.text="返回三关旅程" if run.combat_trial else "战斗训练 · 持枪步行约 90 秒"
 	restart_button.visible=run.state in ["paused","failed"]
+	impact_button.visible=run.state=="paused" and not get_meta("credits",false)
+	impact_button.text="画面冲击与震动：%s"%("开" if impact_effects else "关")
 	pause_button.visible=run.state in ["running","rescue"]
 	if is_instance_valid(touch): touch.set_enabled(touch_device and run.state in ["running","rescue","settlement"])
 	for button in difficulty_buttons: button.visible=run.state=="start" and play_mode!="online"
