@@ -447,7 +447,7 @@ func sync() -> void:
 	if run.shield_uses>previous_shield_uses: game.sfx.play("shield_break",-6.0)
 	previous_shield_uses=run.shield_uses
 	for event in run.journey_events:
-		if event.has("hp") and game.event_views.has(event.id):
+		if event.has("hp") and event.kind!="boss" and game.event_views.has(event.id):
 			EnemyView.sync(game,game.event_views[event.id],event)
 
 # 胸口骨骼的世界位置（随跑步起伏）与身体朝向；找不到骨骼时返回空字典，沿用跟随右手的旧摆法。
