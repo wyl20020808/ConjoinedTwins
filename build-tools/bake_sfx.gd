@@ -21,6 +21,7 @@ func _initialize() -> void:
 		options.set_value("remap", "importer", "wav")
 		options.set_value("remap", "type", "AudioStreamWAV")
 		options.set_value("params", "compress/mode", 0)
+		if key in sound.LOOPED: options.set_value("params", "edit/loop_mode", 2)
 		options.save(path)
 	sound.free()
 	quit()

@@ -257,6 +257,10 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	Combat.tick(self,previous)
 	check_event_hits(previous)
 
+# 倒树改为人走近才断：约 26 米内起裂，1.4 秒吱嘎预警后倒下，正常步行恰好赶到树前，需要提早换侧。
+const TREE_TRIGGER := 520.0
+const TREE_WARNING := 1.4
+
 func event_sample(event: Dictionary,time: float) -> Dictionary:
 	if event.kind=="monster": return Monsters.sample(event,time)
 	var kind: String=event.kind
@@ -269,7 +273,8 @@ func event_sample(event: Dictionary,time: float) -> Dictionary:
 		phase="warning" if age<2.8 else "active"
 		var flight:=maxf(0,age-2.8)
 		if kind=="tree":
-			phase="warning" if age<2.8 else ("falling" if flight<0.65 else "fallen")
+			flight=maxf(0,age-TREE_WARNING)
+			phase="warning" if age<TREE_WARNING else ("falling" if flight<0.65 else "fallen")
 			top=26.0 if phase=="fallen" else 160.0
 		elif kind=="boar":
 			rect.position.y-=flight*240
@@ -298,7 +303,8 @@ func advance_events(_dt: float) -> void:
 			Monsters.advance(self,event)
 			continue
 		# 以最快合法前进速度预留 >2.8 秒；锁定后不跟踪改道。
-		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-maxf(620.0,WALK_SPEED*3.0):
+		var reach:float=TREE_TRIGGER if event.kind=="tree" else maxf(620.0,WALK_SPEED*3.0)
+		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-reach:
 			event.trigger=elapsed
 			if event.kind=="stone": event.locked_x=clampf((a.position.x+b.position.x)*0.5,-EDGE+30,EDGE-30)
 			event.warning_positions=[a.position,b.position]
@@ -660,6 +666,21 @@ func terrain_at(point:Vector2)->Array:
 	var merged:=local+moving_terrain
 	merged.sort()
 	return merged
+
+# 绳索质点在桥面上每次迭代都会采样吊桥；父类每次复制机关参数并用闭包查门，桥上明显掉帧。
+# 这里按同一公式直接求值，结果与父类完全一致。
+func terrain_sample(index:int,time:float,point:Vector2)->Dictionary:
+	if kinds[index]!="drawbridge":return super(index,time,point)
+	var gate_id:String=hazard_specs[index].get("gate_id","")
+	var opening:=0.0
+	for gate in charge_gates:
+		if gate.id!=gate_id:continue
+		var opened_at:float=gate.get("opened_at",-1.0)
+		if gate.open and opened_at>=0:opening=clampf((time-opened_at)/0.6,0,1)
+		break
+	var rect:Rect2=obstacles[index]
+	return {"rect":rect,"height":(1.0-opening)*100.0,"normal":Vector3.UP,"velocity":Vector3.ZERO,
+		"friction":0.8,"opening":opening,"supported":rect.has_point(point) and opening>=0.999}
 
 func surface_at(point:Vector2,time:float,radius:float=0.0)->Dictionary:
 	var surface:={"supported":absf(point.x)<=EDGE,"height":0.0,"normal":Vector3.UP,"friction":0.8,"velocity":Vector3.ZERO}

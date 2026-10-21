@@ -188,6 +188,11 @@ var hero_strafe := [{"Run_Back": 0.0, "Run_Left": 0.0, "Run_Right": 0.0}, {"Run_
 var air_top := [0.0, 0.0]
 var landing_clip := ["", ""]
 var landing_left := [0.0, 0.0]
+# 持枪攻击身后或侧后方的敌人时整个身体转过去开火，停火后转回道路前方。
+var body_yaw := [0.0, 0.0]
+const BODY_TURN_RATE := 12.0
+const BODY_TURN_MIN := 0.6
+const BODY_TURN_HOLD := 0.45
 var landing_strength := [0.0, 0.0]
 var visual_last_heights := [0.0, 0.0]
 var land_impact := [0.0, 0.0]
@@ -907,10 +912,13 @@ func sync_events() -> void:
 		if event.kind=="tree":
 			# 树根位于倒伏范围的一端，最终树干与实心碰撞矩形对齐。
 			var age:float=run.elapsed-event.trigger
-			var fall:float=clampf((age-2.8)/0.65,0,1) if event.trigger>=0 else 0.0
+			var fall:float=clampf((age-Journey.TREE_WARNING)/0.65,0,1) if event.trigger>=0 else 0.0
 			body.position.x=event.rect.get_center().x/SCALE-event.side*5.5
 			body.rotation.z=-event.side*fall*PI/2
-			if event.phase=="warning": body.rotation.z=sin(run.elapsed*14)*0.025
+			# 预警期越来越晃，最后一刻先向倒伏方向歪一下。
+			if event.phase=="warning":
+				var crack:float=clampf(age/Journey.TREE_WARNING,0,1)
+				body.rotation.z=sin(run.elapsed*14)*(0.02+0.05*crack)-event.side*0.08*crack*crack
 		elif event.kind=="swing":
 			var pivot:=Vector3(0,10,0)
 			var tip:=body.position+Vector3(0,2,0)
@@ -952,12 +960,24 @@ func sync_events() -> void:
 			sfx.play_at("warning",at,-4.0,0.75 if event.kind=="boar" else 1.0)
 			# 预警期叠加真实机关声：大树根部断裂吱嘎、摆锤木梁受力。
 			if event.kind in ["tree","swing"]: sfx.play_at("wood_creak_heavy",at,-3.0,0.8 if event.kind=="tree" else 1.0)
+			# 野猪刨地哼叫；推车村民吆喝一声开始推。
+			elif event.kind=="boar": sfx.play_at("growl",at+Vector3(0,0.3,0),-6.0,1.7)
+			elif event.kind=="cart": sfx.play_at("grunt",Vector3(-event.side*25.5,1.4,-event.y/SCALE),-8.0,0.9)
 		var phase_key:="%s:%s"%[event.id,event.phase]
-		if event.phase in ["falling","spent"] and event.kind in ["tree","stone"] and not sound_events.has(phase_key):
+		if event.phase in ["falling","fallen","spent","active"] and event.kind in ["tree","stone","boar"] and not sound_events.has(phase_key):
 			sound_events[phase_key]=true
 			var hit:Vector2=event.rect.get_center() if event.kind=="tree" else Vector2(event.locked_x,event.y)
 			var hit_at:=Vector3(hit.x/SCALE,0.5,-hit.y/SCALE)
-			if event.kind=="tree" and event.phase=="falling": sfx.play_at("tree_fall",hit_at,-2.0)
+			if event.kind=="tree" and event.phase=="falling": sfx.play_at("tree_fall",hit_at,0.0)
+			# 树干砸地：沉闷的撞击加碎枝。
+			elif event.kind=="tree" and event.phase=="fallen":
+				sfx.play_at("punch_heavy",hit_at,-3.0,0.55)
+				sfx.play_at("rubble",hit_at,-8.0,0.7)
+			# 野猪冲出时尖叫；村民出手时"嘿"一声，石块破空。
+			elif event.kind=="boar" and event.phase=="active": sfx.play_at("snarl",hit_at,-5.0,1.6)
+			elif event.kind=="stone" and event.phase=="active":
+				sfx.play_at("grunt",Vector3(event.side*18,1.4,-event.y/SCALE),-7.0,1.05)
+				sfx.play_at("whoosh",hit_at+Vector3(0,2.0,0),-10.0,1.3)
 			elif event.kind=="stone" and event.phase=="spent" and int(event.get("hp",1))>0 and event.trigger>=0: sfx.play_at("rubble",hit_at,-4.0,0.9)
 		if event.kind=="cart" and event.phase=="active" and view.visible:
 			var cart_at:Vector3=body.global_position
@@ -996,7 +1016,8 @@ func build_gate(gate: Dictionary) -> Node3D:
 	add_sign(root,gate.title,Vector3(0,6,0),32).name="GateTitle"
 	if gate.id=="waterwheel": asset(root,"waterwheel",Vector3(19,0,0),9,PI/2)
 	elif "bridge" in gate.id:
-		asset(root,"drawbridge",Vector3(0,-0.1,-9),0.8)
+		# 桥面中心对准模拟吊桥（门后 140 单位，长 212 单位）；转 180° 让铰链在对岸，桥板朝玩家放下。
+		asset(root,"drawbridge",Vector3(0,-0.1,-7),0.8,PI)
 	return root
 
 func sync_gates() -> void:
@@ -1011,7 +1032,21 @@ func sync_gates() -> void:
 			gate_views[gate.id]=quiet_world_text(build_gate(gate))
 		var view:Node3D=gate_views[gate.id]
 		view.show()
-		sample_animation(view,"BridgeLower",clampf((run.elapsed-gate.opened_at)/0.6,0,1) if gate.open else 0)
+		var lowered:float=clampf((run.elapsed-gate.opened_at)/0.6,0,1) if gate.open else 0.0
+		sample_animation(view,"BridgeLower",lowered)
+		# 吊桥：开始放下时铁链哗啦作响，落平时桥板砸在对岸一声闷响。
+		if gate.get("bridge",false):
+			var stage:int=0 if lowered<=0.0 else (1 if lowered<1.0 else 2)
+			var heard:int=view.get_meta("bridge_stage",stage)
+			if stage!=heard and run.state=="running":
+				var deck:=view.global_position+Vector3(0,1.0,-7.0)
+				if stage==1:
+					sfx.play_at("chain_rattle",deck+Vector3(0,2.0,0),-6.0,1.0)
+					sfx.play_at("wood_creak_heavy",deck,-8.0,1.1)
+				elif stage==2:
+					sfx.play_at("wood_knock",deck,-2.0,0.6)
+					sfx.play_at("plate_heavy",deck,-9.0,0.7)
+			view.set_meta("bridge_stage",stage)
 		if gate.id=="waterwheel":sample_animation(view,"WheelTurn",run.elapsed)
 		view.position=Vector3(0,0,-gate.door.position.y/SCALE)
 		var opening:float=clampf((run.elapsed-gate.opened_at)/0.8,0,1) if gate.open else 0
@@ -1609,6 +1644,7 @@ func reset_journey_views() -> void:
 	failed_animation_started=[false,false]
 	rescue_seen=[0,0]
 	rescue_pulse=[0.0,0.0]
+	body_yaw=[0.0,0.0]
 	last_fire_sent=false
 	prepared_online_frame=-1
 	# 固定关卡重试只需刷新阶段和反馈，不重建相同的环境模型。
@@ -1944,6 +1980,8 @@ func sync_journey_character(i:int)->void:
 		if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
 	robots[i].rotation=Vector3.ZERO
 	track_hero_motion(i)
+	if run.state!="paused":body_yaw[i]=lerp_angle(body_yaw[i],combat_body_yaw(i,visual_state),clampf(frame_delta*BODY_TURN_RATE,0.0,1.0))
+	if absf(body_yaw[i])>0.001:robots[i].rotation.y=body_yaw[i]
 	# 横移与后退由侧步/后退步混合表现，身体保持朝前；前进时上身前倾，后退时近乎直立。
 	if visual_state=="running" and run.actions[i]=="Run":
 		var direction:Vector2=run.move_directions[i]
@@ -2038,6 +2076,25 @@ func sync_journey_character(i:int)->void:
 	if action=="Run":
 		player.speed_scale=clampf(hero_velocity[i].length()/HERO_STRIDE_SPEED[i],0.6,4.0)
 
+# 开火锁定的目标偏离道路前方较多时，返回身体应转向的偏航；否则回到 0（面朝前方）。
+func combat_body_yaw(i:int,visual_state:String)->float:
+	if visual_state!="running" or run.combat.is_empty() or falling():return 0.0
+	var weapon:Dictionary=run.combat.weapons[i]
+	if weapon.is_empty():return 0.0
+	var shot:Dictionary=run.combat.shots[i]
+	var firing:bool=run.combat.fire[i] or (not shot.is_empty() and run.elapsed-float(shot.time)<BODY_TURN_HOLD)
+	if not firing:return 0.0
+	var from:Vector2=run.a.position if i==0 else run.b.position
+	for event in run.journey_events:
+		if event.id!=weapon.target:continue
+		var direction:Vector2=run.Combat.enemy_position(event)-from
+		if direction.length()<1.0:break
+		var yaw:=atan2(-direction.x,direction.y)
+		# 已经转身时放宽门槛，目标在门槛附近摆动不会让身体来回抽动。
+		if absf(yaw)>BODY_TURN_MIN or absf(body_yaw[i])>BODY_TURN_MIN*0.5:return yaw
+		break
+	return 0.0
+
 # 水平速度取模拟时间内的真实位移；重试、读档或换章的整段位移不计。
 func track_hero_motion(i:int)->void:
 	var point:Vector2=run.a.position if i==0 else run.b.position
@@ -2074,6 +2131,10 @@ func sync_hero_rig(i:int,rig,locomotion:bool,visual_state:String)->void:
 	# 侧步权重：以实际水平速度方向分解为前/后/左/右，前后先合成，再按侧向占比混入侧步。
 	var targets:={"Run_Back":0.0,"Run_Left":0.0,"Run_Right":0.0}
 	var velocity:Vector2=hero_velocity[i]
+	# 身体转向开火时，步态按身体自身的前后左右分解，倒退着走就播后退步。
+	if absf(body_yaw[i])>0.001:
+		var yaw:float=body_yaw[i]
+		velocity=Vector2(velocity.dot(Vector2(cos(yaw),sin(yaw))),velocity.dot(Vector2(-sin(yaw),cos(yaw))))
 	if locomotion and visual_state=="running" and run.heights[i]<=0.0 and run.actions[i]=="Run" and velocity.length()>0.5:
 		var forward:float=velocity.y/velocity.length()
 		var side:float=velocity.x/velocity.length()
