@@ -10,9 +10,11 @@ func probe() -> void:
 	net.status_changed.connect(func(text): lines.append(text); print("STATUS ", text))
 	var address: String = NetClient.default_address()
 	print("ADDRESS ", address)
-	net.connect_to(address)
-	var deadline := Time.get_ticks_msec() + 20000
-	while Time.get_ticks_msec() < deadline and net.role < 0 and net.active(): await process_frame
+	# -- --auto：按开始页“连接队友”的方式连接（默认地址时 UDP → wss 自动回退）。
+	if "--auto" in OS.get_cmdline_user_args(): net.connect_auto(address)
+	else: net.connect_to(address)
+	var deadline := Time.get_ticks_msec() + 30000
+	while Time.get_ticks_msec() < deadline and net.role < 0: await process_frame
 	var ok: bool = net.role >= 0
 	print("NATIVE_WSS ", "PASS" if ok else "FAIL", " role=", net.role)
 	net.disconnect_from()
