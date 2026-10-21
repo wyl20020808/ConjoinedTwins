@@ -64,11 +64,12 @@ func drive() -> void:
 		max_flying = maxi(max_flying, game.flying)
 		if run.state == "running" and tick % 10 == 0:
 			rope_frames += 1
-			var mesh: ImmediateMesh = game.rope_view.immediate
+			# 绳网格改为动态 ArrayMesh；身体倾斜绕腰部旋转，腰部挂点需经朝向换算。
+			var mesh: Mesh = game.rope_view.mesh
 			var ends: PackedVector3Array = game.rope_view.points
-			var a: Vector3 = game.robots[0].position + Vector3(0, 1.4, 0)
-			var b: Vector3 = game.robots[1].position + Vector3(0, 1.4, 0)
-			rope_ok = rope_ok and mesh.get_surface_count() == 1 and ends[0].distance_to(a) < 0.05 and ends[ends.size() - 1].distance_to(b) < 0.05
+			var a: Vector3 = game.robots[0].position + game.robots[0].basis * Vector3(0, 1.4, 0)
+			var b: Vector3 = game.robots[1].position + game.robots[1].basis * Vector3(0, 1.4, 0)
+			rope_ok = rope_ok and mesh != null and mesh.get_surface_count() == 1 and ends[0].distance_to(a) < 0.05 and ends[ends.size() - 1].distance_to(b) < 0.05
 		for player in game.sfx.players:
 			if player.playing and player.stream != null:
 				for name in game.sfx.streams:

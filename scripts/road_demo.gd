@@ -2244,7 +2244,8 @@ func sync_view() -> void:
 		for p: Vector3 in run.rope.physical.points:
 			rope_points.append(Vector3(p.x / SCALE, p.y / SCALE, -p.z / SCALE + forward))
 	else:
-		rope_points = [robots[0].position + Vector3(0, 1.4, 0), robots[1].position + Vector3(0, 1.4, 0)]
+		# 身体倾斜绕腰部旋转，挂点需经朝向换算，否则重试首帧绳端会偏离腰部约 0.18 米。
+		rope_points = [robots[0].position + robots[0].basis * Vector3(0, 1.4, 0), robots[1].position + robots[1].basis * Vector3(0, 1.4, 0)]
 	rope_view.simulate(rope_points, 0, Color.WHITE, 0)
 	for role in range(2):
 		var bound:bool=run.rope.physical.is_empty() or run.rope.physical.bound[role]

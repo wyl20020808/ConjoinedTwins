@@ -7,6 +7,10 @@ func check(label: String, passed: bool) -> void:
 	print("PASS " if passed else "FAIL ", label)
 	if not passed: failures += 1
 
+# 身体倾斜绕腰部旋转，腰部挂点需经角色朝向换算，不能直接加固定高度。
+func waist(game, role: int) -> Vector3:
+	return game.robots[role].position + game.robots[role].basis * Vector3(0, 1.4, 0)
+
 func _initialize() -> void:
 	call_deferred("verify")
 
@@ -31,25 +35,26 @@ func verify() -> void:
 		game.sync_view()
 		if run.rope.path.size() > 2:
 			wrapped = true
-			var path: PackedVector2Array = run.rope.path
-			for point: Vector3 in game.rope_view.points:
+			# 可见麻绳直接消费生产三维物理质点（会下垂、受风），画面只做坐标换算，不再贴合二维绕障折线。
+			var physical = run.rope.physical.points
+			follows = game.rope_view.points.size() == physical.size()
+			for n in range(mini(game.rope_view.points.size(), physical.size())):
+				var point: Vector3 = game.rope_view.points[n]
+				var p: Vector3 = physical[n]
+				follows = follows and point.distance_to(Vector3(p.x / 20.0, p.y / 20.0, -p.z / 20.0 + run.distance / 20.0)) < 0.001
 				var ground := Vector2(point.x * 20.0, (run.distance / 20.0 - point.z) * 20.0)
-				var gap := INF
-				for n in range(1, path.size()):
-					gap = minf(gap, ground.distance_to(Geometry2D.get_closest_point_to_segment(ground, path[n - 1], path[n])))
-				follows = follows and gap < 0.02
 				clear = clear and ground.distance_to(Vector2(0, 300)) >= 11.99
 			break
 	check("合法零轴输入确实产生绕柱路径", wrapped)
-	check("可见绳索质点贴合生产绕障折线", wrapped and follows and clear)
-	check("两端贴合双方腰部", game.rope_view.points[0].distance_to(game.robots[0].position + Vector3(0, 1.4, 0)) < 0.01 and game.rope_view.points[-1].distance_to(game.robots[1].position + Vector3(0, 1.4, 0)) < 0.01)
+	check("可见绳索质点贴合生产物理质点且不穿柱", wrapped and follows and clear)
+	check("两端贴合双方腰部", game.rope_view.points[0].distance_to(waist(game, 0)) < 0.01 and game.rope_view.points[-1].distance_to(waist(game, 1)) < 0.01)
 	var before: PackedVector3Array = game.rope_view.points.duplicate()
 	game.apply_command("pause")
 	game.sync_view()
 	check("暂停定格真实绳索", before == game.rope_view.points)
 	game.apply_command("retry")
 	game.sync_view()
-	check("重试清除绕柱接触并恢复两端", run.rope.contacts.is_empty() and run.rope.path.size() == 2 and game.rope_view.points[0].distance_to(game.robots[0].position + Vector3(0, 1.4, 0)) < 0.01)
+	check("重试清除绕柱接触并恢复两端", run.rope.contacts.is_empty() and run.rope.path.size() == 2 and game.rope_view.points[0].distance_to(waist(game, 0)) < 0.01)
 	# 顶部装饰不能高于碰撞体，也不能与本体顶面共面闪烁。
 	run.obstacles[0] = Rect2(-40, 0, 80, 65)
 	run.obstacle_heights[0] = 60.0
