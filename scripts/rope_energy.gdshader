@@ -22,7 +22,8 @@ void fragment() {
 	float t = clamp(UV.y / max(span, 0.001), 0.0, 1.0);
 	vec3 base = mix(color_a, color_b, smoothstep(0.15, 0.85, t));
 	float rim = 1.0 - abs(dot(NORMAL, VIEW));
-	float body = 0.95 + 0.6 * pow(rim, 1.4);
+	// 插值法线略长于 1 时 rim 会成微小负数，负底数 pow 在 GPU 上得 NaN，经泛光扩散成大块白光。
+	float body = 0.95 + 0.6 * pow(clamp(rim, 0.0, 1.0), 1.4);
 	// 两束能量包：一束 01→02，一束 02→01；绷紧时变快变密。
 	float speed = mix(0.45, 1.6, smoothstep(0.5, 1.0, tension));
 	float a = fract(t * 2.0 - clock * speed);
@@ -34,6 +35,6 @@ void fragment() {
 	vec3 col = mix(base, vec3(1.0), packets * 0.35 * tension);
 	col = mix(col, alarm, alarm_mix);
 	// 两端淡入，避免与角色腰部硬切。
-	float ends = smoothstep(0.0, 0.04, t) * smoothstep(1.0, 0.96, t);
+	float ends = smoothstep(0.0, 0.04, t) * (1.0 - smoothstep(0.96, 1.0, t));
 	ALBEDO = col * glow * energy * ends;
 }
