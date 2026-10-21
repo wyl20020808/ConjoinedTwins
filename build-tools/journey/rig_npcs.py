@@ -21,7 +21,8 @@ FPS = 30
 # 每个模型的朝向与类型。forward 为模型空间（Blender，Z 向上）的正前方。
 # gait：步幅倍率；attack：swing 单手挥击 / slam 双手砸地 / draw 拉弓 / bite（四足）；raise：挥击举臂角度。
 CONFIG = {
-    'grey_wolf': {'kind': 'quad', 'forward': (0, -1, 0), 'gait': 1.0},
+    # 狼的 Tripo 原模型头部向一侧扭了约 90°（鼻尖朝 +X），绑骨前先把头颈摆正。
+    'grey_wolf': {'kind': 'quad', 'forward': (0, -1, 0), 'gait': 1.0, 'straighten_head': True},
     'bark_sprite': {'kind': 'quad', 'forward': (0, -1, 0), 'gait': 0.7},
     'raider': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 1.0, 'attack': 'swing', 'raise': 110},
     'raider_slinger': {'kind': 'biped', 'forward': (1, 0, 0), 'gait': 0.9, 'attack': 'draw'},
@@ -142,6 +143,37 @@ def quad_joints(verts, cfg):
             ankle = paw.copy(); ankle.z = 0.04 * H
             joints.update({f'{name}_top.{side}': upper, f'{name}_mid.{side}': joint, f'{name}_paw.{side}': ankle})
     return joints
+
+
+def straighten_head(mesh, cfg):
+    """四足模型头部朝向偏离身体前方时，把头颈顶点绕颈根竖轴转回正前方。
+    鼻尖取前半身、0.55–0.8 身高内离头顶中心水平最远的点；权重随“比颈根更靠前”和“高于胸口”平滑增加，
+    前腿与胸口下半部分不动。返回实际转过的角度（度）。"""
+    f, left, up = frame_axes(cfg['forward'])
+    verts = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
+    H = max(v.z for v in verts)
+    fwd = lambda v: v.dot(f)
+    front = [v for v in verts if fwd(v) > 0.45 * max(fwd(u) for u in verts)]
+    skull = centroid([v for v in front if v.z > 0.8 * H])
+    snout = [v for v in front if 0.55 * H < v.z < 0.8 * H]
+    flat = lambda v: Vector((v.x - skull.x, v.y - skull.y, 0))
+    nose = max(snout, key=lambda v: flat(v).length)
+    aim = flat(nose).normalized()
+    yaw = math.atan2(aim.cross(f).z, aim.dot(f))
+    pivot = centroid([v for v in verts if 0.45 * H < v.z < 0.75 * H and abs(fwd(v) - (fwd(skull) - 0.12)) < 0.04])
+    rot = Matrix.Rotation(yaw, 4, 'Z')
+    inv = mesh.matrix_world.inverted()
+    for v in mesh.data.vertices:
+        p = mesh.matrix_world @ v.co
+        ahead = max(0.0, min(1.0, (fwd(p) - fwd(pivot)) / 0.08))
+        high = max(0.0, min(1.0, (p.z - 0.5 * H) / (0.12 * H)))
+        w = ahead * high
+        if w <= 0.0:
+            continue
+        r = Matrix.Rotation(yaw * w, 4, 'Z')
+        v.co = inv @ (Vector(pivot) + (r @ (p - pivot)))
+    mesh.data.update()
+    return math.degrees(yaw)
 
 
 def build_armature(joints, kind):
@@ -473,6 +505,9 @@ def main():
         bpy.context.scene.render.fps = FPS
         bpy.ops.import_scene.gltf(filepath=source_path(name))
         mesh = [o for o in bpy.data.objects if o.type == 'MESH'][0]
+        straightened = straighten_head(mesh, cfg) if cfg.get('straighten_head') else 0.0
+        if straightened:
+            print('STRAIGHTENED', name, round(straightened, 1), 'degrees', flush=True)
         verts = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
         H = max(v.z for v in verts)
         joints = biped_joints(verts, cfg) if cfg['kind'] == 'biped' else quad_joints(verts, cfg)
@@ -480,7 +515,7 @@ def main():
         missing = bind(mesh, rig, H, joints, cfg)
         main_hand = biped_clips(rig, joints, cfg, H) if cfg['kind'] == 'biped' else quad_clips(rig, joints, cfg, H)
         rig.animation_data.action = bpy.data.actions['Idle']
-        report[name] = {'missing_weights': missing, 'verts': len(verts), 'main_hand': main_hand,
+        report[name] = {'straightened_head_degrees': round(straightened, 1), 'missing_weights': missing, 'verts': len(verts), 'main_hand': main_hand,
                         'joints': {k: [round(c, 3) for c in v] for k, v in joints.items() if not k.startswith('_')}}
         print('RIGGED', name, 'missing', missing, 'of', len(verts), 'main', main_hand, flush=True)
         if want_preview:

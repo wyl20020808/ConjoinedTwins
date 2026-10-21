@@ -22,6 +22,14 @@ const KILL_STOP := 0.09
 # 画面击退：沿射击方向后移最多 0.28 米，0.2 秒回位；碰撞仍按模拟位置。
 const KNOCKBACK := 0.28
 const KNOCKBACK_TIME := 0.2
+# 转身追随速度（每秒）与转弯侧倾系数。
+const TURN_RATE := 9.0
+const TURN_LEAN := 0.05
+# 特效只给离玩家较近的敌人（道路单位），远处不占粒子池。
+const FX_RANGE := 900.0
+const RUN_DUST_EVERY := 0.28
+const DASH_DUST_EVERY := 0.08
+const ALERT_COLORS := {"briar":Color("9bd36a"),"raider":Color("ff8a4a"),"sentinel":Color("8fd0ff"),"archer":Color("d8e27a"),"dasher":Color("ff5a3a"),"wolf":Color("ffcf6a")}
 const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86")}
 static var charge_material:ShaderMaterial
 
@@ -203,6 +211,38 @@ static func sync_animation(run, actor: Node3D, event: Dictionary, died: bool, hi
 	if player.current_animation!=name:player.play(name)
 	player.seek(phase*player.current_animation_length,true)
 
+# 怪物特效：察觉玩家时扬尘加光环；奔跑扬尘（四足与冲锋者更密）；近战出手时在落点冲击加碎屑；
+# 冲锋、扑咬途中拖尘；弓手放箭时手部火花。全部按模拟状态的变化沿触发一次，只读状态。
+static func monster_fx(game, view: Node3D, event: Dictionary, location: Vector3, moving: bool, died: bool) -> void:
+	var run=game.run
+	var fx=game.get("fx")
+	if fx==null or died: return
+	var near:bool=absf(event.y-maxf(run.a.position.y,run.b.position.y))<FX_RANGE
+	var feet:=location+Vector3(0,0.05,0)
+	var alerted:bool=event.get("alert",false)
+	if alerted and not view.get_meta("fx_alert",false) and near:
+		fx.burst("dust",feet)
+		fx.impact(location,ALERT_COLORS.get(event.archetype,Color("ffb35a")),1.3,0.0,false)
+	view.set_meta("fx_alert",alerted)
+	if not near: return
+	var phase:String=event.get("phase","")
+	var seq:int=event.get("attack_seq",0)
+	var charging:bool=event.archetype in ["dasher","wolf"] and phase=="active"
+	var every:float=DASH_DUST_EVERY if charging else RUN_DUST_EVERY
+	if (moving or charging) and (event.archetype in ["dasher","wolf","briar"] or charging) and run.elapsed-float(view.get_meta("fx_dust_at",-10.0))>=every:
+		view.set_meta("fx_dust_at",run.elapsed)
+		fx.burst("dust",feet)
+	if phase=="active" and view.get_meta("fx_active_seq",-1)!=seq:
+		view.set_meta("fx_active_seq",seq)
+		if event.archetype=="archer":
+			fx.burst("spark",location+Vector3(0,2.2,0))
+		elif event.archetype not in ["dasher","wolf"]:
+			var land:Vector2=event.get("landing",event.origin)
+			var ground:=Vector3(land.x/20.0,run.surface_at(land,run.elapsed).height/20.0,-land.y/20.0)
+			fx.impact(ground,Color("ffcf9a"),1.6 if event.archetype!="sentinel" else 2.2,1.2)
+			var hazard_fx=game.get("hazard_fx")
+			if hazard_fx!=null: hazard_fx.burst_debris(ground+Vector3(0,0.15,0),HIT_CHIPS.get(event.archetype,Color("6b5843")),0.45)
+
 static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var run=game.run
 	if not view.has_node("EnemyHealth"): prepare(game,view,event)
@@ -223,9 +263,17 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	if event.kind=="monster":
 		actor.position=Vector3(event.origin.x/20,0,0)
 		var target:Vector2=event.get("facing",Vector2(0,-1))
-		actor.rotation.y=atan2(target.x,-target.y)
 		var stride:float=event.get("stride",0.0)
 		var moving:bool=event.get("velocity",Vector2.ZERO).length_squared()>1 and not died
+		# 转身平滑：朝向按 TURN_RATE 追随模拟朝向，转弯时身体向内侧倾；只改画面。
+		var target_yaw:=atan2(target.x,-target.y)
+		var yaw:float=view.get_meta("yaw",target_yaw)
+		var dt:float=maxf(0.0,game.frame_delta) if run.state!="paused" else 0.0
+		var turned:=lerp_angle(yaw,target_yaw,clampf(dt*TURN_RATE,0.0,1.0))
+		var turn_speed:=angle_difference(yaw,turned)/dt if dt>0.0 else 0.0
+		view.set_meta("yaw",turned)
+		actor.rotation.y=turned
+		actor.rotation.z=clampf(-turn_speed*TURN_LEAN,-0.22,0.22)*(1.0 if moving else 0.35)
 		var swing:float=sin(stride)*.85 if moving else 0.0
 		actor.position.y=run.surface_at(event.origin,run.elapsed).height/20.0+(absf(sin(stride))*.12 if moving else 0.0)
 		actor.rotation.x=-.16 if moving else 0.0
@@ -249,6 +297,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 			figure.rotation.x=swing*.11
 			figure.rotation.z=charge*.28
 		view.get_node("Body").visible=event.phase=="active" and not died and event.archetype not in ["dasher","wolf"]
+		monster_fx(game,view,event,location,moving,died)
 		view.get_node("Hint").hide()
 	var hit_age:float=run.elapsed-event.get("hit_at",-10.0)
 	var stop:float=KILL_STOP if died else HIT_STOP
