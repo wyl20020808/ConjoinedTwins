@@ -9,6 +9,8 @@ const FIRE_STEPS := 20
 const RANGE := 400.0
 const PICKUP_RADIUS := 20.0
 const MOVE_SCALE := 0.85
+# 双枪：手上一把，背上最多一把。换枪 0.3 秒内不能开火，收起的枪中断换弹。
+const SWAP_STEPS := 36
 # 四种枪。步数按 120 Hz 固定步计；冲锋枪数值与旧版完全一致。
 # 霰弹枪：7 颗弹丸扇形散开，按弹丸实际覆盖敌人身体的角宽计数，近距离一发 63。
 # 喷火器：每 0.05 秒对锥形范围内所有可见敌人各烧 3 点，射程短、持续压制。
@@ -30,14 +32,23 @@ const HAZARD_DAMAGE := {
 }
 
 static func fresh() -> Dictionary:
-	return {"health":[100,100], "weapons":[{},{}], "pickups":[], "serial":0,
-		"fire":[false,false], "reload":[false,false], "drop":[false,false],
+	return {"health":[100,100], "weapons":[{},{}], "backups":[{},{}], "pickups":[], "serial":0,
+		"fire":[false,false], "reload":[false,false], "drop":[false,false], "swap":[false,false],
 		"invulnerable":[0.0,0.0], "hits":{}, "shots":[{},{}], "shot_serial":0,
-		"kills":0, "notice":"靠近枪械自动拾取；鼠标左键开火，R 换弹，G 丢枪"}
+		"kills":0, "notice":"靠近枪械自动拾取，最多带两把；鼠标左键开火，R 换弹，Q 换枪，G 丢枪"}
+
+# 旧存档与测试夹具没有背枪槽，按需补齐；两端在同一固定步补，联机一致。
+static func ensure_slots(run) -> void:
+	if not run.combat.has("backups"): run.combat.backups=[{},{}]
+	if not run.combat.has("swap"): run.combat.swap=[false,false]
+
+static func backup(run, role: int) -> Dictionary:
+	ensure_slots(run)
+	return run.combat.backups[role]
 
 static func clear_input(run) -> void:
 	if run.combat.is_empty(): return
-	for action in ["fire","reload","drop"]: run.combat[action]=[false,false]
+	for action in ["fire","reload","drop","swap"]: run.combat[action]=[false,false]
 
 static func add_pickup(run, kind: String, position: Vector2, weapon: Dictionary = {}, weapon_type: String = "smg") -> void:
 	run.combat.serial+=1
@@ -74,6 +85,26 @@ static func drop_weapon(run, role: int) -> void:
 		pickup.blocked_until=run.elapsed+1.0
 	run.combat.weapons[role]={}
 	run.combat.notice="武器已丢下，移动速度恢复" if run.has_ground_support(point) else "武器落入缺口，移动速度恢复"
+	# 背上还有枪时自动拿到手上。
+	var spare: Dictionary=backup(run,role)
+	if not spare.is_empty():
+		spare.cooldown=SWAP_STEPS
+		run.combat.weapons[role]=spare
+		run.combat.backups[role]={}
+		run.combat.notice="%02d 丢下武器，换上背后的%s"%[role+1,weapon_name(spare)]
+
+# 手上与背上的枪互换；背上没有枪时不动作。
+static func swap_weapon(run, role: int) -> void:
+	var spare: Dictionary=backup(run,role)
+	if spare.is_empty(): return
+	var held: Dictionary=run.combat.weapons[role]
+	if not held.is_empty():
+		held.reload=0
+		held.target=-1
+	spare.cooldown=maxi(int(spare.get("cooldown",0)),SWAP_STEPS)
+	run.combat.weapons[role]=spare
+	run.combat.backups[role]=held
+	run.combat.notice="%02d 换上%s"%[role+1,weapon_name(spare)]
 
 static func collect(run, previous: Array) -> void:
 	for pickup in run.combat.pickups.duplicate():
@@ -83,7 +114,7 @@ static func collect(run, previous: Array) -> void:
 			if run.heights[role]>4 or not run.ground_support[role]: continue
 			if pickup.blocked_role==role and run.elapsed<pickup.blocked_until: continue
 			var weapon: Dictionary=run.combat.weapons[role]
-			if pickup.kind=="gun" and not weapon.is_empty(): continue
+			if pickup.kind=="gun" and not weapon.is_empty() and not backup(run,role).is_empty(): continue
 			if pickup.kind=="ammo" and (weapon.is_empty() or weapon.reserve>=spec(weapon).max_reserve): continue
 			if pickup.kind=="medkit" and run.combat.health[role]>=100: continue
 			var point: Vector2=run.a.position if role==0 else run.b.position
@@ -95,8 +126,16 @@ static func collect(run, previous: Array) -> void:
 		if nearest<0: continue
 		match pickup.kind:
 			"gun":
-				run.combat.weapons[nearest]=gun(pickup.get("weapon_type","smg")) if pickup.weapon.is_empty() else pickup.weapon.duplicate(true)
-				run.combat.notice="%02d 拾取%s · 移动速度 85%%"%[nearest+1,weapon_name(run.combat.weapons[nearest])]
+				var picked: Dictionary=gun(pickup.get("weapon_type","smg")) if pickup.weapon.is_empty() else pickup.weapon.duplicate(true)
+				if run.combat.weapons[nearest].is_empty():
+					run.combat.weapons[nearest]=picked
+					run.combat.notice="%02d 拾取%s · 移动速度 85%%"%[nearest+1,weapon_name(picked)]
+				else:
+					# 手上有枪：新枪背到背上，按换枪键取用。
+					picked.reload=0
+					picked.target=-1
+					run.combat.backups[nearest]=picked
+					run.combat.notice="%02d 拾取%s，背在背上 · Q 换枪"%[nearest+1,weapon_name(picked)]
 			"ammo":
 				var held: Dictionary=run.combat.weapons[nearest]
 				var data: Dictionary=spec(held)
@@ -181,11 +220,15 @@ static func blind_shot_end(run, from: Vector2, to: Vector2, height: float) -> Ve
 	return end
 
 static func tick(run, previous: Array) -> void:
+	ensure_slots(run)
 	collect(run,previous)
 	for role in range(2):
 		if run.combat.drop[role]:
 			drop_weapon(run,role)
 			run.combat.drop[role]=false
+		if run.combat.swap[role]:
+			swap_weapon(run,role)
+			run.combat.swap[role]=false
 		var weapon: Dictionary=run.combat.weapons[role]
 		if weapon.is_empty():
 			run.combat.reload[role]=false

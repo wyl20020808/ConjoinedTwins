@@ -109,7 +109,7 @@ var forest_birds:AudioStreamPlayer
 var sound_events := {}
 var sound_clock := 0.0
 const CombatView = preload("res://scripts/journey_combat_view.gd")
-const PAD_HELP := "左摇杆 / 十字键移动 · A 跳跃 · RT 射击\nX 换弹 · Y 丢枪"
+const PAD_HELP := "左摇杆 / 十字键移动 · A 跳跃 · RT 射击\nX 换弹 · LB 换枪 · Y 丢枪"
 const WEAPON_ICONS := {"smg":preload("res://assets/ui/smg.svg"),"shotgun":preload("res://assets/ui/shotgun.svg"),"flamer":preload("res://assets/ui/flamer.svg"),"launcher":preload("res://assets/ui/launcher.svg")}
 @export var training_entry := false
 var combat_view: Node3D
@@ -148,6 +148,7 @@ var gamepad_active := false
 var pad_blocked := true
 var reload_requested_b := false
 var drop_requested_b := false
+var swap_requested_b := false
 var focus_style: StyleBoxFlat
 var last_kills := 0
 var last_open_gates := 0
@@ -177,6 +178,7 @@ var home_button: Button
 var fire_blocked := true
 var reload_requested := false
 var drop_requested := false
+var swap_requested := false
 var frame_costs := {}
 var restore_fade: ColorRect
 var restore_fade_left := 0.0
@@ -1438,6 +1440,10 @@ func handle_pad_button(event:InputEventJoypadButton) -> void:
 			if run.state=="running":
 				if role==0:drop_requested=true
 				elif role==1:drop_requested_b=true
+		JOY_BUTTON_LEFT_SHOULDER:
+			if run.state=="running":
+				if role==0:swap_requested=true
+				elif role==1:swap_requested_b=true
 
 func glass_style(alpha:float=0.72,border_alpha:float=0.30,pad:int=16,radius:int=10) -> StyleBoxFlat:
 	# 统一的暗色玻璃面板：深底、细暖边、圆角和轻微投影。
@@ -1583,6 +1589,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		clear_controls()
 	elif event.keycode==KEY_R and run.state=="running": reload_requested=true
 	elif event.keycode==KEY_G and run.state=="running": drop_requested=true
+	elif event.keycode==KEY_Q and run.state=="running": swap_requested=true
 	elif event.keycode==KEY_ENTER and run.state in ["start","failed","complete"]: journey_primary()
 	elif event.keycode==KEY_SPACE and run.state=="failed": journey_primary()
 	elif event.keycode==KEY_F1:
@@ -1607,9 +1614,9 @@ func _physics_process(delta: float) -> void:
 	var input:=sample_local_input()
 	run.solo_control=play_mode=="solo"
 	run.external_companion=not run.combat_trial
-	run.set_combat_input(input.get("fire",false),input.get("reload",false),input.get("drop",false))
+	run.set_combat_input(input.get("fire",false),input.get("reload",false),input.get("drop",false),input.get("swap",false))
 	# 本地双人的 02 由第二个手柄射击；沿用联机的战斗命令格式写入角色 1。
-	if play_mode=="local" and input.has("fire_b"):apply_combat_command(1,"%d,%d,%d"%[int(input.fire_b),int(input.reload_b),int(input.drop_b)])
+	if play_mode=="local" and input.has("fire_b"):apply_combat_command(1,"%d,%d,%d,%d"%[int(input.fire_b),int(input.reload_b),int(input.drop_b),int(input.get("swap_b",false))])
 	var second:Vector2=input.b
 	var second_jump:bool=input.jb
 	if play_mode=="solo" and not run.combat_trial:
@@ -1698,8 +1705,10 @@ func clear_controls() -> void:
 	else:super()
 	reload_requested=false
 	drop_requested=false
+	swap_requested=false
 	reload_requested_b=false
 	drop_requested_b=false
+	swap_requested_b=false
 	fire_blocked=true
 	pad_blocked=true
 
@@ -2013,7 +2022,8 @@ func sync_hero_rig(i:int,rig,locomotion:bool,visual_state:String)->void:
 	var weapon:Dictionary=run.combat.weapons[i]
 	var armed:bool=not weapon.is_empty() and visual_state not in ["rescue","failed","complete","settlement"] and not falling()
 	rig.gun_weight=move_toward(rig.gun_weight,1.0,frame_delta*6.0) if armed else 0.0
-	rig.gun_arms=int(weapon.get("reload",0))<=0
+	# 双臂由战斗画面的手部 IK 握住枪（抱枪跑、瞄准、换弹），持枪层只带胸口。
+	rig.gun_arms=false
 	# 双脚贴地只在着地行进时启用；离地、救援、死亡与坠落立即关闭。
 	rig.foot_weight=1.0 if locomotion and run.heights[i]<=0.0 else 0.0
 	rig.ground_ref=run.floor_heights[i]/SCALE
@@ -2225,6 +2235,12 @@ func update_journey_ui() -> void:
 	if not weapon.is_empty():
 		if weapon.reload>0: weapon_detail.text="换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP)
 		elif weapon.ammo==0 and weapon.reserve==0: weapon_detail.text="弹药耗尽"
+	# 背上的第二把枪：显示名称与换枪键。
+	var spare: Dictionary=run.Combat.backup(run,role) if not run.combat.is_empty() else {}
+	if not spare.is_empty():
+		var swap_key:="LB" if gamepad_active else ("换枪" if touch_device else "Q")
+		var line:="背后：%s · %s 换枪"%[run.Combat.weapon_name(spare),swap_key]
+		weapon_detail.text=line if weapon_detail.text.is_empty() else weapon_detail.text+"\n"+line
 	weapon_detail.visible=not weapon_detail.text.is_empty()
 	var playing: bool=run.state in ["running","rescue"]
 	health_panel.visible=playing
@@ -2254,13 +2270,13 @@ func update_journey_ui() -> void:
 	match run.state:
 		"start":
 			title.text="共生连线 · 战斗训练" if run.combat_trial else "共生连线 · 连续旅程"
-			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
+			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · Q 换枪 · G 丢枪 · Esc 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
 			if gamepad_active: subtitle.text=PAD_HELP+" · Start 暂停\n靠近自动拾取。机关分级扣血，重型机关危险更高。"
 			if touch_device: subtitle.text="左侧滑动移动；右侧大按钮跳跃、按住射击。\n小按钮换弹、丢枪，靠近枪械自动拾取。\n搭档跟随并共同跳跃，踩空时连点跳跃救援。\n可停步观察敌人，持枪移动稍慢；血量耗尽从存档继续。"
 			primary.text="开始训练" if run.combat_trial else "出发"
 		"paused":
 			title.text="暂停"
-			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
+			subtitle.text="WASD 移动 · 空格跳跃 · 鼠标左键射击\nR 换弹 · Q 换枪 · G 丢枪 · Esc 继续 · F1 素材署名\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
 			if gamepad_active: subtitle.text=PAD_HELP+" · Start 继续 · B 返回\n金币 %d · 奖品 %d · %.0f / %.0f 米"%[run.coins,run.prizes,run.progress()/SCALE,run.finish_distance()/SCALE]
 			elif touch_device: subtitle.text="左侧摇杆移动 · 右侧跳跃、射击、换弹、丢枪\n金币 %d · 奖品 %d"%[run.coins,run.prizes]
 			primary.text="继续旅程"
@@ -2839,8 +2855,8 @@ func online_process(delta:float)->void:
 	var input:=sample_local_input()
 	net.send_input(input.a,input.ja)
 	var fire: bool=input.get("fire",false)
-	if fire!=last_fire_sent or input.get("reload",false) or input.get("drop",false):
-		net.send_command("combat","%d,%d,%d"%[int(fire),int(input.get("reload",false)),int(input.get("drop",false))])
+	if fire!=last_fire_sent or input.get("reload",false) or input.get("drop",false) or input.get("swap",false):
+		net.send_command("combat","%d,%d,%d,%d"%[int(fire),int(input.get("reload",false)),int(input.get("drop",false)),int(input.get("swap",false))])
 		last_fire_sent=fire
 	var applied:=0
 	var start:=Time.get_ticks_usec()
@@ -2973,24 +2989,30 @@ func sample_local_input() -> Dictionary:
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT): fire_blocked=false
 	var fire: bool=(Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and not fire_blocked and not touch_device) or actions.fire
 	var pad_live:=not pad_blocked
-	var input:={"a":first,"b":second,"ja":key_down(KEY_SPACE) or touch_jump or (play_mode=="online" and key_down(KEY_ENTER)) or (pad_live and pad_a.jump),"jb":key_down(KEY_ENTER) or (pad_live and pad_b.jump),"fire":fire or (pad_live and pad_a.fire),"reload":reload_requested or actions.reload,"drop":drop_requested or actions.drop}
+	var input:={"a":first,"b":second,"ja":key_down(KEY_SPACE) or touch_jump or (play_mode=="online" and key_down(KEY_ENTER)) or (pad_live and pad_a.jump),"jb":key_down(KEY_ENTER) or (pad_live and pad_b.jump),"fire":fire or (pad_live and pad_a.fire),"reload":reload_requested or actions.reload,"drop":drop_requested or actions.drop,"swap":swap_requested or actions.get("swap",false)}
 	if local_pair:
 		input.fire_b=pad_live and pad_b.fire
 		input.reload_b=reload_requested_b
 		input.drop_b=drop_requested_b
+		input.swap_b=swap_requested_b
 	reload_requested=false
 	drop_requested=false
+	swap_requested=false
 	reload_requested_b=false
 	drop_requested_b=false
+	swap_requested_b=false
 	return input
 
 func apply_combat_command(role: int, value: String) -> void:
 	if run.state!="running" or role not in [0,1]: return
 	var fields:=value.split(",")
-	if fields.size()!=3: return
+	# 3 个字段为旧版客户端（没有换枪），4 个字段带换枪。
+	if fields.size() not in [3,4]: return
+	run.Combat.ensure_slots(run)
 	run.combat.fire[role]=fields[0]=="1"
 	run.combat.reload[role]=run.combat.reload[role] or fields[1]=="1"
 	run.combat.drop[role]=run.combat.drop[role] or fields[2]=="1"
+	if fields.size()==4: run.combat.swap[role]=run.combat.swap[role] or fields[3]=="1"
 
 func chunk_chapter(number: int) -> Dictionary:
 	if not run.combat_trial: return run.CHAPTERS[run.level_index]
