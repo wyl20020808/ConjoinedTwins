@@ -158,10 +158,12 @@ static func needs_ammo(run, role: int) -> bool:
 	return false
 
 static func enemy_position(event: Dictionary) -> Vector2:
-	if event.kind=="monster": return event.origin
+	if event.kind in ["monster","boss"]: return event.origin
 	return Vector2(event.side*360.0,event.y) if event.kind=="stone" else event.sample.get_center()
 
 static func enemy_height(event: Dictionary) -> float:
+	# Boss 的瞄准点是胸口树心，约 5.5 米高。
+	if event.kind=="boss": return 110.0
 	if event.kind=="monster": return event.get("ground_height",0.0)+({"wolf":24.0,"root_spider":20.0,"goblin_bomber":30.0,"river_crab_knight":44.0}.get(event.archetype,38.0))
 	return 38.0 if event.kind in ["stone","monster"] else 17.0
 
@@ -202,13 +204,15 @@ static func line_of_sight(run, from: Vector2, to: Vector2, gun_height: float, ta
 
 static func select_target(run, role: int, current: int, reach: float = RANGE) -> Dictionary:
 	for event in run.journey_events:
-		if event.id==current and visible_target(run,role,event,reach): return event
+		# 锁定 Boss 时不粘住：射程内出现其他敌人（召唤的小怪）就让给它们，否则小怪永远打不到。
+		if event.id==current and visible_target(run,role,event,reach):
+			if event.kind!="boss" or not run.journey_events.any(func(other): return other.kind!="boss" and visible_target(run,role,other,reach)): return event
 	var best: Dictionary={}
 	var best_score := INF
 	var from: Vector2=run.a.position if role==0 else run.b.position
 	for event in run.journey_events:
 		if not visible_target(run,role,event,reach): continue
-		var score: float=from.distance_to(enemy_position(event))+(0.0 if event.phase in ["active","warning"] else reach)
+		var score: float=from.distance_to(enemy_position(event))+(0.0 if event.phase in ["active","warning"] else reach)+(reach*2.0 if event.kind=="boss" else 0.0)
 		if score<best_score:
 			best=event
 			best_score=score
@@ -284,6 +288,7 @@ static func tick(run, previous: Array) -> void:
 
 static func damage(run, target: Dictionary, amount: int) -> void:
 	if target.get("hp",0)<=0: return
+	if target.kind=="boss": amount=run.Boss.incoming(target,amount)
 	target.hp=maxi(0,target.hp-amount)
 	target.hit_damage=(target.get("hit_damage",0) if target.get("hit_at",-1.0)==run.elapsed else 0)+amount
 	target.hit_at=run.elapsed
@@ -307,7 +312,7 @@ static func fire_shotgun(run, role: int, from: Vector2, aim: Vector2, data: Dict
 			if not visible_target(run,role,event,data.range): continue
 			var offset:=enemy_position(event)-from
 			var along:=offset.dot(direction)
-			if along<=0 or along>=best_distance or absf(offset.cross(direction))>ENEMY_RADIUS: continue
+			if along<=0 or along>=best_distance or absf(offset.cross(direction))>event.get("radius",ENEMY_RADIUS): continue
 			best_distance=along;best=event
 		if not best.is_empty():
 			end=from+direction*best_distance
@@ -336,7 +341,7 @@ static func fire_launcher(run, at: Vector2, data: Dictionary, shot: Dictionary) 
 	var caught:=0
 	for event in run.journey_events:
 		if event.get("hp",0)<=0 or event.phase=="spent": continue
-		if enemy_position(event).distance_to(at)<=data.splash:
+		if enemy_position(event).distance_to(at)<=data.splash+event.get("radius",0.0):
 			damage(run,event,data.damage)
 			caught+=1
 	shot.splash=data.splash

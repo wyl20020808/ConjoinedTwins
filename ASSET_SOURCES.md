@@ -324,3 +324,19 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 | `fantasy knight 3d model.glb` | 3,319,880 | `cc1c45de71417cf10594618be8efe8c14718091f23aa2be6528e5a0e554efd32` | `assets/landscape/villager_guard.glb` | 1,434,008 | 5,816 | 巡逻卫兵（村民布景） |
 
 运行时使用 `build-tools/journey/rig_npcs.py` 自动绑骨并写动作后的 `assets/monsters/rigged/`、`assets/landscape/rigged/` 同名文件（约 1.1–1.6 MB）。根须蛛使用新增的多足骨架（自动识别 8 条腿、三角步态）；地精举手角度降到 70°，钳甲兵摆臂幅度降到 30%，避免网格拉伸或大钳与肩甲脱开（钳甲兵左侧小钳在原模型中本就与身体分开）。
+
+## 2026-10-21 Tripo 文生 3D：第一章 Boss「枯根巨像」
+
+用户在自己的 Tripo Studio 账号中登录后，Agent 在应用内置浏览器填写提示词并提交，用户本人导出 GLB（下载到 `D:/Download`）。参数：H3.1、关闭超清几何、开启纹理、2K、去光处理、PBR、三角面；本体面数上限 20000，道具 6000。提示词见 `build-tools/boss/tripo-boss-prompts.json`，文件、哈希与面数见 `build-tools/boss/tripo-boss-assets.json`。
+
+| 资产 | 入库文件 | 面数 | 用途 |
+| --- | --- | ---: | --- |
+| Boss 本体 | `assets/boss/rigged/root_colossus.glb`（原件 `build-tools/boss/source/root_colossus.glb`） | 19177 | `rig_boss.py` 自动绑骨并写 9 个动作 |
+| 根刺 | `assets/boss/root_spike.glb` | 5868 | 根刺突袭、三阶段荆棘 |
+| 孢果 | `assets/boss/seed_pod.glb` | 5785 | 孢果投掷 |
+| 缚根 | `assets/boss/binding_root.glb` | 5964 | 扎根汲取的破甲目标 |
+| 根墙 | `assets/boss/root_wall.glb` | 5720 | 入口根墙、根浪横扫 |
+
+道具贴图用 `build-tools/shrink_glb.py` 缩到 1024；Boss 本体体型大，保留 2048。
+
+**许可待确认**：同上文，Tripo 生成内容的授权取决于账号套餐，正式发布前须由用户确认并按需补充署名。
