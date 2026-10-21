@@ -31,6 +31,18 @@ var last_input_msec := 0
 # 联机流量统计（字节，含本层负载，不含传输层头部），供测试与网页验证读取。
 var bytes_sent := 0
 var bytes_received := 0
+# 联机质量：往返延迟（ping/pong）、服务器帧到达间隔的抖动、缓冲见底的卡顿次数。
+# 只用于显示、日志和自适应缓冲，不进入模拟，两端同步不受影响。
+const DIAG_FILE := "user://online_diag.log"
+const FRAME_MS := 1000.0 / 60.0
+var rtt_ms := -1.0
+var gaps: Array[float] = []
+var last_arrival_usec := 0
+var starved := false
+var stalls := 0
+var stalls_window := 0
+var ping_clock := 0.0
+var stat_clock := 0.0
 
 func _ready() -> void:
 	get_tree().set_multiplayer(api, get_path())
@@ -202,6 +214,11 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 	bytes_received += bytes.size()
 	if not bytes.is_empty() and bytes[0] == Relay.FRAME_TAG:
 		var frame := Relay.decode_frame(bytes)
+		var now := Time.get_ticks_usec()
+		if last_arrival_usec > 0:
+			gaps.append((now - last_arrival_usec) / 1000.0)
+			if gaps.size() > 180: gaps.pop_front()
+		last_arrival_usec = now
 		if in_match and not frame.is_empty() and int(frame.index) == next_frame + frames.size():
 			frame.erase("index")
 			frames.append(frame)
@@ -222,6 +239,9 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			stop("房间已满（已有两人）。")
 		"match":
 			frames.clear()
+			gaps.clear()
+			starved = false
+			stalls = 0
 			last_input = PackedByteArray()
 			next_frame = 0
 			desynced = false
@@ -233,9 +253,64 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			frames.clear()
 			status_changed.emit("队友已断开，等待重新加入…")
 			match_stopped.emit("队友已断开")
+		"pong":
+			if message.size() >= 2:
+				var sample := (Time.get_ticks_usec() - int(message[1])) / 1000.0
+				rtt_ms = sample if rtt_ms < 0 else lerpf(rtt_ms, sample, 0.3)
 		"desync":
 			desynced = true
 			status_changed.emit("两端画面不同步（第 %d 帧），请回到开始页重新联机。" % int(message[1]))
+
+# 近 3 秒服务器帧到达间隔超出 1 帧的部分（取 95% 分位），即网络抖动。
+func jitter_ms() -> float:
+	if gaps.size() < 20: return 0.0
+	var sorted := gaps.duplicate()
+	sorted.sort()
+	return maxf(0.0, sorted[int(sorted.size() * 0.95)] - FRAME_MS)
+
+# 自适应缓冲目标：抖动越大多留几帧（2–6 帧），用几十毫秒延迟换平滑，不再停一下、快进一下。
+func playout_target() -> int:
+	return clampi(1 + ceili(jitter_ms() / FRAME_MS), 2, 6)
+
+# 本物理帧最多消化几帧。缓冲见底即记一次卡顿，并等攒回目标帧数再继续；
+# 只改变应用时机，不跳帧、不改帧内容，模拟结果与两端同步不变。
+func playout_limit(catchup: int) -> int:
+	var queued := frames.size()
+	var target := playout_target()
+	if queued == 0:
+		if not starved:
+			starved = true
+			stalls += 1
+			stalls_window += 1
+		return 0
+	if starved:
+		if queued < target: return 0
+		starved = false
+	if queued <= target: return 1
+	if queued <= target + 6: return 2
+	return mini(catchup, queued - target)
+
+func _process(delta: float) -> void:
+	if not connected: return
+	ping_clock += delta
+	if ping_clock >= 1.0:
+		ping_clock = 0.0
+		send(["ping", Time.get_ticks_usec()])
+	if not in_match: return
+	stat_clock += delta
+	if stat_clock >= 10.0:
+		stat_clock = 0.0
+		var line := [roundi(rtt_ms), roundi(jitter_ms()), frames.size(), stalls_window, roundi(Engine.get_frames_per_second())]
+		send(["stat"] + line)
+		var file := FileAccess.open(DIAG_FILE, FileAccess.READ_WRITE if FileAccess.file_exists(DIAG_FILE) else FileAccess.WRITE)
+		if file != null:
+			file.seek_end()
+			file.store_line("%s 你是 %02d 号 延迟 %d ms 抖动 %d ms 缓冲 %d 帧 近10秒卡顿 %d 次 帧率 %d" % ([Time.get_datetime_string_from_system(), role + 1] + line))
+			file.close()
+		stalls_window = 0
+
+func diagnostics_text() -> String:
+	return "延迟 %s · 抖动 %d ms · 缓冲 %d 帧 · 卡顿 %d 次 · %d 帧/秒" % [("%d ms" % roundi(rtt_ms)) if rtt_ms >= 0 else "—", roundi(jitter_ms()), frames.size(), stalls, roundi(Engine.get_frames_per_second())]
 
 # 取出本次物理帧要模拟的帧：通常一帧；积压时追帧，保留少量缓冲吸收网络抖动。
 func take_frames(maximum: int = -1) -> Array:

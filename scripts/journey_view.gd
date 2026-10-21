@@ -132,6 +132,7 @@ var load_sent := -1
 var online_entry := false
 var last_prepare_ok := false
 var prefetch_clock := 0.0
+var net_diag: Label
 var combat_view: Node3D
 var combat_status: Label
 var combat_health: ProgressBar
@@ -1104,6 +1105,11 @@ func build_journey_ui() -> void:
 	journey_hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	journey_hint.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(journey_hint)
+	# 联机质量小字：延迟、抖动、缓冲、卡顿次数与帧率，卡的时候截图即可判断是网络还是电脑性能。
+	net_diag=label("",13,Color(0.85,0.9,0.85,0.75))
+	net_diag.name="NetDiagnostics"
+	net_diag.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	canvas.add_child(net_diag)
 	for text_label in [hud,partner_status,combat_status,weapon_ammo,weapon_detail,journey_hint]:
 		text_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
 		text_label.add_theme_constant_override("outline_size",4)
@@ -2310,6 +2316,10 @@ func update_journey_ui() -> void:
 	var playing: bool=run.state in ["running","rescue"]
 	health_panel.visible=playing
 	weapon_panel.visible=playing
+	if is_instance_valid(net_diag):
+		net_diag.visible=net.in_match
+		if net_diag.visible:net_diag.text=net.diagnostics_text()
+		net_diag.position=Vector2(inset,viewport.y-inset-18)
 	journey_hint.position=Vector2(inset,viewport.y-100 if not touch_device else viewport.y*.58)
 	journey_hint.size=Vector2(viewport.x-2*inset,56)
 	journey_hint.text=""
@@ -2956,8 +2966,9 @@ func online_process(delta:float)->void:
 	# 服务器每秒固定发 60 帧；只消化 1 帧/物理帧时，加载或卡顿造成的积压会变成永久输入延迟。
 	# 稳态只留约 2 帧缓冲（实测隧道抖动 p99 约 22 毫秒）；积压时放宽单次帧数与时间预算追帧，不丢帧也不改变模拟结果。
 	var queued:int=net.frames.size()
-	var limit:int=1 if queued<=2 else (2 if queued<=8 else mini(ONLINE_CATCHUP_FRAMES,queued-2))
-	var budget:int=Run.PRELOAD_SLICE_USEC if queued<=2 else ONLINE_CATCHUP_USEC
+	# 自适应缓冲：按实测抖动留 2–6 帧，断流后攒够再继续，避免一卡一顿（见 net_client.gd playout_limit）。
+	var limit:int=net.playout_limit(ONLINE_CATCHUP_FRAMES)
+	var budget:int=Run.PRELOAD_SLICE_USEC if queued<=net.playout_target() else ONLINE_CATCHUP_USEC
 	while not net.frames.is_empty() and applied<limit:
 		var index:int=net.next_frame
 		var frame:Dictionary=net.frames[0]
