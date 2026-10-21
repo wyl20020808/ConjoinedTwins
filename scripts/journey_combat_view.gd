@@ -273,7 +273,7 @@ func sync() -> void:
 		var skeleton: Skeleton3D=game.hand_skeletons.get(role)
 		if is_instance_valid(skeleton):
 			var wrist:int=game.find_bone(skeleton,"RightHand","Wrist.R")
-			if wrist>=0: hand=skeleton.global_transform*skeleton.get_bone_global_pose(wrist).origin
+			if wrist>=0: hand=skeleton.global_transform*game.final_bone_pose(skeleton,wrist).origin
 		guns[role].global_position=hand
 		var target := hand+Vector3(0,0,-5)
 		if not weapon.is_empty():
