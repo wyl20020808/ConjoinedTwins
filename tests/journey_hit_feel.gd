@@ -32,10 +32,11 @@ func verify()->void:
 	game.save_feel_settings();game.impact_effects=true;game.load_feel_settings()
 	check(not game.impact_effects,"开关保存到本机设置")
 	game.impact_effects=true;game.save_feel_settings()
+	# 开关已并入设置页：暂停后从设置入口进入。
+	run.pause();game.update_journey_ui();game.open_settings()
+	check(game.impact_button.is_visible_in_tree() and game.impact_button.text.ends_with("开"),"暂停菜单的设置页显示画面冲击开关")
 	run.pause();game.update_journey_ui()
-	check(game.impact_button.visible and game.impact_button.text.ends_with("开"),"暂停菜单显示画面冲击开关")
-	run.pause();game.update_journey_ui()
-	check(not game.impact_button.visible,"游玩时隐藏开关")
+	check(not game.impact_button.is_visible_in_tree(),"游玩时隐藏开关")
 	# 敌人命中停顿与击退：用第一只敌人的显示节点直接验证。
 	var event:Dictionary={}
 	for candidate in run.journey_events:
