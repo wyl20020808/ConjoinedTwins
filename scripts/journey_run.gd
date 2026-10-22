@@ -60,6 +60,8 @@ var solid_query_epoch:=-INF
 var solid_query_revision:=-1
 var solid_query_count:=-1
 var encounter_markers:Array=[]
+# 第一章 Boss 在 journey_events 中的下标（-1 表示没有）；随存档一起恢复。
+var boss_index := -1
 # 怪物潮专区区间与机关段零星小队的出生锚点，由布局生成，供怪物填充使用。
 var arenas:Array=[]
 var pack_slots:Array=[]
@@ -111,10 +113,14 @@ func finish_distance() -> float:
 func update_stream() -> void:
 	# 仅跟随落后者的实际前进；无输入时世界和镜头都不推进。
 	distance = maxf(distance, minf(a.position.y,b.position.y))
+	# Boss 战中场地内可以后退：进度跟随落后者而不是最远处，模型显示、怪物察觉和镜头都围着两人。
+	var arena_floor:=Boss.floor_y(self)
+	if arena_floor<INF: distance=maxf(minf(a.position.y,b.position.y),arena_floor)
 	select_charge_gate()
 
 func bounded(point: Vector2, _floor: float = INF) -> Vector2:
-	var forward := maxf(point.y,maxf(0.0,distance-RETREAT_DISTANCE))
+	# Boss 战中场地内可以退到入口根墙前，不受“最多后退 10 米”的限制。
+	var forward := maxf(point.y,maxf(0.0,minf(distance-RETREAT_DISTANCE,Boss.floor_y(self))))
 	if charge_gate.get("active",false) and not charge_gate.open:
 		var hold: float=charge_gate.receiver.y+(46.0 if charge_gate.get("kind","")=="sync_plates" else 15.0)
 		# 接力踏板：门后踏板也在可达范围内；门关着时仍由门板本身挡住。
@@ -156,6 +162,7 @@ func retry(count_failure: bool = false) -> void:
 	combat=Combat.fresh()
 	if combat_trial: build_combat_trial()
 	else:
+		boss_index=-1
 		build_journey()
 		Monsters.populate(self)
 		# 第一章终点 Boss 场地（章节最后 90 米），在怪物与补给之后登记。
@@ -247,6 +254,11 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	var previous := [a.position,b.position]
 	advance_events(FIXED_STEP)
 	if state!="running": return
+	if Boss.cinematic(self):
+		# 开战帧之后的同一步里也不再移动、开火或受伤。
+		input_a=Vector2.ZERO;input_b=Vector2.ZERO
+		combat.fire=[false,false]
+		invulnerable_until=maxf(invulnerable_until,elapsed+0.2)
 	var scale_a: float=Combat.MOVE_SCALE if not combat.weapons[0].is_empty() else 1.0
 	var scale_b: float=Combat.MOVE_SCALE if not combat.weapons[1].is_empty() else 1.0
 	prepare_terrain_lookup()
@@ -385,6 +397,10 @@ func checkpoint_ground_clear() -> bool:
 		if obstacles[i].grow(80).has_point(a.position) or obstacles[i].grow(80).has_point(b.position): return false
 	return true
 
+# 父类按 distance 判定“被挤出画面”；Boss 战中允许退回场地入口，后边界同步放宽。
+func rear_bound() -> float:
+	return minf(super(),Boss.floor_y(self)-RELATIVE_RANGE)
+
 # Boss 开战时已在场地入口存档；战斗中不再顺延存档，失败从入口重打。
 func boss_fighting() -> bool:
 	var event:=Boss.boss(self)
@@ -514,6 +530,10 @@ func set_combat_input(fire: bool, reload_pressed: bool=false, drop_pressed: bool
 
 func step(delta: float, input_a: Vector2=Vector2.ZERO, input_b: Vector2=Vector2.ZERO, jump_a: bool=false, jump_b: bool=false) -> void:
 	if solo_control and not external_companion: jump_b=jump_a
+	# Boss 入场动画期间两人原地观看：移动与跳跃输入清空，按跳跃改作“跳过动画”。
+	if state=="running" and Boss.cinematic(self):
+		if jump_a or jump_b: Boss.skip_intro(self)
+		input_a=Vector2.ZERO;input_b=Vector2.ZERO;jump_a=false;jump_b=false
 	super(delta,input_a,input_b,jump_a,jump_b)
 
 func companion_input(leader: Vector2) -> Vector2:

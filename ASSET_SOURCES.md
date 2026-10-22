@@ -357,3 +357,7 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 道具贴图用 `build-tools/shrink_glb.py` 缩到 1024；Boss 本体体型大，保留 2048。
 
 **许可待确认**：同上文，Tripo 生成内容的授权取决于账号套餐，正式发布前须由用户确认并按需补充署名。
+
+## 2026-10-22 Boss 入场音效（程序合成）
+
+`assets/audio/recorded/boss_roar_0.wav`、`boss_rumble_0.wav`、`boss_burst_0.wav` 由 `build-tools/boss/make_boss_sfx.py` 用 numpy 合成（固定随机种子）：咆哮为带滑音与喉部颤动的谐波低吼加元音共振峰塑形的气声，并叠加降调的 `wood_creak_heavy_0.wav`；轰鸣为低通布朗噪声与次低频，叠加降调的 `tree_fall_0.wav`；破土冲击叠加降调的 `explosion_0.wav`。所叠加录音均为项目已登记的 CC0 素材（见 `build-tools/journey/recorded-audio-sources.json`），合成部分为本项目原创。

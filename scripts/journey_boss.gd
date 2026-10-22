@@ -8,6 +8,10 @@ const CHAPTERS := [0]
 const ARENA := 1800.0
 const TRIGGER := 300.0
 const HOLD := 1380.0
+# 开战后场地内可以自由前后走：最远退到入口根墙前（场地起点 + FLOOR），不受旅程“最多后退 10 米”的限制。
+const FLOOR := 120.0
+# 打 Boss 时各种枪的射程额外 +25 米，不必贴脸输出。
+const RANGE_BONUS := 500.0
 const CORE := 1540.0
 const NAME := "枯根巨像"
 const MAX_HP := 3000
@@ -20,7 +24,18 @@ const MOVES := [2, 3, 3]
 const PATTERN := [["spikes","sweep","seeds","sweep","spikes","seeds"],
 	["summon","sweep","spikes","seeds","sweep","seeds","spikes"],
 	["sweep","spikes","seeds","sweep","seeds","spikes"]]
-const INTRO := 3.0
+# 入场动画（电影式）：拉高拉远 → 破土泼土、蜷成一团钻出并在上升中逐渐舒展绽放 → 烟散 → 左右挥爪抓人 → 仰天咆哮 → 镜头交还。
+# 期间两人不能操作、不受伤害，Boss 不能被锁定；任一人按跳跃可跳过（剩 RETURN_TIME 秒的镜头交还）。
+# 各节点为距开战的秒数，画面与音效按同一时间轴取样。
+const INTRO := 13.2
+const INTRO_CRANE := 2.0
+const INTRO_RISE := 2.3
+const INTRO_RISEN := 5.6
+const INTRO_REVEAL := 6.4
+const INTRO_ROAR := 9.2
+const INTRO_ROARED := 11.8
+const INTRO_SKIP_AFTER := 0.8
+const RETURN_TIME := 1.4
 const ROAR := 2.2
 const GAP := 0.9
 const RECOVER := 0.8
@@ -31,15 +46,15 @@ const SPIKE_SPEED := 900.0
 const SPIKE_HALF := 28.0
 const SPIKE_LINGER := 0.5
 const SPIKE_DAMAGE := 25
-# 横扫：根臂贴地一挥，掀起一道沿道路纵向铺开的根浪横扫全宽；根浪覆盖树心前 28 米的射击区，
-# 跳起高于 SWEEP_TOP 才能躲开（退到射程外也安全，但打不到树心）。二阶段起双臂连扫。
+# 横扫：根臂贴地一挥，掀起一道沿道路纵向铺满整个场地的根浪横扫全宽，跳起高于 SWEEP_TOP 才能躲开。
+# 二阶段起双臂连扫。
 const SWEEP_WINDUP := 1.4
 const SWEEP_TIME := 0.6
 const SWEEP_SECOND := 0.75
 const SWEEP_HALF := 30.0
 const SWEEP_TOP := 16.0
 const SWEEP_DAMAGE := 35
-const SWEEP_DEPTH := 560.0
+const SWEEP_DEPTH := HOLD-FLOOR
 # 孢果：落点锁定在两人附近，飞行后爆炸。
 const SEED_WINDUP := 1.3
 const SEED_FLIGHT := 0.9
@@ -67,10 +82,19 @@ static func enabled(run) -> bool:
 static func start_y(run) -> float:
 	return run.finish_distance()-ARENA
 
+# 站位约束每个子步都要查 Boss；按登记时记下的下标直接取，失配时再整表查找。
 static func boss(run) -> Dictionary:
+	var index:int=run.boss_index
+	if index>=0 and index<run.journey_events.size() and run.journey_events[index].kind=="boss": return run.journey_events[index]
 	for event in run.journey_events:
 		if event.kind=="boss": return event
 	return {}
+
+# 开战后的后退下限；未开战或已击败时不限制（INF）。
+static func floor_y(run) -> float:
+	var event:=boss(run)
+	if not alive(event) or event.phase=="dormant": return INF
+	return event.arena+FLOOR
 
 static func alive(event: Dictionary) -> bool:
 	return not event.is_empty() and event.hp>0
@@ -86,6 +110,7 @@ static func add(run) -> void:
 	var arena:=start_y(run)
 	var core:=Vector2(0,arena+CORE)
 	var body:=Rect2(-180,core.y-40,360,220)
+	run.boss_index=run.journey_events.size()
 	run.journey_events.append({"id":run.event_serial,"kind":"boss","arena":arena,"y":core.y,"origin":core,"spawn":core,
 		"rect":body,"sample":body,"previous":body,"bottom":0.0,"top":0.0,"side":0.0,"locked_x":0.0,"combined":false,"obstacle":-1,
 		"trigger":-1.0,"phase":"dormant","hp":MAX_HP,"max_hp":MAX_HP,"stage":0,
@@ -98,6 +123,17 @@ static func add(run) -> void:
 	run.Combat.add_pickup(run,"gun",Vector2(60,arena+160),{},"shotgun")
 	for x in [-150.0,150.0]: run.Combat.add_pickup(run,"ammo",Vector2(x,arena+220))
 	for x in [-50.0,50.0]: run.Combat.add_pickup(run,"medkit",Vector2(x,arena+220))
+
+static func cinematic(run) -> bool:
+	var event:=boss(run)
+	return alive(event) and event.phase=="intro"
+
+# 跳过入场：直接进入最后的镜头交还段，模拟时间轴整体前移，各端结果一致。
+static func skip_intro(run) -> void:
+	var event:=boss(run)
+	if not cinematic(run) or run.elapsed-event.state_at<INTRO_SKIP_AFTER or run.elapsed-event.state_at>=INTRO-RETURN_TIME: return
+	event.state_at=run.elapsed-(INTRO-RETURN_TIME)
+	event.intro_skipped=true
 
 static func pace(event: Dictionary) -> float:
 	return PACE[event.stage]
@@ -363,7 +399,7 @@ static func hint(run) -> String:
 	if event.is_empty() or event.phase=="dormant": return ""
 	if event.hp<=0: return "%s倒下了，继续前进"%NAME if run.elapsed-event.get("defeated_at",run.elapsed)<6.0 else ""
 	match event.state:
-		"intro": return "%s苏醒了！先拾取入口的枪械"%NAME
+		"intro": return ""
 		"roar": return "%s怒吼：阶段 %d"%[NAME,event.stage+1]
 		"spikes": return "根刺突袭：离开地面亮起的直线"
 		"sweep": return "巨臂横扫：两人一起跳起躲过根臂" if sweep_arms(event)==1 else "双臂连扫：连跳两次"

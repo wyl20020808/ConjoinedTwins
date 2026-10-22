@@ -205,6 +205,10 @@ static func box_blocks(from: Vector2, to: Vector2, from_height: float, to_height
 
 static func visible_target(run, role: int, event: Dictionary, reach: float = RANGE) -> bool:
 	if event.get("hp",0)<=0 or event.phase=="spent": return false
+	if event.kind=="boss":
+		# 沉睡和入场动画期间不能被锁定。
+		if event.phase!="fight": return false
+		reach+=run.Boss.RANGE_BONUS
 	var from: Vector2=run.a.position if role==0 else run.b.position
 	var to := enemy_position(event)
 	var delta := to-from
@@ -339,13 +343,14 @@ static func fire_shotgun(run, role: int, from: Vector2, aim: Vector2, data: Dict
 	for k in range(count):
 		var direction:Vector2=aim.rotated(float(data.spread)*(float(k)/(count-1)-0.5))
 		var end:Vector2=from+direction*float(data.range)
-		var best_distance:float=data.range
+		var best_distance:float=INF
 		var best:Dictionary={}
 		for event in run.journey_events:
 			if not visible_target(run,role,event,data.range): continue
 			var offset:=enemy_position(event)-from
 			var along:=offset.dot(direction)
-			if along<=0 or along>=best_distance or absf(offset.cross(direction))>event.get("radius",ENEMY_RADIUS): continue
+			var limit:float=data.range+(run.Boss.RANGE_BONUS if event.kind=="boss" else 0.0)
+			if along<=0 or along>=best_distance or along>=limit or absf(offset.cross(direction))>event.get("radius",ENEMY_RADIUS): continue
 			best_distance=along;best=event
 		if not best.is_empty():
 			end=from+direction*best_distance
