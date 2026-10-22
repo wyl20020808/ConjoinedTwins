@@ -252,6 +252,7 @@ static func browser_url(address: String) -> String:
 	return text.trim_suffix("/ws")
 
 func disconnect_from() -> void:
+	rtt_ms = -1.0
 	connect_started_msec = 0
 	resend_wanted = false
 	if peer != null:

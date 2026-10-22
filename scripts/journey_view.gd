@@ -140,7 +140,10 @@ var load_sent := -1
 var online_entry := false
 var last_prepare_ok := false
 var prefetch_clock := 0.0
-var net_diag: Label
+var net_diag: HBoxContainer
+var net_fps: Label
+var net_ping: Label
+var net_diag_clock := 0.0
 var camera_smoothed := false
 const OnlinePresentation = preload("res://scripts/online_presentation.gd")
 var online_presentation = OnlinePresentation.new()
@@ -1162,11 +1165,23 @@ func build_journey_ui() -> void:
 	journey_hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	journey_hint.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(journey_hint)
-	# 联机质量小字：延迟、抖动、缓冲、卡顿次数与帧率，卡的时候截图即可判断是网络还是电脑性能。
-	net_diag=label("",13,Color(0.85,0.9,0.85,0.75))
+	# 左下角只保留帧率和往返延迟；详细诊断继续写入联机日志。
+	net_diag=HBoxContainer.new()
 	net_diag.name="NetDiagnostics"
 	net_diag.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	net_diag.add_theme_constant_override("separation",8)
+	net_diag.visible=false
 	canvas.add_child(net_diag)
+	net_fps=label("fps:--",13,Color("cfd6cc"))
+	net_fps.custom_minimum_size.x=62
+	net_diag.add_child(net_fps)
+	net_ping=label("--ms",13,Color("cfd6cc"))
+	net_ping.custom_minimum_size.x=54
+	net_diag.add_child(net_ping)
+	for text_label in [net_fps,net_ping]:
+		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		text_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
+		text_label.add_theme_constant_override("outline_size",3)
 	for text_label in [hud,partner_status,combat_status,weapon_ammo,weapon_detail,journey_hint]:
 		text_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
 		text_label.add_theme_constant_override("outline_size",4)
@@ -1766,6 +1781,7 @@ func _physics_process(delta: float) -> void:
 			frame_costs[sample[0]]=cost
 
 func _process(delta:float)->void:
+	update_net_diagnostics(delta)
 	# 上次的插值只留在显示节点上；采集新目标前恢复原目标，避免反馈进动画和后续采样。
 	if online_presentation.target.size() >= 4 and robots.size() == 2:
 		for i in range(2):
@@ -2378,6 +2394,29 @@ func sync_rescue_hud()->void:
 	if run.rescue.has("climb"):instruction="拉住了！正在爬回路面"
 	rescue_label.text="救援进度 %d%%  ·  剩余 %.1f 秒\n%s"%[roundi(run.rescue.progress*100),maxf(0,Run.RESCUE_TIME-run.rescue.time),instruction]
 
+func update_net_diagnostics(delta: float) -> void:
+	if not is_instance_valid(net_diag) or not is_instance_valid(net): return
+	if not net.in_match:
+		net_diag.hide()
+		net_diag_clock=0.0
+		return
+	var first_show:=not net_diag.visible
+	net_diag.show()
+	net_diag_clock-=delta
+	if not first_show and net_diag_clock>0.0: return
+	net_diag_clock=0.5
+	net_fps.text="fps:%d"%roundi(Engine.get_frames_per_second())
+	var latency:=roundi(net.rtt_ms)
+	net_ping.text="--ms" if net.rtt_ms<0 else "%dms"%latency
+	var color:=Color("cfd6cc")
+	if net.rtt_ms>=0:
+		color=Color("9cdeb9") if latency<=100 else (Color("ffe2a0") if latency<=300 else Color("ef8078"))
+	net_ping.add_theme_color_override("font_color",color)
+	var viewport:=get_viewport().get_visible_rect().size
+	var inset:=12.0 if viewport.x<700 or viewport.y<500 else 24.0
+	net_diag.size=Vector2(124,20)
+	net_diag.position=Vector2(inset,viewport.y-inset-net_diag.size.y)
+
 func update_journey_ui() -> void:
 	if not is_instance_valid(hud): return
 	sync_rescue_hud()
@@ -2466,10 +2505,6 @@ func update_journey_ui() -> void:
 	var playing: bool=run.state in ["running","rescue"]
 	health_panel.visible=playing
 	weapon_panel.visible=playing
-	if is_instance_valid(net_diag):
-		net_diag.visible=net.in_match
-		if net_diag.visible:net_diag.text=net.diagnostics_text()
-		net_diag.position=Vector2(inset,viewport.y-inset-18)
 	journey_hint.position=Vector2(inset,viewport.y-100 if not touch_device else viewport.y*.58)
 	journey_hint.size=Vector2(viewport.x-2*inset,56)
 	journey_hint.text=""
