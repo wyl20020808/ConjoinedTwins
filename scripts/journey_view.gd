@@ -10,6 +10,15 @@ var chunk_plan_tasks_started := 0
 var chunk_assets = AssetQueue.new()
 var chunk_jobs := {}
 var scene_prepared := false
+# 生产入口打开：章节从头开始时先播开场运镜。测试场景默认关闭，不吞掉开局输入。
+var opening_enabled := false
+const OPENING_SLICE_USEC := 7000
+var opening_frames: Array = []
+var opening_frames_key := ""
+# 开场期间额外需要载入的道路位置（前两项为当前镜头的目标与机位，必须就绪；其后为下一个镜头，提前排队）。
+var opening_foci: Array = []
+var opening_smoke: GPUParticles3D
+var opening_cinema: CanvasLayer
 var scene_preparation_progress := 0.0
 var preparation_peak_usec := 0
 var preparation_waits := 0
@@ -68,6 +77,7 @@ const Fx = preload("res://scripts/journey_fx.gd")
 var fx
 const Buddy=preload("res://scripts/journey_buddy.gd")
 const BossView=preload("res://scripts/journey_boss_view.gd")
+const Opening=preload("res://scripts/journey_opening.gd")
 # Boss 战镜头：比旅程镜头更高更远、视角更宽，跟随两人中点在场地内前后移动，朝向仍固定向前。
 const BOSS_EYE_HEIGHT := 12.5
 const BOSS_EYE_BACK := 420.0
@@ -230,13 +240,79 @@ func create_run():
 	return Journey.new(true)
 
 func model_visible(y: float) -> bool:
-	return y-run.distance >= -MODEL_BEHIND and y-run.distance < MODEL_AHEAD
+	return in_view_window(y,-MODEL_BEHIND,MODEL_AHEAD)
 
 func model_preload(y: float) -> bool:
-	return y-run.distance >= -MODEL_BEHIND and y-run.distance < MODEL_PREFETCH
+	return in_view_window(y,-MODEL_BEHIND,MODEL_PREFETCH)
 
 func model_resident(y: float) -> bool:
-	return y-run.distance >= -MODEL_BEHIND-200 and y-run.distance < MODEL_RETAIN
+	return in_view_window(y,-MODEL_BEHIND-200,MODEL_RETAIN)
+
+# 显示窗口围绕两人进度；开场运镜期间再加上镜头所在的位置。
+func in_view_window(y: float, behind: float, ahead: float) -> bool:
+	if y-run.distance >= behind and y-run.distance < ahead: return true
+	for focus in opening_foci:
+		if y-focus >= behind and y-focus < ahead: return true
+	return false
+
+func view_gap(y: float) -> float:
+	var gap:=absf(y-run.distance)
+	for focus in opening_foci: gap=minf(gap,absf(y-focus))
+	return gap
+
+# 环境光、雾与主题跟随画面所在位置：开场运镜时取镜头位置。
+func view_distance() -> float:
+	return opening_foci[1] if opening_shown() and opening_foci.size()>1 else run.distance
+
+# 巢穴浓烟在 Boss 场地进入载入范围时才建立，黑边在开场第一次播放时才建立；平时不占资源。
+func sync_opening() -> void:
+	var boss:Dictionary=run.Boss.boss(run)
+	if opening_smoke==null and not boss.is_empty() and model_resident(boss.y):
+		opening_smoke=Opening.build_smoke()
+		add_child(opening_smoke)
+	if opening_smoke!=null: Opening.sync_smoke(opening_smoke,run)
+	if opening_cinema==null and opening_shown(): opening_cinema=Opening.build_cinema(self)
+	if opening_cinema!=null: Opening.sync_cinema(opening_cinema,self)
+	Opening.sync_thump(self)
+
+func opening_shown() -> bool:
+	return run.state=="running" and run.opening_active()
+
+func opening_home() -> Transform3D:
+	var home:=camera_home
+	home.origin.z-=run.distance/SCALE
+	return home
+
+func opening_keys(home: Transform3D) -> Array:
+	var key:="%d:%d:%f:%s:%s"%[run.seed_value,run.level_index,run.opening_at,run.a.position,run.b.position]
+	if key!=opening_frames_key:
+		opening_frames=Opening.shots(self)
+		opening_frames_key=key
+	return opening_frames
+
+func update_opening_foci() -> void:
+	opening_foci=[]
+	if run.opening_age()<0.0 or run.opening_age()>=run.OPENING or run.state not in ["start","running","paused"]: return
+	var home:=opening_home()
+	opening_foci=Opening.foci(self,home,opening_keys(home))
+
+# 需要的地形块编号：两人进度一带，加上开场镜头位置一带（required 时只算镜头当前位置）。
+func view_chunk_numbers(ahead: int, required := false) -> Array:
+	var result:Array=[]
+	var foci:Array=[run.distance]
+	foci.append_array(opening_foci.slice(0,2) if required else opening_foci)
+	for focus in foci:
+		var current:=int(focus/SCALE/CHUNK)
+		for number in range(maxi(-1,current-1),current+ahead+1):
+			if number*CHUNK*SCALE>run.finish_distance()+400 or result.has(number): continue
+			result.append(number)
+	return result
+
+func chunk_wanted(number: int, ahead: int) -> bool:
+	for focus in [run.distance]+opening_foci:
+		var current:=int(focus/SCALE/CHUNK)
+		if number>=current-1 and number<=current+ahead: return true
+	return false
 
 func _ready() -> void:
 	# 本地也限制长帧追赶，避免补算持续挤占输入和绘制。
@@ -250,6 +326,7 @@ func _ready() -> void:
 	charge_gate_view.free()
 	run.solo_control=true
 	run.external_companion=not training_entry
+	run.opening_enabled=opening_enabled
 	if training_entry:
 		run.combat_trial=true
 		run.retry()
@@ -257,6 +334,9 @@ func _ready() -> void:
 		# 主界面选定的章节：只准备这一章，其余章节数据按需下载。
 		run.level_index=clampi(start_chapter,0,Journey.CHAPTERS.size()-1)
 		run.retry()
+	else:
+		# 第一章沿用构造时已建好的对局，那时开场开关还没打开，这里补排开场。
+		run.arm_opening()
 	run.state="start"
 	add_child(road)
 	build_lighting()
@@ -679,11 +759,12 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 
 func prepare_journey_frame() -> bool:
 	var started := Time.get_ticks_usec()
-	var deadline := started + Run.PRELOAD_SLICE_USEC
+	# 开场运镜期间没人操作，镜头一路飞过整章：放宽每帧载入预算、多开一路后台计划，尽量不让镜头等载入。
+	var opening:bool=run.state=="running" and run.opening_active()
+	var deadline := started + (OPENING_SLICE_USEC if opening else Run.PRELOAD_SLICE_USEC)
 	sync_world()
-	var current := int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(-1,current-1),current+4):
-		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
+	for number in view_chunk_numbers(3):
+		if world_chunks.has(number): continue
 		if not chunk_jobs.has(number):
 			chunk_jobs[number] = {"items":null,"cursor":0,"node":null,"paths":[],"task":null}
 	var active := 0
@@ -698,7 +779,7 @@ func prepare_journey_frame() -> bool:
 			job.task.dispose()
 			job.task=null
 		elif parallel_chunk_plans and run.supports_background_generation():
-			if active>=2: continue
+			if active>=(3 if opening else 2): continue
 			job.task=PreparationTask.new(ChunkPlan.make.bind(number,run.level_index,chunk_chapter(number).duplicate(true),Run.EDGE))
 			chunk_plan_tasks_started+=1
 			active+=1
@@ -754,14 +835,13 @@ func prepare_journey_frame() -> bool:
 		if job.cursor==job.items.size() and Time.get_ticks_usec()<deadline:
 			rebuild_floor(job.node,number)
 			world_chunks[number]=job.node
-			job.node.visible=number<=current+3
+			job.node.visible=chunk_wanted(number,3)
 			chunk_jobs.erase(number)
 			chunk_install_count+=1
 	var ready := events_ready and prepare_hazard_views(deadline)
 	var completed := 0
 	var required := 0
-	for number in range(maxi(-1,current-1),current+4):
-		if number*CHUNK*SCALE>run.finish_distance()+400: continue
+	for number in view_chunk_numbers(3,true):
 		required+=1
 		if world_chunks.has(number): completed+=1
 		else: ready=false
@@ -819,17 +899,16 @@ func sync_world() -> void:
 		floor_stamp=""
 		for view in static_views.values():view.queue_free()
 		static_views.clear()
-	var current:=int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(-1,current-1),current+4):
-		if number*CHUNK*SCALE>run.finish_distance()+400: continue
+	update_opening_foci()
+	for number in view_chunk_numbers(3):
 		if not world_chunks.has(number) and not incremental_loading: world_chunks[number]=build_chunk(number)
 	for number in world_chunks.keys():
-		if number<current-1 or number>current+(5 if incremental_loading else 3):
+		if not chunk_wanted(number,5 if incremental_loading else 3):
 			world_chunks[number].queue_free()
 			world_chunks.erase(number)
-	for number in world_chunks: world_chunks[number].visible=number<=current+3
+	for number in world_chunks: world_chunks[number].visible=chunk_wanted(number,3)
 	for number in chunk_jobs.keys():
-		if number<current-1 or number>current+5:
+		if not chunk_wanted(number,5):
 			if chunk_jobs[number].task!=null: chunk_jobs[number].task.dispose()
 			if is_instance_valid(chunk_jobs[number].node): chunk_jobs[number].node.queue_free()
 			chunk_jobs.erase(number)
@@ -1890,8 +1969,8 @@ func sync_view() -> void:
 		rope_view.simulate(path,0,Color.WHITE,0)
 		sync_rope_light(path,night)
 	update_journey_camera()
-	var theme:String=run.theme_at(run.distance)
-	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
+	var theme:String=run.theme_at(view_distance())
+	var forest_weight:float=Landscape.profile(view_distance()/SCALE,run.level_index).y if not run.combat_trial else 0.65
 	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)*(Atmosphere.SUN_SCALE if atmosphere.enabled else 1.0)
 	canopy_light.light_color=Color("ffe2bd").lerp(Color("e7edce"),forest_weight)
 	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)*(Atmosphere.AMBIENT_SCALE if atmosphere.enabled else 1.0)
@@ -1901,7 +1980,8 @@ func sync_view() -> void:
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
-	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
+	atmosphere.sync(camera,view_distance()/SCALE,run.level_index,forest_weight)
+	sync_opening()
 	var middle:Vector2=(run.a.position+run.b.position)*.5
 	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
 	fx.sync_time_of_day(Vector3(middle.x/SCALE,0,-middle.y/SCALE),run.level_index,forest_weight)
@@ -2222,9 +2302,12 @@ func camera_shot()->Transform3D:
 		var eye:Vector3=focus+(away+side).normalized()*reach+Vector3.UP*5.0
 		return Transform3D.IDENTITY.translated(eye).looking_at(focus,Vector3.UP)
 	if run.state=="failed":return super()
-	var home:=camera_home
-	home.origin.z-=run.distance/SCALE
-	return boss_camera(home)
+	var home:=opening_home()
+	if opening_shown():
+		var shot:Dictionary=Opening.camera(self,home,opening_keys(home))
+		camera.fov=shot.fov
+		return Opening.shake(self,shot.transform)
+	return Opening.shake(self,boss_camera(home))
 
 # 开战后到离开场地前都用 Boss 镜头：场地内可以后退，旅程镜头按最远进度定位会把人甩到画面外。
 # 入场动画期间由 BossView 的运镜接管，结束时正好落在 Boss 镜头上。
@@ -2285,7 +2368,7 @@ func sync_journey_rewards() -> void:
 		var view:Node3D=reward_views[i]
 		if i>=run.rewards.size(): view.visible=false;continue
 		var reward:Dictionary=run.rewards[i]
-		view.visible=not reward.claimed and absf(reward.position.y-run.distance)<4000
+		view.visible=not reward.claimed and view_gap(reward.position.y)<4000
 		view.position=Vector3(reward.position.x/SCALE,0.8,-reward.position.y/SCALE)
 		view.scale=Vector3.ONE*(1.8 if reward.kind!="coin" else 1.0)
 		view.material_override=material("reward_"+reward.kind,{"coin":Color("efc36a"),"shield":Color("63bfd0"),"prize":Color("b58fea")}[reward.kind],0.2)
@@ -2448,7 +2531,7 @@ func update_journey_ui() -> void:
 	if run.state=="running" and not run.Boss.hint(run).is_empty():journey_hint.visible=true
 	if journey_hint.visible: journey_hint.text=run.active_hint()
 	# Boss 入场动画按电影画面呈现：整个游戏界面层收起，只留黑边和标题（由 BossView 绘制）；暂停时照常显示菜单。
-	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and run.Boss.cinematic(run))
+	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and (run.Boss.cinematic(run) or run.opening_active()))
 	update_settings_panel()
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
 	update_chapter_bar(viewport,inset,hud_width)
@@ -2642,7 +2725,12 @@ func sample_animation(node:Node,token:String,time:float)->void:
 
 func visual_hazard_candidates() -> Array[int]:
 	var bounds:=Rect2(-Run.EDGE-1000,run.distance-MODEL_BEHIND,Run.EDGE*2+2000,MODEL_PREFETCH+MODEL_BEHIND)
-	return run.obstacles_in_bounds(bounds)
+	var result:Array[int]=run.obstacles_in_bounds(bounds)
+	for focus in opening_foci:
+		bounds.position.y=focus-MODEL_BEHIND
+		for index in run.obstacles_in_bounds(bounds):
+			if not result.has(index): result.append(index)
+	return result
 
 func hazard_view_y(index: int) -> float:
 	if run.hazard_specs[index].get("front",false):return run.obstacles[index].get_center().y+run.hazard_specs[index].offset.y

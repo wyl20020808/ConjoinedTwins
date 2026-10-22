@@ -62,6 +62,17 @@ var solid_query_count:=-1
 var encounter_markers:Array=[]
 # 第一章 Boss 在 journey_events 中的下标（-1 表示没有）；随存档一起恢复。
 var boss_index := -1
+# 开场运镜：从 Boss 巢穴的浓烟绕一圈，沿路掠过机关与敌人回到两人身后。只在章节从头开始时播放，
+# 期间两人不能操作、不受伤害，任一人按跳跃可跳过（剩 OPENING_RETURN 秒的镜头交还）。
+# 按模拟时间推进，联机两端一致；opening_enabled 由生产入口打开，测试默认关闭。
+const OPENING := 17.5
+const OPENING_SKIP_AFTER := 0.6
+const OPENING_RETURN := 1.2
+var opening_enabled := false
+# 开场开始的模拟时刻；跳过时会前移到负值，所以“没有开场”另用 NO_OPENING 表示。
+const NO_OPENING := -1.0e6
+var opening_at := NO_OPENING
+var opening_skipped_age := -1.0
 # 怪物潮专区区间与机关段零星小队的出生锚点，由布局生成，供怪物填充使用。
 var arenas:Array=[]
 var pack_slots:Array=[]
@@ -187,7 +198,27 @@ func retry(count_failure: bool = false) -> void:
 			Combat.add_pickup(self,"ammo",Vector2(-42,start+550))
 			Combat.add_pickup(self,"medkit",Vector2(0,start+720))
 	checkpoint = {}
+	opening_at = NO_OPENING
+	if not count_failure: arm_opening()
 	update_checkpoint()
+
+# 章节从头开始时排上开场运镜（未开始奔跑前时间停在 0，按“出发”后开始播放）。
+func arm_opening() -> void:
+	opening_skipped_age = -1.0
+	opening_at = 0.0 if opening_enabled and not combat_trial and Boss.enabled(self) else NO_OPENING
+
+func opening_active() -> bool:
+	return opening_at > NO_OPENING and elapsed-opening_at < OPENING
+
+func opening_age() -> float:
+	return elapsed-opening_at if opening_at > NO_OPENING else -1.0
+
+# 跳过开场：时间轴前移到最后的镜头交还段，记下跳过时刻，镜头从那一刻的位置收回。
+func skip_opening() -> void:
+	var age := opening_age()
+	if not opening_active() or age < OPENING_SKIP_AFTER or age >= OPENING-OPENING_RETURN: return
+	opening_skipped_age = age
+	opening_at = elapsed-(OPENING-OPENING_RETURN)
 
 func zone_index() -> int:
 	return clampi(int(progress()/finish_distance()*6.0),0,5)
@@ -254,7 +285,7 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	var previous := [a.position,b.position]
 	advance_events(FIXED_STEP)
 	if state!="running": return
-	if Boss.cinematic(self):
+	if Boss.cinematic(self) or opening_active():
 		# 开战帧之后的同一步里也不再移动、开火或受伤。
 		input_a=Vector2.ZERO;input_b=Vector2.ZERO
 		combat.fire=[false,false]
@@ -534,6 +565,9 @@ func step(delta: float, input_a: Vector2=Vector2.ZERO, input_b: Vector2=Vector2.
 	if state=="running" and Boss.cinematic(self):
 		if jump_a or jump_b: Boss.skip_intro(self)
 		input_a=Vector2.ZERO;input_b=Vector2.ZERO;jump_a=false;jump_b=false
+	elif state=="running" and opening_active():
+		if jump_a or jump_b: skip_opening()
+		input_a=Vector2.ZERO;input_b=Vector2.ZERO;jump_a=false;jump_b=false
 	super(delta,input_a,input_b,jump_a,jump_b)
 
 func companion_input(leader: Vector2) -> Vector2:
@@ -607,6 +641,8 @@ func ground_gaps(time:float=-1.0)->Array[Rect2]:
 
 func restore_checkpoint()->bool:
 	var restored:=super()
+	# 起点存档可能记在开场期间；从存档恢复不重播开场。
+	if restored: opening_at=NO_OPENING
 	obstacle_bin_epoch=-INF
 	terrain_index_epoch=-INF
 	solid_query_epoch=-INF

@@ -931,7 +931,9 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if mound.visible:
 		var pulse := 0.5+0.5*sin(run.elapsed*1.6)
 		var build := ease01(t/Boss.INTRO_RISE) if t >= 0.0 else 0.0
-		mound.scale = Vector3.ONE*(1.0+0.03*pulse+0.12*build)
+		# 沉睡时随地面震动每拍一鼓（节拍见 journey_opening.gd 的 THUMP）。
+		var thump: float = exp(-fposmod(run.elapsed, 0.5)*10.0) if event.phase == "dormant" else 0.0
+		mound.scale = Vector3.ONE*(1.0+0.03*pulse+0.12*build+0.07*thump)
 		mound.position = Vector3(event.origin.x/SCALE+sin(run.elapsed*40.0)*0.08*build, 0, 0)
 		(mound.get_node("MoundLight") as OmniLight3D).light_energy = 1.2+pulse*0.8+4.0*build
 	if event.phase == "dormant":

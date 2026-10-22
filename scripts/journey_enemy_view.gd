@@ -258,7 +258,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	# 不把加载队列中尚未进入显示窗口的敌人重新显示出来。
 	if not game.model_visible(event.y): return
 	# 模拟窗口外的敌人尚未行动，静止远景只初始化一次；进入近景立即恢复动画。
-	var far:bool=event.kind=="monster" and absf(event.y-run.distance)>1400
+	var far:bool=event.kind=="monster" and game.view_gap(event.y)>1400
 	if far and view.get_meta("enemy_far_ready",false):return
 	view.set_meta("enemy_far_ready",far)
 	var point:Vector2=run.Combat.enemy_position(event)
