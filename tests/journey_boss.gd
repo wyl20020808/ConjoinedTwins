@@ -47,6 +47,9 @@ func verify()->void:
 	var boss:Dictionary=Boss.boss(run)
 	check(not boss.is_empty() and boss.arena==run.finish_distance()-Boss.ARENA,"第一章末尾登记 Boss 场地")
 	for i in range(run.kinds.size()):
+		if run.obstacle_ids[i]==boss.pillar:
+			check(run.kinds[i]=="pillar" and run.obstacles[i].get_center().distance_to(Boss.pillar_center(boss))<0.01,"场地左侧立着缠柱")
+			continue
 		if not (run.obstacles[i].end.y<boss.arena or run.obstacles[i].position.x>run.EDGE):print("IN ARENA ",run.kinds[i]," ",run.obstacles[i])
 		check(run.obstacles[i].end.y<boss.arena or run.obstacles[i].position.x>run.EDGE,"机关不进入 Boss 场地：%s"%run.kinds[i])
 	for gate in run.charge_gates: check(gate.receiver.y<boss.arena,"合作门在 Boss 场地之前")
@@ -137,21 +140,41 @@ func verify()->void:
 	check(run.combat.health==[100-Boss.SEED_DAMAGE,100-Boss.SEED_DAMAGE],"留在落点被孢果炸中")
 	place(run,boss.arena+900);fresh(run)
 	boss.skill_seq+=1;Boss.start_seeds(run,boss)
-	place(run,boss.arena+600)
+	# 前摇期间落点跟着人走；出手后锁定，再离开就躲得开。
+	place(run,boss.arena+700,-150,-60);ticks(run,2)
+	check(boss.targets[0].distance_to(run.a.position)<1.0 and boss.targets[1].distance_to(run.b.position)<1.0,"前摇期间孢果落点跟随两人")
+	check(boss.targets.all(func(t):return minf(t.distance_to(run.a.position),t.distance_to(run.b.position))<=80.0),"孢果都落在两人身边")
+	ticks(run,roundi(Boss.SEED_WINDUP*Boss.PACE[boss.stage]/run.FIXED_STEP))
+	var locked:Array=boss.targets.duplicate()
+	place(run,boss.arena+450,-150,-60);ticks(run,1)
+	check(boss.targets==locked,"出手后落点锁定")
 	until(run,boss,"recover")
-	check(run.combat.health==[100,100],"离开落点躲过孢果")
-	# —— 扎根汲取：同侧不灼烧，超时冲击；分站两侧灼断后硬直 ——
-	place(run,boss.arena+900,-120,-40);fresh(run)
+	check(run.combat.health==[100,100],"出手后离开落点躲过孢果")
+	# —— 扎根汲取 / 缠柱：站着不动不计进度，超时冲击；一人站定、另一人绕柱一圈缠住后萎靡 ——
+	var pillar:Vector2=Boss.pillar_center(boss)
+	place(run,pillar.y,-120,-40);fresh(run)
 	boss.skill_seq+=1;Boss.start_root(run,boss)
 	ticks(run,roundi((Boss.ROOT_WINDUP+1.0)/run.FIXED_STEP))
-	check(boss.burn==0.0,"两人同侧时缚根不灼烧")
+	check(boss.burn==0.0,"不绕柱时没有缠绕进度")
 	until(run,boss,"recover")
 	check(run.combat.health==[100-Boss.RIP_DAMAGE,100-Boss.RIP_DAMAGE],"超时根臂拔出冲击地面上的人")
-	place(run,boss.arena+900);fresh(run)
+	run.a.position=pillar+Vector2(-28,0);run.b.position=pillar+Vector2.from_angle(PI+0.7)*55.0
+	run.distance=minf(run.a.position.y,run.b.position.y);run.rope.reset(run.a.position,run.b.position);fresh(run)
 	boss.skill_seq+=1;Boss.start_root(run,boss)
-	place(run,boss.binding.y,-60,60)
-	ticks(run,roundi((Boss.ROOT_WINDUP+Boss.BURN_TIME+0.2)/run.FIXED_STEP))
-	check(boss.state=="stagger" and boss.burned,"分站两侧让绳索穿过缚根，灼断后硬直")
+	ticks(run,roundi(Boss.ROOT_WINDUP/run.FIXED_STEP)+1)
+	for n in range(roundi(Boss.ROOT_LIMIT/run.FIXED_STEP)):
+		if boss.state!="root":break
+		var angle:float=(run.b.position-pillar).angle()
+		var goal:=pillar+Vector2.from_angle(angle+0.45)*55.0
+		var hold:=pillar+Vector2(-28,0)
+		var delta_b:Vector2=goal-run.b.position
+		var delta_a:Vector2=hold-run.a.position
+		run.step(run.FIXED_STEP,delta_a.limit_length(1.0) if delta_a.length()>2.0 else Vector2.ZERO,delta_b.normalized())
+	check(boss.state=="stagger" and boss.burned,"一人站定、另一人绕柱一圈用绳缠住，Boss 萎靡")
+	check(not Boss.pillar_up(run,boss) and not Boss.rope_on_pillar(run,boss),"缠紧后石柱崩碎、绳子松开")
+	boss.skill_seq+=1;Boss.start_root(run,boss);ticks(run,1)
+	check(Boss.pillar_up(run,boss),"下一次扎根汲取时石柱重新升起")
+	Boss.enter(run,boss,"stagger");boss.state_at=run.elapsed
 	hp=boss.hp
 	run.Combat.damage(run,boss,10)
 	check(boss.hp==hp-10,"硬直时满伤害")
@@ -159,6 +182,13 @@ func verify()->void:
 	var ammo_before:int=run.combat.pickups.filter(func(p):return p.kind=="ammo").size()
 	until(run,boss,"idle")
 	check(run.combat.pickups.filter(func(p):return p.kind=="ammo").size()>ammo_before,"硬直结束刷新弹药")
+	# —— 战斗中随机掉弹药 ——
+	var before_drops:int=run.combat.pickups.filter(func(p):return p.kind=="ammo" and p.position.y>boss.arena).size()
+	boss.ammo_at=run.elapsed
+	Boss.drop_ammo(run,boss)
+	var drops:Array=run.combat.pickups.filter(func(p):return p.kind=="ammo" and p.position.y>boss.arena)
+	check(drops.size()==mini(before_drops+1,Boss.AMMO_CAP) or before_drops>=Boss.AMMO_CAP,"战斗中定时在场内掉弹药")
+	check(boss.ammo_at>run.elapsed,"掉落后进入下一次冷却")
 	# —— 阶段切换与召唤 ——
 	boss.hp=int(boss.max_hp*0.6);Boss.enter(run,boss,"idle")
 	until(run,boss,"roar")
@@ -166,7 +196,7 @@ func verify()->void:
 	until(run,boss,"idle")
 	boss.cycle_moves=0;boss.pattern_index=0
 	until(run,boss,"summon");until(run,boss,"recover")
-	check(Boss.living_adds(run,boss)==2,"第二阶段召唤两只根须蛛")
+	check(Boss.living_adds(run,boss)==3,"第二阶段召唤三只根须蛛")
 	boss.skill_seq+=1;Boss.enter(run,boss,"sweep")
 	check(Boss.sweep_arms(boss)==2,"第二阶段双臂连扫")
 	boss.hp=int(boss.max_hp*0.25);Boss.enter(run,boss,"idle")
