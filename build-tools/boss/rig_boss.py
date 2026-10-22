@@ -10,7 +10,7 @@
 2. 不用 Blender 自动权重（Tripo 网格常有非流形面）；每个顶点按到骨段的距离取最近两根骨骼混合，
    再沿网格拓扑平滑权重。手和根团的网格连在一起，硬边界会在抬手时拉出细长“丝”；平滑后过渡分散到一片区域。
 3. 动作在模型空间“前/侧/上”三个轴上直接写关键帧，带预备、过冲、回落与头部/手的跟随延迟，
-   名称与 journey_boss_view.gd 对应：Idle、Roar、Slam、SweepL、SweepR、Throw、Root、Stagger、Death。
+   名称与 journey_boss_view.gd 对应：Idle、Roar、Flail、RoarSky、Slam、SweepL、SweepR、Throw、Root、Stagger、Death。
    Godot 按模拟时间直接取样，不自走。
 """
 import bpy, sys, os, math
@@ -389,6 +389,43 @@ roar_shake = pose(Spine=lean(-7), Chest=compose(lean(-14), twist(3)), Neck=lean(
 key('Roar', [(0, pose()), (0.35, roar_crouch), (0.62, roar_peak), (0.9, roar_shake), (1.2, roar_peak), (1.5, roar_shake),
              (1.8, roar_peak), (2.2, pose())])
 
+# 张牙舞爪（入场破土后，1.6 秒）：两臂交替向外、向前挥爪，手爪甩动，上身拧转，头左右甩。
+def flail_pose(phase):
+    a = phase * math.tau
+    left = math.sin(a)
+    right = math.sin(a + math.pi * 0.8)
+    return pose(Spine=compose(twist(10 * math.sin(a * 0.5)), lean(6 + 4 * math.sin(a * 2))),
+                Chest=compose(twist(16 * math.sin(a + 0.4)), lean(8 + 5 * math.sin(a * 2 + 1.0))),
+                Neck=compose(twist(-14 * math.sin(a + 0.9)), lean(-6)),
+                Head=compose(twist(-12 * math.sin(a * 2 + 0.3)), tilt(8 * math.sin(a * 2))),
+                UpperArm_L=compose(raise_side('L', 30 + 25 * left), swing_front('L', 25 + 35 * left), reach_forward(15)),
+                UpperArm_R=compose(raise_side('R', 30 + 25 * right), swing_front('R', 25 + 35 * right), reach_forward(15)),
+                Forearm_L=compose(swing_front('L', 15 + 20 * left), reach_forward(10 - 15 * left)),
+                Forearm_R=compose(swing_front('R', 15 + 20 * right), reach_forward(10 - 15 * right)),
+                Hand_L=compose(raise_side('L', 25 * math.sin(a * 2 + 0.5)), reach_forward(-20 * left)),
+                Hand_R=compose(raise_side('R', 25 * math.sin(a * 2 + 2.0)), reach_forward(-20 * right)))
+
+
+key('Flail', [(0, roar_crouch)] + [(0.2 + n * 0.1, flail_pose(n / 12.0)) for n in range(13)] + [(1.6, flail_pose(0.0))])
+
+# 仰天咆哮（2.2 秒）：吸气下沉 → 猛地后仰、头甩向天、双臂向后上方张开 → 颤抖保持 → 回落前倾。
+sky_inhale = pose(Spine=lean(14), Chest=lean(18), Neck=lean(12), Head=lean(12),
+                  UpperArm_L=compose(raise_side('L', 10), reach_forward(20)), UpperArm_R=compose(raise_side('R', 10), reach_forward(20)),
+                  Forearm_L=reach_forward(30), Forearm_R=reach_forward(30), Hand_L=reach_forward(20), Hand_R=reach_forward(20))
+
+
+def sky_peak(shake):
+    return pose(Spine=lean(-20 + shake), Chest=compose(lean(-32 - shake), twist(2 * shake)), Neck=lean(-30), Head=compose(lean(-38 + shake), twist(-2 * shake)),
+                UpperArm_L=compose(raise_side('L', 52 + 2 * shake), swing_front('L', -30)),
+                UpperArm_R=compose(raise_side('R', 52 - 2 * shake), swing_front('R', -30)),
+                Forearm_L=compose(raise_side('L', 25), swing_front('L', -10)), Forearm_R=compose(raise_side('R', 25), swing_front('R', -10)),
+                Hand_L=raise_side('L', 25 + 4 * shake), Hand_R=raise_side('R', 25 - 4 * shake))
+
+
+key('RoarSky', [(0, pose()), (0.32, sky_inhale), (0.55, sky_peak(0)), (0.72, sky_peak(1.5)), (0.9, sky_peak(-1.5)), (1.08, sky_peak(1.5)),
+                (1.26, sky_peak(-1.5)), (1.44, sky_peak(1.5)), (1.62, sky_peak(-1)), (1.8, sky_peak(0)),
+                (2.2, pose(Spine=lean(6), Chest=lean(8), Head=lean(4)))])
+
 # 单臂插地（根刺，用 R 臂）：0–0.6 拧身举臂蓄力 → 0.6–0.72 砸地 → 0.9 回弹 → 停住 → 拔出收回。
 slam_wind = pose(Spine=compose(lean(-6), twist(14)), Chest=compose(lean(-10), twist(12)), Head=compose(lean(-4), twist(-8)),
                  UpperArm_R=compose(reach_forward(75), raise_side('R', 20)), Forearm_R=reach_forward(25), Hand_R=reach_forward(15),
@@ -487,7 +524,7 @@ if PREVIEW:
     cam.data.type = 'ORTHO'; cam.data.ortho_scale = 1.5
     cam.location = Vector((3, 1.0, 0.8))
     cam.rotation_euler = (Vector((0, 0, 0.5)) - cam.location).to_track_quat('-Z', 'Y').to_euler()
-    shots = [('Idle', 0), ('Idle', 1.5), ('Roar', 0.62), ('Slam', 0.6), ('Slam', 0.72), ('SweepL', 0.7), ('SweepL', 1.0),
+    shots = [('Idle', 0), ('Flail', 0.45), ('Flail', 0.95), ('RoarSky', 0.32), ('RoarSky', 1.0), ('Roar', 0.62), ('Slam', 0.72), ('SweepL', 0.7),
              ('Throw', 0.7), ('Root', 1.0), ('Stagger', 1.0), ('Death', 2.5)]
     for track in armature.animation_data.nla_tracks:
         track.mute = True

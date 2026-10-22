@@ -4,7 +4,7 @@ extends SceneTree
 #   python build-tools/capture_hidden.py res://build-tools/boss/capture_intro.gd
 # 输出目录取环境变量 BOSS_CAPTURE_DIR（默认 user://boss-intro/），不写入工程。
 const Boss = preload("res://scripts/journey_boss.gd")
-const MOMENTS := [0.0, 0.7, 1.3, 1.6, 2.4, 3.3, 3.9, 4.6, 5.3, 6.2, 7.2]
+const MOMENTS := [0.7, 1.3, 1.5, 2.4, 3.5, 4.1, 4.5, 5.3, 5.9, 6.6, 7.6, 8.6]
 var game
 var out := ""
 

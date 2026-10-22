@@ -171,6 +171,7 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	spike_field(root, "IntroSpikes", INTRO_SPIKES)
 	build_bar(root)
 	build_cinema(root)
+	boss.add_child(build_breath())
 
 static func build_bar(root: Node3D) -> void:
 	var layer := CanvasLayer.new()
@@ -218,6 +219,63 @@ static func build_bar(root: Node3D) -> void:
 		tick.size = Vector2(2, 18)
 		tick.color = Color(1, 1, 1, 0.55)
 		frame.add_child(tick)
+
+# 咆哮口雾：仰头时从口部向上方喷出的暖色雾团（映着树心的琥珀光），逐渐扩散变淡。世界坐标发射，Boss 动作不会拖着雾走。
+static func build_breath() -> GPUParticles3D:
+	var particles := GPUParticles3D.new()
+	particles.name = "Breath"
+	particles.amount = 220
+	particles.lifetime = 2.0
+	particles.local_coords = false
+	particles.emitting = false
+	particles.visibility_aabb = AABB(Vector3(-20, -5, -20), Vector3(40, 30, 40))
+	var process := ParticleProcessMaterial.new()
+	process.direction = Vector3(0, 0.88, 0.48)
+	process.spread = 24.0
+	process.initial_velocity_min = 7.0
+	process.initial_velocity_max = 11.0
+	process.damping_min = 4.0
+	process.damping_max = 6.0
+	process.gravity = Vector3(0, 0.3, 0)
+	process.scale_min = 4.5
+	process.scale_max = 7.5
+	var grow := Curve.new()
+	grow.add_point(Vector2(0, 0.35))
+	grow.add_point(Vector2(1, 2.2))
+	var grow_texture := CurveTexture.new()
+	grow_texture.curve = grow
+	process.scale_curve = grow_texture
+	var fade := Gradient.new()
+	fade.set_color(0, Color(1.0, 0.82, 0.55, 0.0))
+	fade.add_point(0.1, Color(1.0, 0.8, 0.5, 0.8))
+	fade.add_point(0.55, Color(0.9, 0.78, 0.62, 0.45))
+	fade.set_color(fade.get_point_count()-1, Color(0.8, 0.76, 0.7, 0.0))
+	var fade_texture := GradientTexture1D.new()
+	fade_texture.gradient = fade
+	process.color_ramp = fade_texture
+	particles.process_material = process
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_texture = preload("res://scripts/journey_fx.gd").dot_texture()
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	quad.material = mat
+	particles.draw_pass_1 = quad
+	return particles
+
+# 头骨的世界位置（口部附近）；找不到骨骼时按模型比例估算。
+static func mouth(boss: Node3D) -> Vector3:
+	var skeleton: Skeleton3D = boss.get_meta("skeleton", null)
+	if skeleton != null:
+		var bone := skeleton.find_bone("Head")
+		if bone >= 0:
+			var head: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(bone).origin
+			return head+Vector3(0, HEIGHT*0.05, HEIGHT*0.05)
+	return boss.global_position+Vector3(0, HEIGHT*0.88, HEIGHT*0.05)
 
 # 电影黑边、Boss 名称标题与“按跳跃跳过”提示，画在游戏界面之上。
 static func build_cinema(root: Node3D) -> void:
@@ -299,11 +357,13 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 	else:
 		match event.state:
 			"intro":
-				# 破土时保持咆哮动作的下蹲蓄力姿势，站稳后放完整段咆哮，最后回到待机。
-				if age < Boss.INTRO_ROAR:
+				# 升起时保持下蹲蓄力姿势；站稳后张牙舞爪，再仰天咆哮，最后回到待机。
+				if age < Boss.INTRO_RISEN:
 					clip = "Roar"; t = 0.35
+				elif age < Boss.INTRO_ROAR:
+					clip = "Flail"; t = (age-Boss.INTRO_RISEN)/(Boss.INTRO_ROAR-Boss.INTRO_RISEN)*1.6
 				elif age < Boss.INTRO_ROARED:
-					clip = "Roar"; t = 0.35+(age-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR)*1.85
+					clip = "RoarSky"; t = (age-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR)*2.2
 				else:
 					clip = "Idle"; t = fposmod(run.elapsed, IDLE_LOOP)
 			"roar":
@@ -631,7 +691,8 @@ static func bar(game, view: Node3D, event: Dictionary, dead: bool, death_age: fl
 
 # —— 入场动画 ——
 # 时间轴见 journey_boss.gd 的 INTRO_*：0–1.2 秒镜头拉高拉远、地面开裂；1.4 秒破土，根刺环形钻出；
-# 1.4–3.4 秒低机位仰拍 Boss 从地下升起；3.6–5.6 秒正面推近咆哮、冲击波与标题；5.6–7 秒镜头交还。
+# 1.4–3.2 秒低机位仰拍 Boss 从地下升起；3.2–4.8 秒侧前方中景张牙舞爪；4.8–7 秒正面仰拍仰天咆哮、口雾、
+# 冲击波与标题；7–8.4 秒镜头交还。全程按强度曲线震动画面。
 const INTRO_SPIKES := 14
 
 static func intro_age(run, event: Dictionary) -> float:
@@ -654,18 +715,48 @@ static func intro_camera(game, event: Dictionary, home: Transform3D, game_shot: 
 	var crane := shot(Vector3(0, 30, players+16), Vector3(0, 0, core+10))
 	var rise_from := shot(Vector3(12, 1.8, core+27), Vector3(0, 7, core))
 	var rise_to := shot(Vector3(8.5, 2.4, core+22), Vector3(0, 9, core))
-	var roar_from := shot(Vector3(2.8, 4.5, core+26), Vector3(0, HEIGHT*0.66, core))
-	var roar_to := shot(Vector3(1.6, 5.5, core+20), Vector3(0, HEIGHT*0.68, core))
+	var flail_from := shot(Vector3(-11, 4.5, core+25), Vector3(0, HEIGHT*0.55, core))
+	var flail_to := shot(Vector3(-7.5, 5.0, core+21), Vector3(0, HEIGHT*0.58, core))
+	var roar_from := shot(Vector3(3.0, 5.0, core+27), Vector3(0, HEIGHT*0.56, core))
+	var roar_to := shot(Vector3(1.8, 4.5, core+22), Vector3(0, HEIGHT*0.6, core))
+	var result: Dictionary
 	if t < Boss.INTRO_CRANE:
 		var k := ease01(t/Boss.INTRO_CRANE)
-		return {"transform":home.interpolate_with(crane, k), "fov":lerpf(57.0, 60.0, k)}
-	if t < Boss.INTRO_RISE: return {"transform":crane, "fov":60.0}
-	if t < Boss.INTRO_ROAR:
-		return {"transform":rise_from.interpolate_with(rise_to, ease01((t-Boss.INTRO_RISE)/(Boss.INTRO_ROAR-Boss.INTRO_RISE))), "fov":50.0}
-	if t < Boss.INTRO_ROARED:
-		return {"transform":roar_from.interpolate_with(roar_to, ease01((t-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR))), "fov":48.0}
-	var k := ease01((t-Boss.INTRO_ROARED)/(Boss.INTRO-Boss.INTRO_ROARED))
-	return {"transform":roar_to.interpolate_with(game_shot, k), "fov":lerpf(48.0, 62.0, k)}
+		result = {"transform":home.interpolate_with(crane, k), "fov":lerpf(57.0, 60.0, k)}
+	elif t < Boss.INTRO_RISE:
+		result = {"transform":crane, "fov":60.0}
+	elif t < Boss.INTRO_RISEN:
+		result = {"transform":rise_from.interpolate_with(rise_to, ease01((t-Boss.INTRO_RISE)/(Boss.INTRO_RISEN-Boss.INTRO_RISE))), "fov":50.0}
+	elif t < Boss.INTRO_ROAR:
+		result = {"transform":flail_from.interpolate_with(flail_to, ease01((t-Boss.INTRO_RISEN)/(Boss.INTRO_ROAR-Boss.INTRO_RISEN))), "fov":50.0}
+	elif t < Boss.INTRO_ROARED:
+		result = {"transform":roar_from.interpolate_with(roar_to, ease01((t-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR))), "fov":50.0}
+	else:
+		var k := ease01((t-Boss.INTRO_ROARED)/(Boss.INTRO-Boss.INTRO_ROARED))
+		result = {"transform":roar_to.interpolate_with(game_shot, k), "fov":lerpf(50.0, 62.0, k)}
+	# 震动：位移加轻微滚转；频率按模拟时间取，暂停时定格，同一时刻各端画面一致。
+	var amount := intro_shake(t)
+	if amount > 0.0:
+		var e: float = run.elapsed
+		var offset := Vector3(sin(e*41.0)+sin(e*67.0)*0.5, sin(e*53.0+1.3)+sin(e*29.0)*0.4, 0.0)*amount*0.6
+		var xform: Transform3D = result.transform
+		xform.origin += xform.basis*offset
+		xform.basis = xform.basis*Basis(Vector3.FORWARD, sin(e*37.0)*amount*0.025)
+		result.transform = xform
+	return result
+
+# 入场震动强度（米）：地下轰鸣渐强、破土猛震、升起持续抖动、挥爪随动作起伏、咆哮最强并缓慢衰减。
+static func intro_shake(t: float) -> float:
+	if t < 0.0: return 0.0
+	var amount := 0.0
+	if t < Boss.INTRO_RISE: amount = lerpf(0.03, 0.14, t/Boss.INTRO_RISE)
+	if t >= Boss.INTRO_RISE: amount = maxf(amount, 0.7*exp(-(t-Boss.INTRO_RISE)*3.5))
+	if t >= Boss.INTRO_RISE and t < Boss.INTRO_RISEN: amount = maxf(amount, 0.14)
+	if t >= Boss.INTRO_RISEN and t < Boss.INTRO_ROAR:
+		amount = maxf(amount, 0.06+0.16*pow(maxf(0.0, sin((t-Boss.INTRO_RISEN)/1.6*TAU*2.0)), 4.0))
+	if t >= Boss.INTRO_ROAR+0.45 and t < Boss.INTRO_ROARED+0.6:
+		amount = maxf(amount, 0.42*ease01((t-Boss.INTRO_ROAR-0.45)/0.15)*(1.0-ease01((t-Boss.INTRO_ROARED+0.6)/1.2)))
+	return amount
 
 static func intro(game, view: Node3D, event: Dictionary) -> void:
 	var run = game.run
@@ -691,7 +782,7 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if event.phase == "dormant":
 		boss.visible = false
 		# 失败重打会恢复到开战前，开战时刻可能完全相同：沉睡时清掉入场一次性标记，下次开战重新播放。
-		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.15", "intro_wave0.55", "intro_wave0.95"]:
+		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.55", "intro_wave0.95", "intro_wave1.35"]:
 			view.remove_meta("fx_" + tag)
 	elif event.phase == "intro":
 		# 破土前埋在地下；1.4–3.4 秒升起，升起途中轻微抖动。
@@ -736,13 +827,23 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 			hazard_fx.slam(base, 10.0)
 			for n in range(6): hazard_fx.burst_debris(base+Vector3(cos(n)*5.0, 0.5, sin(n)*5.0), Color("5e4126"), 1.6)
 		if fx != null: fx.impact(base, AMBER, 12.0, 6.0)
-	if t >= Boss.INTRO_ROAR and once_tag(view, "intro_roar", key) and not skipped:
+	if t >= Boss.INTRO_ROAR+0.4 and once_tag(view, "intro_roar", key) and not skipped:
 		game.sfx.play_at("boss_roar", base+Vector3(0, HEIGHT*0.7, 2), 6.0, 1.0)
 		game.sfx.play("boss_roar", -10.0, 1.0)
-	for wave in [0.15, 0.55, 0.95]:
+	# 咆哮张口（动作的后仰段）时喷出口雾。
+	var breath: GPUParticles3D = boss.get_node("Breath")
+	var roaring: bool = event.phase == "intro" and t >= Boss.INTRO_ROAR+0.5 and t < Boss.INTRO_ROARED-0.4 and run.state == "running"
+	if roaring: breath.global_position = mouth(boss)
+	if breath.emitting != roaring: breath.emitting = roaring
+	# 地面震动：咆哮与破土时整片场地四处扬尘，越靠近两人越密。
+	if fx != null and intro_shake(t) > 0.2 and int(run.elapsed/run.FIXED_STEP)%5 == 0:
+		var e: float = run.elapsed
+		var spot := Vector2(sin(e*13.7)*260.0, lerpf(event.arena+Boss.TRIGGER, event.origin.y-120.0, 0.5+0.5*sin(e*7.9)))
+		fx.burst("dust", world(spot, 0.05))
+	for wave in [0.55, 0.95, 1.35]:
 		if t >= Boss.INTRO_ROAR+wave and once_tag(view, "intro_wave%.2f"%wave, key) and not skipped:
 			if fx != null: fx.impact(base, AMBER.lerp(Color.WHITE, 0.3), 14.0+wave*10.0, 4.0)
-			if hazard_fx != null and wave < 0.3: hazard_fx.slam(base, 12.0)
+			if hazard_fx != null and wave < 0.6: hazard_fx.slam(base, 12.0)
 	# 黑边、标题与跳过提示。
 	layer.visible = event.phase == "intro" and run.state in ["running", "paused"]
 	if not layer.visible: return
