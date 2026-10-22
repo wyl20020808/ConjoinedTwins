@@ -84,7 +84,6 @@ var input_override:Dictionary={}
 var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
-var last_fire_sent:=false
 const WEB_BUILD:="chapter-menu-online-cache-20261021"
 var world_chunks := {}
 var event_views := {}
@@ -1675,7 +1674,6 @@ func reset_journey_views() -> void:
 	rescue_seen=[0,0]
 	rescue_pulse=[0.0,0.0]
 	body_yaw=[0.0,0.0]
-	last_fire_sent=false
 	prepared_online_frame=-1
 	# 固定关卡重试只需刷新阶段和反馈，不重建相同的环境模型。
 	floor_stamp=""
@@ -3104,6 +3102,7 @@ func apply_command(name:String,arg:="")->void:
 			if run.state=="start" and not net.active():run.set_difficulty(arg);reset_journey_views()
 
 func online_process(delta:float)->void:
+	if net.desynced: return
 	if not net.in_match:
 		sync_view()
 		return
@@ -3115,9 +3114,7 @@ func online_process(delta:float)->void:
 	if confirm_blocked:ChapterPacks.request(next,true)
 	net.send_input(input.a,input.ja and not confirm_blocked)
 	var fire: bool=input.get("fire",false)
-	if fire!=last_fire_sent or input.get("reload",false) or input.get("drop",false) or input.get("swap",false):
-		net.send_command("combat","%d,%d,%d,%d"%[int(fire),int(input.get("reload",false)),int(input.get("drop",false)),int(input.get("swap",false))])
-		last_fire_sent=fire
+	net.send_combat(fire,input.get("reload",false),input.get("drop",false),input.get("swap",false))
 	var applied:=0
 	var start:=Time.get_ticks_usec()
 	# 服务器每秒固定发 60 帧；只消化 1 帧/物理帧时，加载或卡顿造成的积压会变成永久输入延迟。

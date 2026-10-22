@@ -19,6 +19,9 @@ const CONNECT_TIMEOUT_MSEC := 6000
 const ADDRESS_FILE := "user://online.cfg"
 # 输入只在变化时上传（服务器沿用上一份），另每秒补发一次以防万一；静止或按住方向时几乎没有上行流量。
 const INPUT_REFRESH_MSEC := 1000
+const COMBAT_REFRESH_MSEC := 250
+var last_combat_fire := false
+var last_combat_msec := 0
 
 var peer: MultiplayerPeer = null
 var api := SceneMultiplayer.new()
@@ -279,6 +282,7 @@ func send_raw(bytes: PackedByteArray, mode := MultiplayerPeer.TRANSFER_MODE_RELI
 	bytes_sent += bytes.size()
 
 func send_input(move: Vector2, jump: bool) -> void:
+	if desynced: return
 	if peer is ENetMultiplayerPeer:
 		# UDP：每帧都发、带序号、不可靠；丢一包下一帧就补上，不等重传。
 		if not connected: return
@@ -296,7 +300,18 @@ func send_input(move: Vector2, jump: bool) -> void:
 	send_raw(bytes)
 
 func send_command(name: String, arg := "") -> void:
+	if desynced: return
 	send(["cmd", name, arg])
+
+func send_combat(fire: bool, reload: bool, drop: bool, swap: bool) -> void:
+	if not connected or desynced: return
+	var now := Time.get_ticks_msec()
+	# 只刷新持续射击，不重发换弹、丢枪和切枪等一次性操作。
+	if fire == last_combat_fire and not reload and not drop and not swap:
+		if not fire or now - last_combat_msec < COMBAT_REFRESH_MSEC: return
+	last_combat_fire = fire
+	last_combat_msec = now
+	send_command("combat", "%d,%d,%d,%d" % [int(fire), int(reload), int(drop), int(swap)])
 
 # 每模拟一帧后调用；定期上报状态指纹，由服务器比对两端是否一致。
 func report(frame: int, state_hash: int) -> void:
@@ -313,6 +328,7 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 		receive_bundle(Relay.decode_bundle(bytes))
 		return
 	if not bytes.is_empty() and bytes[0] == Relay.FRAME_TAG:
+		if desynced: return
 		var frame := Relay.decode_frame(bytes)
 		var now := Time.get_ticks_usec()
 		if last_arrival_usec > 0:
@@ -350,6 +366,8 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 			input_seq = 0
 			jump_seq = 0
 			jump_was_down = false
+			last_combat_fire = false
+			last_combat_msec = 0
 			resend_wanted = false
 			resends = 0
 			resend_msec = 0
@@ -378,12 +396,16 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 				var sample := (Time.get_ticks_usec() - int(message[1])) / 1000.0
 				rtt_ms = sample if rtt_ms < 0 else lerpf(rtt_ms, sample, 0.3)
 		"desync":
+			if desynced: return
 			desynced = true
+			frames.clear()
+			resend_wanted = false
 			status_changed.emit("两端画面不同步（第 %d 帧），请回到开始页重新联机。" % int(message[1]))
+			match_stopped.emit("两端状态不同步")
 
 # UDP 帧包：每包含最近若干帧，只收下一帧该要的那一帧；出现缺口（中间的包全丢了）就请求补发。
 func receive_bundle(bundle: Array) -> void:
-	if not in_match: return
+	if not in_match or desynced: return
 	var accepted := false
 	for frame: Dictionary in bundle:
 		if frame.is_empty(): continue
@@ -496,6 +518,7 @@ func diagnostics_text() -> String:
 
 # 取出本次物理帧要模拟的帧：通常一帧；积压时追帧，保留少量缓冲吸收网络抖动。
 func take_frames(maximum: int = -1) -> Array:
+	if desynced: return []
 	var count := 0
 	if frames.size() > 8: count = frames.size() - 2
 	elif frames.size() > 3: count = 2

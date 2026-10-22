@@ -10,6 +10,9 @@ const Identity = preload("res://scripts/net_identity.gd")
 const PROGRESS_USEC := 500000
 const HELLO_TIMEOUT_MSEC := 6000
 const MAX_PENDING_JUMPS := 32
+# UDP 每帧刷新；WebSocket 的静态输入每秒刷新，因此使用独立的宽限时间。
+const INPUT_TIMEOUT_MSEC := 500
+const WS_INPUT_TIMEOUT_MSEC := 1500
 const DEFAULT_PORT := 24680
 const DEFAULT_WS_PORT := 24681
 const TICK := 1.0 / 60.0
@@ -49,6 +52,9 @@ var next_send_usec := 0
 const MAX_LEAD := 90
 var acked := [0, 0]
 var input_seq := [-1, -1]
+var last_input_msec := [0, 0]
+var input_stale := [false, false]
+var desynced := false
 var port := DEFAULT_PORT
 var ws_port := DEFAULT_WS_PORT   # 0 表示不开 WebSocket
 
@@ -225,6 +231,9 @@ func start_match() -> void:
 	jump_latch = [false, false]
 	history.clear()
 	input_seq = [-1, -1]
+	last_input_msec = [Time.get_ticks_msec(), Time.get_ticks_msec()]
+	input_stale = [false, false]
+	desynced = false
 	jump_seq = [0, 0]
 	pending_jumps = [0, 0]
 	jump_output = [false, false]
@@ -251,7 +260,10 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 		if roles.size() == 2 and verified.size() == 2 and not in_match: start_match()
 		return
 	var role: int = roles[key]
+	if desynced: return
 	if bytes.size() == 4 and bytes[0] == INPUT_TAG:
+		last_input_msec[role] = Time.get_ticks_msec()
+		input_stale[role] = false
 		var jump := bytes[3] != 0
 		inputs[role] = [bytes.decode_s8(1), bytes.decode_s8(2), jump]
 		if jump: jump_latch[role] = true
@@ -260,9 +272,14 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 		var seq := bytes.decode_u16(1)
 		if not seq_newer(seq, input_seq[role]): return
 		input_seq[role] = seq
+		var was_stale: bool = input_stale[role]
+		last_input_msec[role] = Time.get_ticks_msec()
+		input_stale[role] = false
 		var pressed := bytes[5] != 0
 		inputs[role] = [bytes.decode_s8(3), bytes.decode_s8(4), pressed]
 		var presses := bytes.decode_u16(6)
+		# 失联期间的旧短按不在恢复时集中重放；当前仍按住的跳跃照常生效。
+		if was_stale: jump_seq[role] = presses
 		if seq_newer(presses, jump_seq[role]):
 			pending_jumps[role] = mini(MAX_PENDING_JUMPS, pending_jumps[role] + ((presses - jump_seq[role]) & 0xFFFF))
 			jump_seq[role] = presses
@@ -272,10 +289,14 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 	match message[0]:
 		"in":
 			if message.size() < 4: return
+			last_input_msec[role] = Time.get_ticks_msec()
+			input_stale[role] = false
 			inputs[role] = [clampi(int(message[1]), -100, 100), clampi(int(message[2]), -100, 100), bool(message[3])]
 			if message[3]: jump_latch[role] = true
 		"cmd":
 			if in_match and message.size() >= 3:
+				expire_inputs(Time.get_ticks_msec())
+				if message[1] == "combat" and input_stale[role]: return
 				commands.append([role, str(message[1]), str(message[2])])
 		"hash":
 			if message.size() >= 3: check_hash(role, int(message[1]), int(message[2]))
@@ -296,6 +317,7 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 
 # 可靠补发：从客户端缺的那一帧起，按每包 40 帧发到当前帧。
 func resend(key: Vector2i, from: int) -> void:
+	if desynced: return
 	if from < maxi(0, frame - HISTORY):
 		reject_peer(key, "断流过久，历史帧已过期，请重新联机。")
 		return
@@ -309,6 +331,7 @@ func resend(key: Vector2i, from: int) -> void:
 	if not batch.is_empty(): send_raw(key, encode_bundle(batch))
 
 func check_hash(role: int, at: int, value: int) -> void:
+	if desynced: return
 	if hashes.size() > 64: hashes.clear()
 	var pair: Array = hashes.get(at, [null, null])
 	pair[role] = value
@@ -316,13 +339,16 @@ func check_hash(role: int, at: int, value: int) -> void:
 	if pair[0] == null or pair[1] == null: return
 	hashes.erase(at)
 	if pair[0] != pair[1]:
+		desynced = true
+		commands.clear()
 		log_line("第 %d 帧两端状态不一致。" % at)
 		for key in roles: send(key, ["desync", at])
 
 # 每 1/60 秒按单调微秒时钟准点发一帧；主循环偶有延迟时补齐，落后过多（暂停出帧后）从当前时刻重新计时，
 # 不一次补发一大串。旧版在物理帧里累加，Windows 上与游戏同机运行时物理帧成串挤在一起，帧就一阵一阵地发。
 func broadcast_due_frames() -> void:
-	if not in_match: return
+	if not in_match or desynced: return
+	expire_inputs(Time.get_ticks_msec())
 	var now := Time.get_ticks_usec()
 	var step := int(TICK * 1000000.0)
 	if now - next_send_usec > step * 6: next_send_usec = now
@@ -345,6 +371,23 @@ func broadcast_due_frames() -> void:
 			if key.x == ENET: send_raw(key, bundle, MultiplayerPeer.TRANSFER_MODE_UNRELIABLE_ORDERED)
 			else: send_raw(key, packet)
 		frame += 1
+
+# 在共同输入帧中释放持续控制，不能让两端各自根据本机时钟修改模拟。
+# 即使慢端上限暂停出帧，也先排好释放命令，恢复后的第一帧会应用它。
+func expire_inputs(now: int) -> void:
+	if not in_match or desynced: return
+	for key in roles:
+		if not verified.has(key): continue
+		var role: int = roles[key]
+		var timeout := INPUT_TIMEOUT_MSEC if key.x == ENET else WS_INPUT_TIMEOUT_MSEC
+		if input_stale[role] or now - int(last_input_msec[role]) < timeout: continue
+		input_stale[role] = true
+		inputs[role] = [0, 0, false]
+		jump_latch[role] = false
+		pending_jumps[role] = 0
+		jump_output[role] = false
+		commands = commands.filter(func(entry): return not (entry[0] == role and entry[1] == "combat"))
+		commands.append([role, "combat", "0,0,0,0"])
 
 # 连续恢复的短按之间插入松开帧；长按保持原行为，累计序号只用于识别新的按下事件。
 func next_jump(role: int) -> bool:

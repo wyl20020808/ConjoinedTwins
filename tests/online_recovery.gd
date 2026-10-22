@@ -31,6 +31,7 @@ var contiguous := true
 var jump_edges := [0, 0]
 var held := [false, false]
 var equal := true
+var next_input_msec := 0
 
 func check(ok: bool, label: String) -> void:
 	print("PASS " if ok else "FAIL ", label)
@@ -39,6 +40,10 @@ func check(ok: bool, label: String) -> void:
 func _initialize() -> void: call_deferred("validate")
 
 func pump() -> void:
+	# 与生产客户端一样刷新当前输入，避免把夹具长期不发输入误当成普通短按丢包。
+	if Time.get_ticks_msec() >= next_input_msec:
+		next_input_msec = Time.get_ticks_msec() + 16
+		for c in clients: c.send_input(Vector2.ZERO, c.jump_was_down)
 	for endpoint in range(clients.size()):
 		var c = clients[endpoint]
 		for frame in c.take_frames(1):
