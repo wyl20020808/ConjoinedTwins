@@ -2306,7 +2306,7 @@ func camera_shot()->Transform3D:
 	if opening_shown():
 		var shot:Dictionary=Opening.camera(self,home,opening_keys(home))
 		camera.fov=shot.fov
-		return Opening.shake(self,shot.transform)
+		return Opening.shake(self,shot.transform,run.opening_age()<Opening.LAIR)
 	return Opening.shake(self,boss_camera(home))
 
 # 开战后到离开场地前都用 Boss 镜头：场地内可以后退，旅程镜头按最远进度定位会把人甩到画面外。

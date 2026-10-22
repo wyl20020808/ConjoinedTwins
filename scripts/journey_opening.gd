@@ -1,15 +1,18 @@
 extends RefCounted
 # 开场运镜、Boss 巢穴浓烟与地面震动（纯画面，不改模拟）。时间轴取自 journey_run 的 opening_age()，联机两端一致。
-# 运镜按剪辑分镜：螺旋绕着巢穴浓烟升起一圈 → 依次给沿途几处机关/敌人一个低机位特写（每个镜头慢慢绕、推近、正弦起伏）
-# → 两人面前停留后绕到身后，落在正常旅程镜头上。镜头之间用短暂的淡出淡入切换。
+# 运镜按剪辑分镜：螺旋绕着巢穴浓烟升起（镜头随地面震动猛烈左右颠）→ 依次给沿途三处机关/敌人一个低机位特写
+# → 离两人约 10% 路程处的特写不切镜，一条连续曲线：贴近目标慢慢后拉升起，逐渐加速面朝 Boss 方向倒着飞回两人身边
+# （高度正弦起伏、左右来回摆），落在正常旅程镜头上，章节名此时才浮现。
+# 镜头之间用短暂的淡出淡入切换。
 # 坐标：道路单位（20 = 1 米），世界 z = -道路 y / 20。
 
 const SCALE := 20.0
-const LAIR := 4.2
-const HEROES := 3.0
+const LAIR := 3.2
+const CLOSE := 2.4
+const TITLE_HOLD := 2.6
 const CUT := 0.22
 const THUMP := 0.5
-const HIGHLIGHTS := [0.8, 0.6, 0.4, 0.2]
+const HIGHLIGHTS := [0.8, 0.6, 0.4, 0.1]
 const SHOWCASE := ["sweeper", "hammer", "press", "piston", "shuttle", "pillar", "active_spikes", "jump_bar", "lift", "rail", "steam"]
 const FOV := 58.0
 const CLOSE_FOV := 50.0
@@ -84,7 +87,7 @@ static func sync_smoke(smoke: GPUParticles3D, run) -> void:
 	var emitting: bool = event.phase == "dormant"
 	if smoke.emitting != emitting: smoke.emitting = emitting
 
-# 地面震动：沉睡时巢穴下每 THUMP 秒闷响一下（扬尘圈、土丘一鼓、附近镜头轻震），让人知道下面有东西。
+# 地面震动：沉睡时巢穴下每 THUMP 秒闷响一下——巢穴扬尘圈、整片场地四处扬尘、土丘一鼓、附近镜头跟着震，让人知道下面有东西。
 # 按模拟时间取拍，联机两端节奏一致。
 static func thump_age(run) -> float:
 	return fposmod(run.elapsed, THUMP)
@@ -94,7 +97,7 @@ static func lair_dormant(run) -> Dictionary:
 	if event.is_empty() or event.hp <= 0 or event.phase != "dormant": return {}
 	return event
 
-# 每一拍触发一次扬尘圈；只在 Boss 场地处于显示范围内时触发。
+# 每一拍触发一次：巢穴扬尘圈，加上巢穴周围约 25 米内八处碎土与扬尘（位置按拍数变化）。只在 Boss 场地处于显示范围内时触发。
 static func sync_thump(game) -> void:
 	var run = game.run
 	var event := lair_dormant(run)
@@ -104,18 +107,31 @@ static func sync_thump(game) -> void:
 	game.set_meta("lair_thump", beat)
 	var hazard_fx = game.get("hazard_fx")
 	if hazard_fx != null: hazard_fx.slam(world(event.origin, 0.1), 7.0)
+	var fx = game.get("fx")
+	if fx == null: return
+	fx.impact(world(event.origin, 0.05), Color("d8c2a0"), 18.0, 0.0, false)
+	for n in range(8):
+		var seed := float(beat*8+n)
+		var spot := world(Vector2(sin(seed*12.9898)*260.0, event.origin.y+sin(seed*78.233)*500.0), 0.05)
+		# 每处一小撮碎土加两团扬尘，远看也能分辨出地面在抖。
+		if hazard_fx != null: hazard_fx.burst_debris(spot+Vector3(0, 0.2, 0), Color("6f6254"), 1.6)
+		fx.burst("dust", spot)
+		fx.burst("dust", spot+Vector3(0.9, 0, -0.6))
 
-# 镜头轻震：离巢穴 20 米内最强，100 米外为零；每拍一下后迅速衰减。
-static func shake(game, xform: Transform3D) -> Transform3D:
+# 镜头跟着地面震：离巢穴 30 米内最强，150 米外为零；每拍猛地一震后衰减，带一点滚转。
+# violent：开场巢穴镜头用，以左右为主的狂颠，衰减更慢，两拍之间也一直在抖。
+static func shake(game, xform: Transform3D, violent := false) -> Transform3D:
 	var run = game.run
 	var event := lair_dormant(run)
 	if event.is_empty() or run.state != "running": return xform
 	var gap: float = absf(-xform.origin.z*SCALE-event.y)
-	var near := 1.0-clampf((gap-400.0)/1600.0, 0.0, 1.0)
-	var amount := 0.14*near*exp(-thump_age(run)*9.0)
+	var near := 1.0-clampf((gap-600.0)/2400.0, 0.0, 1.0)
+	var amount := (1.1*exp(-thump_age(run)*4.0) if violent else 0.38*exp(-thump_age(run)*7.0))*near
 	if amount < 0.002: return xform
 	var e: float = run.elapsed
-	xform.origin += xform.basis*Vector3(sin(e*53.0), sin(e*61.0+1.3), 0.0)*amount
+	var sideways := 1.6 if violent else 1.0
+	xform.origin += xform.basis*Vector3((sin(e*47.0)+sin(e*29.0)*0.6)*sideways, sin(e*61.0+1.3)*0.5+sin(e*23.0)*0.3, 0.0)*amount
+	xform.basis = xform.basis*Basis(Vector3.FORWARD, sin(e*37.0)*amount*(0.07 if violent else 0.03))
 	return xform
 
 static func world(point: Vector2, height: float = 0.0) -> Vector3:
@@ -131,11 +147,11 @@ static func smoke_center(run) -> Vector3:
 static func heroes_center(run) -> Vector3:
 	return world((run.a.position+run.b.position)*0.5)
 
-# 螺旋绕烟：从 Boss 背后出发绕一整圈，半径逐渐收紧、高度按正弦起伏着升高，镜头盯住随高度上移的烟柱。
+# 螺旋绕烟：从 Boss 背后出发绕大半圈，半径逐渐收紧、高度按正弦起伏着升高，镜头盯住随高度上移的烟柱。
 static func spiral(run, u: float) -> Array:
 	var e := lerpf(u, ease01(u), 0.5)
 	var center := smoke_center(run)
-	var angle := -PI+TAU*e
+	var angle := -PI+TAU*0.8*e
 	var radius := lerpf(36.0, 24.0, e)+2.5*sin(e*PI*3.0)
 	var height := lerpf(5.0, 19.0, e)+3.0*sin(e*TAU*1.5)
 	var eye := center+Vector3(sin(angle)*radius, height, cos(angle)*radius)
@@ -163,8 +179,8 @@ static func highlights(game) -> Array:
 	var result: Array = []
 	for n in range(HIGHLIGHTS.size()):
 		var target: float = start+span*HIGHLIGHTS[n]
-		# 怪物与机关交替出镜：第 1、3 个镜头优先怪物，第 2、4 个优先机关/合作门。
-		var want_npc := n%2 == 0
+		# 怪物与机关交替出镜：第 1、3 个镜头优先怪物，第 2 个优先机关/合作门；最后一个是倒飞起点，挑怪物更好认。
+		var want_npc := n%2 == 0 or n == HIGHLIGHTS.size()-1
 		var best: Array = []
 		var best_score := -INF
 		for candidate in candidates:
@@ -177,19 +193,24 @@ static func highlights(game) -> Array:
 		if not best.is_empty(): result.append([Vector2(clampf(best[0].x, -260.0, 260.0), best[0].y), best[3]])
 	return result
 
-# 镜头表：[开始, 结束, 类型, 目标（世界坐标）, 摆向, 取景倍数, 运镜方式]。巢穴 → 各处特写 → 两人；镜头之间淡出淡入切换。
+# 镜头表：[开始, 结束, 类型, 目标（世界坐标）, 摆向, 取景倍数, 运镜方式]。
+# 巢穴 → 前几处特写 → 从最后一处（离两人约 10%）倒飞回两人身边；镜头之间淡出淡入切换。
 static func shots(game) -> Array:
 	var run = game.run
 	var result: Array = [[0.0, LAIR, "lair", smoke_center(run), 1.0]]
 	var picks := highlights(game)
-	var close: float = (run.OPENING-LAIR-HEROES)/maxf(picks.size(), 1)
+	var start: float = minf(run.a.position.y, run.b.position.y)
+	var event: Dictionary = run.Boss.boss(run)
+	var end: float = event.arena if not event.is_empty() else run.finish_distance()
+	# 倒飞起点：最后一个特写目标；没挑到时用 10% 处的路中央。
+	var origin: Array = picks.pop_back() if picks.size() == HIGHLIGHTS.size() else [Vector2(0, start+(end-start)*HIGHLIGHTS[-1]), 1.0]
 	var time := LAIR
 	var side := 1.0
 	for n in range(picks.size()):
-		result.append([time, time+close, "close", world(picks[n][0], 1.0), side, picks[n][1], n])
-		time += close
+		result.append([time, time+CLOSE, "close", world(picks[n][0], 1.0), side, picks[n][1], n])
+		time += CLOSE
 		side = -side
-	result.append([time, run.OPENING, "heroes", heroes_center(run), side])
+	result.append([time, run.OPENING, "flyback", world(origin[0], 1.0), side, origin[1], picks.size()])
 	return result
 
 # 开场镜头：返回 {transform, fov}。home 是正常旅程镜头，最后正好落在它上面。
@@ -218,7 +239,7 @@ static func pose(game, home: Transform3D, list: Array, t: float) -> Dictionary:
 			return {"transform": Transform3D.IDENTITY.translated(lair[0]).looking_at(lair[1], Vector3.UP), "fov": FOV}
 		"close":
 			return close_up(shot, u)
-	return heroes(run, home, shot, u)
+	return flyback(home, shot, u)
 
 # 特写：机位在目标的两人一侧，背景是通往 Boss 的路。每个镜头里上下、左右各只朝一个方向走，同时一直推近：
 # 上下：第 1、3 个镜头从高处降下，第 2、4 个从低处升起；左右：按摆向从一侧单向绕向正后方，相邻镜头方向相反。
@@ -238,28 +259,29 @@ static func close_up(shot: Array, u: float) -> Dictionary:
 	var look := target+Vector3(0, 1.3*scale, 0)
 	return {"transform": Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP), "fov": CLOSE_FOV}
 
-# 收尾：先在两人面前稍作停留并推近，再沿弧线从侧面绕到身后，视线始终盯住两人，最后与正常镜头重合。
-static func heroes(run, home: Transform3D, shot: Array, u: float) -> Dictionary:
-	var center := heroes_center(run)
-	var side: float = shot[4]
-	var push := ease01(u/0.3)
-	var front := center+Vector3(side*lerpf(4.0, 2.5, push), lerpf(3.4, 3.0, push), lerpf(-12.0, -9.5, push))
-	var k := ease01((u-0.3)/0.7)
-	var from := front-center
-	var to := home.origin-center
-	# 从正面经侧面绕到背后，不从头顶翻过：正面机位已按摆向偏到一侧，取较短的那一边绕正好经过这一侧。
-	var from_angle := atan2(from.x, from.z)
-	var turn := wrapf(atan2(to.x, to.z)-from_angle, -PI, PI)
-	var angle := from_angle+turn*k
-	var radius := lerpf(Vector2(from.x, from.z).length(), Vector2(to.x, to.z).length(), k)
-	var height := lerpf(from.y, to.y, k)+3.0*sin(k*PI)
-	var eye := center+Vector3(sin(angle)*radius, height, cos(angle)*radius)
-	var home_look := home.origin-home.basis.z*40.0
-	var look := (center+Vector3(0, 1.4, 0)).lerp(home_look, ease01((k-0.35)/0.65))
+# 收尾：一条连续曲线，不分段、不停顿。开头贴近目标、看着它慢慢后拉并升起（就是这里的特写），
+# 速度逐渐加大，面朝 Boss 方向倒着飞回两人身边，最后减速落在正常镜头上。
+# 前后位置：五次缓动加一项 0.15·u·(1−u)²——起步就有一点后拉的速度，不是从静止猛地起飞；落地速度为零。
+# 途中高度：整体抬高约 5.5 米加 ±3 米正弦（一开始向上，正好接上特写的升起），左右来回摆 ±9 米一个半来回；
+# 包络在开头 30%、结尾 18% 内平滑收放，两端偏移与速度都归零。镜头随左右摆动略微转向，走出弧线感；
+# 视线先盯住目标，再逐渐转到正常镜头的朝向，最后与正常镜头完全重合。
+static func flyback(home: Transform3D, shot: Array, u: float) -> Dictionary:
 	if u >= 1.0: return {"transform": home, "fov": 57.0}
-	return {"transform": Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP), "fov": lerpf(CLOSE_FOV, 57.0, k)}
+	var target: Vector3 = shot[3]
+	var side: float = shot[4]
+	var scale: float = shot[5]
+	var from := target+Vector3(side*1.5, 2.2*scale, 7.5*scale)
+	var e := u*u*u*(u*(u*6.0-15.0)+10.0)+0.15*u*(1.0-u)*(1.0-u)
+	var eye := from.lerp(home.origin, e)
+	var envelope := smoothstep(0.0, 0.3, u)*(1.0-smoothstep(0.82, 1.0, u))
+	var sway := side*9.0*sin(u*TAU*1.5)*envelope
+	eye.y += (5.5+3.0*sin(u*TAU*2.0))*envelope
+	eye.x = clampf(eye.x+sway, -ROAD_HALF, ROAD_HALF)
+	var at_target := (target+Vector3(0, 1.2*scale, 0)-eye).normalized()
+	var look := at_target.slerp(-home.basis.z, ease01((u-0.12)/0.5)).rotated(Vector3.UP, sway/45.0)
+	return {"transform": Transform3D.IDENTITY.translated(eye).looking_at(eye+look*40.0, Vector3.UP), "fov": lerpf(CLOSE_FOV, 57.0, ease01(u))}
 
-# 开场期间需要载入场景的道路位置：当前镜头的目标与机位（必须就绪），以及下一个镜头的目标（提前排队）。
+# 开场期间需要载入场景的道路位置：当前镜头的目标与机位（必须就绪），以及下一个镜头的目标、倒飞时 1.2 秒后的机位（提前排队）。
 # 切到下一个镜头时若场景还没就绪，模拟停在黑场上等待，不会露出空白地面。
 static func foci(game, home: Transform3D, list: Array) -> Array:
 	var run = game.run
@@ -270,6 +292,8 @@ static func foci(game, home: Transform3D, list: Array) -> Array:
 	var xform: Transform3D = pose(game, home, list, t).transform
 	var result: Array = [-shot[3].z*SCALE, -xform.origin.z*SCALE]
 	if i+1 < list.size(): result.append(-list[i+1][3].z*SCALE)
+	# 倒飞途中再提前排队 1.2 秒后机位一带。
+	if shot[2] == "flyback": result.append(-pose(game, home, list, minf(t+1.2, run.OPENING-0.01)).transform.origin.z*SCALE)
 	return result
 
 # 黑边、淡入与跳过提示。
@@ -285,7 +309,7 @@ static func build_cinema(parent: Node) -> CanvasLayer:
 		bar.color = Color.BLACK
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		layer.add_child(bar)
-	for spec in [["Title", 40, Color("f6e2b8")], ["Skip", 15, Color(1, 1, 1, 0.6)]]:
+	for spec in [["Title", 58, Color("f6e2b8")], ["Skip", 15, Color(1, 1, 1, 0.6)]]:
 		var label := Label.new()
 		label.name = spec[0]
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -301,7 +325,8 @@ static func build_cinema(parent: Node) -> CanvasLayer:
 
 static func sync_cinema(layer: CanvasLayer, game) -> void:
 	var run = game.run
-	layer.visible = run.opening_active() and run.state in ["running", "paused"]
+	# 开场结束后再留 TITLE_HOLD 秒显示章节名（其余元素此时都已收起）。
+	layer.visible = run.opening_age() >= 0.0 and run.opening_age() < run.OPENING+TITLE_HOLD and run.state in ["running", "paused"]
 	if not layer.visible: return
 	var t: float = run.opening_age()
 	var size: Vector2 = game.get_viewport().get_visible_rect().size
@@ -321,12 +346,12 @@ static func sync_cinema(layer: CanvasLayer, game) -> void:
 		for i in range(1, list.size()):
 			dark = maxf(dark, 1.0-ease01(absf(t-list[i][0])/CUT))
 	fade.color.a = dark
-	# 章节名在绕烟镜头的后半段浮现。
+	# 章节名在镜头落回两人身后时才浮现，开始操作后再停留一会儿淡出；放在画面中上方，不挡人物和 HUD。
 	var title: Label = layer.get_node("Title")
 	title.text = run.CHAPTERS[run.level_index].name
-	title.position = Vector2(0, size.y*0.72)
-	title.size = Vector2(size.x, 60)
-	title.modulate.a = ease01((t-1.6)/0.6)*(1.0-ease01((t-LAIR+0.2)/0.6)) if run.opening_skipped_age < 0.0 else 0.0
+	title.position = Vector2(0, size.y*0.28)
+	title.size = Vector2(size.x, 80)
+	title.modulate.a = ease01((t-(run.OPENING-0.4))/0.6)*(1.0-ease01((t-(run.OPENING+TITLE_HOLD-0.7))/0.7))
 	var skip: Label = layer.get_node("Skip")
 	skip.position = Vector2(0, size.y-bar_height*0.5-12)
 	skip.size = Vector2(size.x-24, 24)

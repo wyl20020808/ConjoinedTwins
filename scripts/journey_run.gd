@@ -65,7 +65,7 @@ var boss_index := -1
 # 开场运镜：从 Boss 巢穴的浓烟绕一圈，沿路掠过机关与敌人回到两人身后。只在章节从头开始时播放，
 # 期间两人不能操作、不受伤害，任一人按跳跃可跳过（剩 OPENING_RETURN 秒的镜头交还）。
 # 按模拟时间推进，联机两端一致；opening_enabled 由生产入口打开，测试默认关闭。
-const OPENING := 17.5
+const OPENING := 19.0
 const OPENING_SKIP_AFTER := 0.6
 const OPENING_RETURN := 1.2
 var opening_enabled := false

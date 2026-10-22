@@ -54,22 +54,23 @@ func verify() -> void:
 	check(not game.get_node("JourneyCanvas").visible, "开场期间 HUD 收起")
 	var smoke := Opening.smoke_center(run)
 	check(game.camera_shot().origin.distance_to(smoke) < 60.0, "镜头先在 Boss 巢穴")
+	check(game.opening_cinema.get_node("Title").modulate.a < 0.01, "绕烟时不显示章节名")
 	var shots: Array = game.opening_keys(game.opening_home())
-	check(shots.size() == 6 and shots[0][2] == "lair" and shots[-1][2] == "heroes", "分镜：巢穴、四处特写、两人")
+	check(shots.size() == 5 and shots[0][2] == "lair" and shots[-1][2] == "flyback", "分镜：巢穴、三处特写、倒飞回两人")
 	var npc := 0
 	for i in range(1, shots.size()-1):
 		var hit := false
 		for event in run.journey_events:
 			if event.kind == "monster" and Opening.world(event.rect.get_center(), 1.0).distance_to(shots[i][3]) < 0.01: hit = true
 		if hit: npc += 1
-	check(npc >= 1 and npc <= 3, "特写里怪物与机关都有（怪物 %d 处）" % npc)
+	check(npc >= 1 and npc <= 2, "特写里怪物与机关都有（怪物 %d 处）" % npc)
 	var inside := true
 	var t := 0.5
 	while t < shots[-1][0]:
 		var eye: Vector3 = Opening.pose(game, game.opening_home(), shots, t).transform.origin
-		if shots[Opening.current(shots, t)][2] == "close" and absf(eye.x) > Opening.ROAD_HALF+0.01: inside = false
+		if shots[Opening.current(shots, t)][2] != "lair" and absf(eye.x) > Opening.ROAD_HALF+0.01: inside = false
 		t += 0.1
-	check(inside, "特写机位不出路面")
+	check(inside, "特写与倒飞机位不出路面")
 	# 完整播放：结束前一刻镜头已与正常镜头重合，结束后恢复操作。
 	advance(run.OPENING-0.55)
 	var home: Transform3D = game.opening_home()
@@ -79,6 +80,9 @@ func verify() -> void:
 	var before: Vector2 = run.a.position
 	advance(0.5, Vector2(0, 1))
 	check(run.a.position.y > before.y+10.0, "开场结束后可以前进")
+	check(game.opening_cinema.visible and game.opening_cinema.get_node("Title").modulate.a > 0.9, "落回两人身后后显示章节名")
+	advance(Opening.TITLE_HOLD)
+	check(not game.opening_cinema.visible, "章节名随后收起")
 	# 跳过：0.6 秒后按跳跃，剩下交还镜头的时间后结束。
 	run.retry()
 	advance(0.7)
