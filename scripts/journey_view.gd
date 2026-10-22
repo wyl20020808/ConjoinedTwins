@@ -10,6 +10,15 @@ var chunk_plan_tasks_started := 0
 var chunk_assets = AssetQueue.new()
 var chunk_jobs := {}
 var scene_prepared := false
+# 生产入口打开：章节从头开始时先播开场运镜。测试场景默认关闭，不吞掉开局输入。
+var opening_enabled := false
+const OPENING_SLICE_USEC := 7000
+var opening_frames: Array = []
+var opening_frames_key := ""
+# 开场期间额外需要载入的道路位置（前两项为当前镜头的目标与机位，必须就绪；其后为下一个镜头，提前排队）。
+var opening_foci: Array = []
+var opening_smoke: GPUParticles3D
+var opening_cinema: CanvasLayer
 var scene_preparation_progress := 0.0
 var preparation_peak_usec := 0
 var preparation_waits := 0
@@ -68,6 +77,7 @@ const Fx = preload("res://scripts/journey_fx.gd")
 var fx
 const Buddy=preload("res://scripts/journey_buddy.gd")
 const BossView=preload("res://scripts/journey_boss_view.gd")
+const Opening=preload("res://scripts/journey_opening.gd")
 # Boss 战镜头：比旅程镜头更高更远、视角更宽，跟随两人中点在场地内前后移动，朝向仍固定向前。
 const BOSS_EYE_HEIGHT := 12.5
 const BOSS_EYE_BACK := 420.0
@@ -84,7 +94,6 @@ var input_override:Dictionary={}
 var web_test_mode:=false
 var web_verify:=false
 var verify_clock:=1.0
-var last_fire_sent:=false
 const WEB_BUILD:="chapter-menu-online-cache-20261021"
 var world_chunks := {}
 var event_views := {}
@@ -141,8 +150,14 @@ var load_sent := -1
 var online_entry := false
 var last_prepare_ok := false
 var prefetch_clock := 0.0
-var net_diag: Label
+var net_diag: HBoxContainer
+var net_fps: Label
+var net_ping: Label
+var net_diag_clock := 0.0
 var camera_smoothed := false
+const OnlinePresentation = preload("res://scripts/online_presentation.gd")
+var online_presentation = OnlinePresentation.new()
+var online_rope_target: Array[Vector3] = []
 var combat_view: Node3D
 var combat_status: Label
 var combat_health: ProgressBar
@@ -230,13 +245,79 @@ func create_run():
 	return Journey.new(true)
 
 func model_visible(y: float) -> bool:
-	return y-run.distance >= -MODEL_BEHIND and y-run.distance < MODEL_AHEAD
+	return in_view_window(y,-MODEL_BEHIND,MODEL_AHEAD)
 
 func model_preload(y: float) -> bool:
-	return y-run.distance >= -MODEL_BEHIND and y-run.distance < MODEL_PREFETCH
+	return in_view_window(y,-MODEL_BEHIND,MODEL_PREFETCH)
 
 func model_resident(y: float) -> bool:
-	return y-run.distance >= -MODEL_BEHIND-200 and y-run.distance < MODEL_RETAIN
+	return in_view_window(y,-MODEL_BEHIND-200,MODEL_RETAIN)
+
+# 显示窗口围绕两人进度；开场运镜期间再加上镜头所在的位置。
+func in_view_window(y: float, behind: float, ahead: float) -> bool:
+	if y-run.distance >= behind and y-run.distance < ahead: return true
+	for focus in opening_foci:
+		if y-focus >= behind and y-focus < ahead: return true
+	return false
+
+func view_gap(y: float) -> float:
+	var gap:=absf(y-run.distance)
+	for focus in opening_foci: gap=minf(gap,absf(y-focus))
+	return gap
+
+# 环境光、雾与主题跟随画面所在位置：开场运镜时取镜头位置。
+func view_distance() -> float:
+	return opening_foci[1] if opening_shown() and opening_foci.size()>1 else run.distance
+
+# 巢穴浓烟在 Boss 场地进入载入范围时才建立，黑边在开场第一次播放时才建立；平时不占资源。
+func sync_opening() -> void:
+	var boss:Dictionary=run.Boss.boss(run)
+	if opening_smoke==null and not boss.is_empty() and model_resident(boss.y):
+		opening_smoke=Opening.build_smoke()
+		add_child(opening_smoke)
+	if opening_smoke!=null: Opening.sync_smoke(opening_smoke,run)
+	if opening_cinema==null and opening_shown(): opening_cinema=Opening.build_cinema(self)
+	if opening_cinema!=null: Opening.sync_cinema(opening_cinema,self)
+	Opening.sync_thump(self)
+
+func opening_shown() -> bool:
+	return run.state=="running" and run.opening_active()
+
+func opening_home() -> Transform3D:
+	var home:=camera_home
+	home.origin.z-=run.distance/SCALE
+	return home
+
+func opening_keys(home: Transform3D) -> Array:
+	var key:="%d:%d:%f:%s:%s"%[run.seed_value,run.level_index,run.opening_at,run.a.position,run.b.position]
+	if key!=opening_frames_key:
+		opening_frames=Opening.shots(self)
+		opening_frames_key=key
+	return opening_frames
+
+func update_opening_foci() -> void:
+	opening_foci=[]
+	if run.opening_age()<0.0 or run.opening_age()>=run.OPENING or run.state not in ["start","running","paused"]: return
+	var home:=opening_home()
+	opening_foci=Opening.foci(self,home,opening_keys(home))
+
+# 需要的地形块编号：两人进度一带，加上开场镜头位置一带（required 时只算镜头当前位置）。
+func view_chunk_numbers(ahead: int, required := false) -> Array:
+	var result:Array=[]
+	var foci:Array=[run.distance]
+	foci.append_array(opening_foci.slice(0,2) if required else opening_foci)
+	for focus in foci:
+		var current:=int(focus/SCALE/CHUNK)
+		for number in range(maxi(-1,current-1),current+ahead+1):
+			if number*CHUNK*SCALE>run.finish_distance()+400 or result.has(number): continue
+			result.append(number)
+	return result
+
+func chunk_wanted(number: int, ahead: int) -> bool:
+	for focus in [run.distance]+opening_foci:
+		var current:=int(focus/SCALE/CHUNK)
+		if number>=current-1 and number<=current+ahead: return true
+	return false
 
 func _ready() -> void:
 	# 本地也限制长帧追赶，避免补算持续挤占输入和绘制。
@@ -250,6 +331,7 @@ func _ready() -> void:
 	charge_gate_view.free()
 	run.solo_control=true
 	run.external_companion=not training_entry
+	run.opening_enabled=opening_enabled
 	if training_entry:
 		run.combat_trial=true
 		run.retry()
@@ -257,6 +339,9 @@ func _ready() -> void:
 		# 主界面选定的章节：只准备这一章，其余章节数据按需下载。
 		run.level_index=clampi(start_chapter,0,Journey.CHAPTERS.size()-1)
 		run.retry()
+	else:
+		# 第一章沿用构造时已建好的对局，那时开场开关还没打开，这里补排开场。
+		run.arm_opening()
 	run.state="start"
 	add_child(road)
 	build_lighting()
@@ -679,11 +764,12 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 
 func prepare_journey_frame() -> bool:
 	var started := Time.get_ticks_usec()
-	var deadline := started + Run.PRELOAD_SLICE_USEC
+	# 开场运镜期间没人操作，镜头一路飞过整章：放宽每帧载入预算、多开一路后台计划，尽量不让镜头等载入。
+	var opening:bool=run.state=="running" and run.opening_active()
+	var deadline := started + (OPENING_SLICE_USEC if opening else Run.PRELOAD_SLICE_USEC)
 	sync_world()
-	var current := int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(-1,current-1),current+4):
-		if number*CHUNK*SCALE>run.finish_distance()+400 or world_chunks.has(number): continue
+	for number in view_chunk_numbers(3):
+		if world_chunks.has(number): continue
 		if not chunk_jobs.has(number):
 			chunk_jobs[number] = {"items":null,"cursor":0,"node":null,"paths":[],"task":null}
 	var active := 0
@@ -698,7 +784,7 @@ func prepare_journey_frame() -> bool:
 			job.task.dispose()
 			job.task=null
 		elif parallel_chunk_plans and run.supports_background_generation():
-			if active>=2: continue
+			if active>=(3 if opening else 2): continue
 			job.task=PreparationTask.new(ChunkPlan.make.bind(number,run.level_index,chunk_chapter(number).duplicate(true),Run.EDGE))
 			chunk_plan_tasks_started+=1
 			active+=1
@@ -754,14 +840,13 @@ func prepare_journey_frame() -> bool:
 		if job.cursor==job.items.size() and Time.get_ticks_usec()<deadline:
 			rebuild_floor(job.node,number)
 			world_chunks[number]=job.node
-			job.node.visible=number<=current+3
+			job.node.visible=chunk_wanted(number,3)
 			chunk_jobs.erase(number)
 			chunk_install_count+=1
 	var ready := events_ready and prepare_hazard_views(deadline)
 	var completed := 0
 	var required := 0
-	for number in range(maxi(-1,current-1),current+4):
-		if number*CHUNK*SCALE>run.finish_distance()+400: continue
+	for number in view_chunk_numbers(3,true):
 		required+=1
 		if world_chunks.has(number): completed+=1
 		else: ready=false
@@ -819,17 +904,16 @@ func sync_world() -> void:
 		floor_stamp=""
 		for view in static_views.values():view.queue_free()
 		static_views.clear()
-	var current:=int(run.distance/SCALE/CHUNK)
-	for number in range(maxi(-1,current-1),current+4):
-		if number*CHUNK*SCALE>run.finish_distance()+400: continue
+	update_opening_foci()
+	for number in view_chunk_numbers(3):
 		if not world_chunks.has(number) and not incremental_loading: world_chunks[number]=build_chunk(number)
 	for number in world_chunks.keys():
-		if number<current-1 or number>current+(5 if incremental_loading else 3):
+		if not chunk_wanted(number,5 if incremental_loading else 3):
 			world_chunks[number].queue_free()
 			world_chunks.erase(number)
-	for number in world_chunks: world_chunks[number].visible=number<=current+3
+	for number in world_chunks: world_chunks[number].visible=chunk_wanted(number,3)
 	for number in chunk_jobs.keys():
-		if number<current-1 or number>current+5:
+		if not chunk_wanted(number,5):
 			if chunk_jobs[number].task!=null: chunk_jobs[number].task.dispose()
 			if is_instance_valid(chunk_jobs[number].node): chunk_jobs[number].node.queue_free()
 			chunk_jobs.erase(number)
@@ -1160,11 +1244,23 @@ func build_journey_ui() -> void:
 	journey_hint.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	journey_hint.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(journey_hint)
-	# 联机质量小字：延迟、抖动、缓冲、卡顿次数与帧率，卡的时候截图即可判断是网络还是电脑性能。
-	net_diag=label("",13,Color(0.85,0.9,0.85,0.75))
+	# 左下角只保留帧率和往返延迟；详细诊断继续写入联机日志。
+	net_diag=HBoxContainer.new()
 	net_diag.name="NetDiagnostics"
 	net_diag.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	net_diag.add_theme_constant_override("separation",8)
+	net_diag.visible=false
 	canvas.add_child(net_diag)
+	net_fps=label("fps:--",13,Color("cfd6cc"))
+	net_fps.custom_minimum_size.x=62
+	net_diag.add_child(net_fps)
+	net_ping=label("--ms",13,Color("cfd6cc"))
+	net_ping.custom_minimum_size.x=54
+	net_diag.add_child(net_ping)
+	for text_label in [net_fps,net_ping]:
+		text_label.mouse_filter=Control.MOUSE_FILTER_IGNORE
+		text_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
+		text_label.add_theme_constant_override("outline_size",3)
 	for text_label in [hud,partner_status,combat_status,weapon_ammo,weapon_detail,journey_hint]:
 		text_label.add_theme_color_override("font_outline_color",Color(0.06,0.09,0.07,0.9))
 		text_label.add_theme_constant_override("outline_size",4)
@@ -1665,12 +1761,13 @@ func health_bar(color: Color, height: float) -> ProgressBar:
 	return result
 
 func reset_journey_views() -> void:
+	online_presentation.reset()
+	online_rope_target.clear()
 	buddy.reset()
 	failed_animation_started=[false,false]
 	rescue_seen=[0,0]
 	rescue_pulse=[0.0,0.0]
 	body_yaw=[0.0,0.0]
-	last_fire_sent=false
 	prepared_online_frame=-1
 	# 固定关卡重试只需刷新阶段和反馈，不重建相同的环境模型。
 	floor_stamp=""
@@ -1763,6 +1860,15 @@ func _physics_process(delta: float) -> void:
 			frame_costs[sample[0]]=cost
 
 func _process(delta:float)->void:
+	update_net_diagnostics(delta)
+	# 上次的插值只留在显示节点上；采集新目标前恢复原目标，避免反馈进动画和后续采样。
+	if online_presentation.target.size() >= 4 and robots.size() == 2:
+		for i in range(2):
+			robots[i].position=online_presentation.target[i]
+			shadows[i].position=online_presentation.target[i+2]
+	if not online_visual_enabled():
+		online_presentation.reset()
+		online_rope_target.clear()
 	# 受击红边和低血量暗角先于视图更新，暂停时也自然衰减。
 	if is_instance_valid(vignette_mat):
 		damage_flash=maxf(0.0,damage_flash-delta*2.4)
@@ -1785,6 +1891,7 @@ func _process(delta:float)->void:
 			var duration:=Time.get_ticks_usec()-started
 			cost.samples+=1;cost.total_usec+=duration;cost.max_usec=maxi(cost.max_usec,duration)
 			frame_costs.render_view=cost
+	if scene_prepared and online_visual_enabled(): smooth_online_visuals(delta)
 	# 暂停、失败、救援、结算与开始页时，喷火/滚石/机械等持续声一律停下。
 	if run.state!="running" and is_instance_valid(sfx): sfx.stop_loops()
 
@@ -1887,11 +1994,12 @@ func sync_view() -> void:
 		var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
 		rope_view.energy_level=1.0+night*0.6
 		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time() if run.state=="running" else 0.0)
-		rope_view.simulate(path,0,Color.WHITE,0)
+		if online_visual_enabled(): online_rope_target=path
+		else: rope_view.simulate(path,0,Color.WHITE,0)
 		sync_rope_light(path,night)
 	update_journey_camera()
-	var theme:String=run.theme_at(run.distance)
-	var forest_weight:float=Landscape.profile(run.distance/SCALE,run.level_index).y if not run.combat_trial else 0.65
+	var theme:String=run.theme_at(view_distance())
+	var forest_weight:float=Landscape.profile(view_distance()/SCALE,run.level_index).y if not run.combat_trial else 0.65
 	canopy_light.light_energy=lerpf(1.25,1.05,forest_weight)*(Atmosphere.SUN_SCALE if atmosphere.enabled else 1.0)
 	canopy_light.light_color=Color("ffe2bd").lerp(Color("e7edce"),forest_weight)
 	world_environment.ambient_light_energy=lerpf(0.66,0.58,forest_weight)*(Atmosphere.AMBIENT_SCALE if atmosphere.enabled else 1.0)
@@ -1901,7 +2009,8 @@ func sync_view() -> void:
 	landscape.leaf_material.set_shader_parameter("phase",run.elapsed)
 	landscape.palette.NaturalLeaf.set_shader_parameter("phase",run.elapsed)
 	world_environment.fog_light_color=Color("a19a8b").lerp(Color("7e9182"),forest_weight)
-	atmosphere.sync(camera,run.distance/SCALE,run.level_index,forest_weight)
+	atmosphere.sync(camera,view_distance()/SCALE,run.level_index,forest_weight)
+	sync_opening()
 	var middle:Vector2=(run.a.position+run.b.position)*.5
 	fx.sync_ambient(Vector3(middle.x/SCALE,0,-middle.y/SCALE),forest_weight,1.0-forest_weight,1.0 if run.level_index==2 else 0.0)
 	fx.sync_time_of_day(Vector3(middle.x/SCALE,0,-middle.y/SCALE),run.level_index,forest_weight)
@@ -1923,6 +2032,25 @@ func sync_view() -> void:
 	if coop_fx:coop_fx.sync(path)
 	update_journey_ui()
 	publish_web_verification()
+
+# 角色、影子和整条绳在同一个时间窗口插值，避免绳端脱离角色；不修改 run 和碰撞。
+# 只有这一小段显示处理在高刷新率的中间帧运行，不重复同步整套场景。
+func online_visual_enabled()->bool:
+	return play_mode=="online" and is_instance_valid(net) and net.in_match and run.state=="running" and not run.Boss.cinematic(run)
+
+func smooth_online_visuals(delta:float)->void:
+	if robots.size()!=2 or online_rope_target.size()<2:return
+	var points:Array[Vector3]=[robots[0].position,robots[1].position,shadows[0].position,shadows[1].position]
+	points.append_array(online_rope_target)
+	var shown:Array[Vector3]=online_presentation.sample(points,delta)
+	for i in range(2):
+		robots[i].position=shown[i]
+		shadows[i].position=shown[i+2]
+	var rope_points:Array[Vector3]=[]
+	rope_points.assign(shown.slice(4))
+	rope_view.simulate(rope_points,0,Color.WHITE,0)
+	var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
+	sync_rope_light(rope_points,night)
 
 # 救援时双手握绳：被救者双手握在头顶上方的绳段并交替倒手，拉绳者双手握在身前的绳段。
 # 必须在战斗视图之后调用（它每帧清除骨骼覆盖）；只改表现，不改模拟。
@@ -2222,9 +2350,12 @@ func camera_shot()->Transform3D:
 		var eye:Vector3=focus+(away+side).normalized()*reach+Vector3.UP*5.0
 		return Transform3D.IDENTITY.translated(eye).looking_at(focus,Vector3.UP)
 	if run.state=="failed":return super()
-	var home:=camera_home
-	home.origin.z-=run.distance/SCALE
-	return boss_camera(home)
+	var home:=opening_home()
+	if opening_shown():
+		var shot:Dictionary=Opening.camera(self,home,opening_keys(home))
+		camera.fov=shot.fov
+		return Opening.shake(self,shot.transform,run.opening_age()<Opening.LAIR)
+	return Opening.shake(self,boss_camera(home))
 
 # 开战后到离开场地前都用 Boss 镜头：场地内可以后退，旅程镜头按最远进度定位会把人甩到画面外。
 # 入场动画期间由 BossView 的运镜接管，结束时正好落在 Boss 镜头上。
@@ -2285,7 +2416,7 @@ func sync_journey_rewards() -> void:
 		var view:Node3D=reward_views[i]
 		if i>=run.rewards.size(): view.visible=false;continue
 		var reward:Dictionary=run.rewards[i]
-		view.visible=not reward.claimed and absf(reward.position.y-run.distance)<4000
+		view.visible=not reward.claimed and view_gap(reward.position.y)<4000
 		view.position=Vector3(reward.position.x/SCALE,0.8,-reward.position.y/SCALE)
 		view.scale=Vector3.ONE*(1.8 if reward.kind!="coin" else 1.0)
 		view.material_override=material("reward_"+reward.kind,{"coin":Color("efc36a"),"shield":Color("63bfd0"),"prize":Color("b58fea")}[reward.kind],0.2)
@@ -2345,6 +2476,29 @@ func sync_rescue_hud()->void:
 	if touch_device:instruction="连点右侧跳跃按钮，拉人 / 向上攀爬"
 	if run.rescue.has("climb"):instruction="拉住了！正在爬回路面"
 	rescue_label.text="救援进度 %d%%  ·  剩余 %.1f 秒\n%s"%[roundi(run.rescue.progress*100),maxf(0,Run.RESCUE_TIME-run.rescue.time),instruction]
+
+func update_net_diagnostics(delta: float) -> void:
+	if not is_instance_valid(net_diag) or not is_instance_valid(net): return
+	if not net.in_match:
+		net_diag.hide()
+		net_diag_clock=0.0
+		return
+	var first_show:=not net_diag.visible
+	net_diag.show()
+	net_diag_clock-=delta
+	if not first_show and net_diag_clock>0.0: return
+	net_diag_clock=0.5
+	net_fps.text="fps:%d"%roundi(Engine.get_frames_per_second())
+	var latency:=roundi(net.rtt_ms)
+	net_ping.text="--ms" if net.rtt_ms<0 else "%dms"%latency
+	var color:=Color("cfd6cc")
+	if net.rtt_ms>=0:
+		color=Color("9cdeb9") if latency<=100 else (Color("ffe2a0") if latency<=300 else Color("ef8078"))
+	net_ping.add_theme_color_override("font_color",color)
+	var viewport:=get_viewport().get_visible_rect().size
+	var inset:=12.0 if viewport.x<700 or viewport.y<500 else 24.0
+	net_diag.size=Vector2(124,20)
+	net_diag.position=Vector2(inset,viewport.y-inset-net_diag.size.y)
 
 func update_journey_ui() -> void:
 	if not is_instance_valid(hud): return
@@ -2419,7 +2573,10 @@ func update_journey_ui() -> void:
 	weapon_ammo.visible=not weapon.is_empty()
 	weapon_detail.text=""
 	if not weapon.is_empty():
-		if weapon.reload>0: weapon_detail.text="换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP)
+		# 逐发装填显示已装弹数，开火可打断。
+		if weapon.reload>0 and run.Combat.spec(weapon).get("per_shell",false): weapon_detail.text="装填 %d/%d · 开火可打断"%[weapon.ammo,run.Combat.spec(weapon).magazine] if weapon.ammo>0 else "装填 %d/%d"%[weapon.ammo,run.Combat.spec(weapon).magazine]
+		elif weapon.reload>0: weapon_detail.text="换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP)
+		elif weapon.cooldown>0 and run.combat.get("motion",[{},{}])[role].get("kind","") in ["swap","pickup","drop"] and run.elapsed-float(run.combat.motion[role].time)<0.6: weapon_detail.text="取枪中"
 		elif weapon.ammo==0 and weapon.reserve==0: weapon_detail.text="弹药耗尽"
 	# 背上的第二把枪：显示名称与换枪键。
 	var spare: Dictionary=run.Combat.backup(run,role) if not run.combat.is_empty() else {}
@@ -2431,10 +2588,6 @@ func update_journey_ui() -> void:
 	var playing: bool=run.state in ["running","rescue"]
 	health_panel.visible=playing
 	weapon_panel.visible=playing
-	if is_instance_valid(net_diag):
-		net_diag.visible=net.in_match
-		if net_diag.visible:net_diag.text=net.diagnostics_text()
-		net_diag.position=Vector2(inset,viewport.y-inset-18)
 	journey_hint.position=Vector2(inset,viewport.y-100 if not touch_device else viewport.y*.58)
 	journey_hint.size=Vector2(viewport.x-2*inset,56)
 	journey_hint.text=""
@@ -2445,7 +2598,7 @@ func update_journey_ui() -> void:
 	if run.state=="running" and not run.Boss.hint(run).is_empty():journey_hint.visible=true
 	if journey_hint.visible: journey_hint.text=run.active_hint()
 	# Boss 入场动画按电影画面呈现：整个游戏界面层收起，只留黑边和标题（由 BossView 绘制）；暂停时照常显示菜单。
-	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and run.Boss.cinematic(run))
+	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and (run.Boss.cinematic(run) or run.opening_active()))
 	update_settings_panel()
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
 	update_chapter_bar(viewport,inset,hud_width)
@@ -2639,7 +2792,12 @@ func sample_animation(node:Node,token:String,time:float)->void:
 
 func visual_hazard_candidates() -> Array[int]:
 	var bounds:=Rect2(-Run.EDGE-1000,run.distance-MODEL_BEHIND,Run.EDGE*2+2000,MODEL_PREFETCH+MODEL_BEHIND)
-	return run.obstacles_in_bounds(bounds)
+	var result:Array[int]=run.obstacles_in_bounds(bounds)
+	for focus in opening_foci:
+		bounds.position.y=focus-MODEL_BEHIND
+		for index in run.obstacles_in_bounds(bounds):
+			if not result.has(index): result.append(index)
+	return result
 
 func hazard_view_y(index: int) -> float:
 	if run.hazard_specs[index].get("front",false):return run.obstacles[index].get_center().y+run.hazard_specs[index].offset.y
@@ -3067,6 +3225,7 @@ func apply_command(name:String,arg:="")->void:
 			if run.state=="start" and not net.active():run.set_difficulty(arg);reset_journey_views()
 
 func online_process(delta:float)->void:
+	if net.desynced: return
 	if not net.in_match:
 		sync_view()
 		return
@@ -3078,9 +3237,7 @@ func online_process(delta:float)->void:
 	if confirm_blocked:ChapterPacks.request(next,true)
 	net.send_input(input.a,input.ja and not confirm_blocked)
 	var fire: bool=input.get("fire",false)
-	if fire!=last_fire_sent or input.get("reload",false) or input.get("drop",false) or input.get("swap",false):
-		net.send_command("combat","%d,%d,%d,%d"%[int(fire),int(input.get("reload",false)),int(input.get("drop",false)),int(input.get("swap",false))])
-		last_fire_sent=fire
+	net.send_combat(fire,input.get("reload",false),input.get("drop",false),input.get("swap",false))
 	var applied:=0
 	var start:=Time.get_ticks_usec()
 	# 服务器每秒固定发 60 帧；只消化 1 帧/物理帧时，加载或卡顿造成的积压会变成永久输入延迟。
@@ -3109,13 +3266,17 @@ func online_process(delta:float)->void:
 			break
 		# 保留完整帧等待分帧准备，命令只执行一次，不跳帧或推进模拟时间。
 		last_prepare_ok=not incremental_loading or prepare_journey_frame()
-		if not last_prepare_ok: break
+		if not last_prepare_ok:
+			net.record_simulation(0,false)
+			break
+		var simulation_start:=Time.get_ticks_usec()
 		net.take_frames(1)
 		var before:String=run.state
 		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
 		if run.state!=before:clear_controls()
 		# 状态指纹要序列化整局状态，只在需要上报的帧计算。
 		if index%NetClient.HASH_INTERVAL==0:net.report(index,run.sync_hash())
+		net.record_simulation(Time.get_ticks_usec()-simulation_start,true)
 		net.acknowledge(index+1)
 		online_frame_applied.emit(index)
 		applied+=1

@@ -58,7 +58,8 @@ def main():
     release = args.server_root / 'relay-releases' / (commit[:12] + '-' + stamp)
     (release / 'scripts').mkdir(parents=True)
     (release / 'scenes').mkdir()
-    shutil.copy2(ROOT / 'scripts/net_relay.gd', release / 'scripts/net_relay.gd')
+    for name in ['net_relay.gd', 'net_identity.gd', 'net_manifest.gd']:
+        shutil.copy2(ROOT / 'scripts' / name, release / 'scripts' / name)
     shutil.copy2(ROOT / 'scenes/net_relay.tscn', release / 'scenes/net_relay.tscn')
     (release / 'project.godot').write_text('config_version=5\n[application]\nconfig/name="ConjoinedTwins Relay"\n', encoding='utf-8')
     old_plist = args.relay_plist.read_bytes()

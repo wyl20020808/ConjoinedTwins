@@ -32,11 +32,18 @@ func validate()->void:
 		game.input_override={"a":Vector2.ZERO,"b":Vector2.ZERO,"ja":false,"jb":false}
 		game.online_frame_applied.connect(func(index):record(endpoint,index,game))
 		games.append(game)
-		game.net.connect_to("ws://127.0.0.1:24832" if endpoint==1 or OS.get_environment("ONLINE_TRANSPORT")!="mixed" else "127.0.0.1:24831")
+		var transport:=OS.get_environment("ONLINE_TRANSPORT")
+		game.net.connect_to("ws://127.0.0.1:24832" if transport=="ws" or (transport=="mixed" and endpoint==1) else "127.0.0.1:24831")
+		# 先确认 01 分配完成，混合传输不能依靠谁的握手更快来猜玩家编号。
+		check(await until(func():return game.net.role==endpoint),"endpoint receives expected role %d"%endpoint)
 	check(await until(func():return games.all(func(g):return g.net.in_match)),"two production journey clients connect")
 	if not games.all(func(g):return g.net.in_match):quit(1);return
 	games[0].command("primary")
 	check(await until(func():return common>=90 and games.all(func(g):return g.run.state=="running")),"shared start")
+	var visual_hash:int=games[0].run.sync_hash()
+	games[0].sync_view()
+	games[0].smooth_online_visuals(1.0/120.0)
+	check(games[0].run.sync_hash()==visual_hash,"online presentation leaves simulation fingerprint unchanged")
 	games[0].input_override.a=Vector2(0,1);games[1].input_override.a=Vector2(0,1)
 	check(await until(func():return games.all(func(g):return g.run.a.position.y>100 and g.run.b.position.y>100)),"both remote roles receive forward input")
 	games[0].input_override.a=Vector2.ZERO;games[1].input_override.a=Vector2.ZERO
@@ -57,5 +64,6 @@ func validate()->void:
 	for game in games:print("JOURNEY ONLINE traffic role=",game.net.role," frames=",game.net.next_frame," down_bytes=",game.net.bytes_received," up_bytes=",game.net.bytes_sent," down_per_frame=",snappedf(float(game.net.bytes_received)/maxi(game.net.next_frame,1),0.01)," jitter_ms=",snappedf(game.net.jitter_ms(),0.1)," stalls=",game.net.stalls)
 	for game in games:game.net.disconnect_from();game.queue_free()
 	relay.queue_free();await process_frame
+	await create_timer(0.2).timeout
 	print("JOURNEY ONLINE common=",common," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)

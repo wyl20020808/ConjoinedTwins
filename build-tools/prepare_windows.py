@@ -83,6 +83,8 @@ def run(command, log, timeout):
 
 
 def export(engine):
+    from network_manifest import generate
+    generate()
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     evidence = ROOT / f"builds/windows-evidence-{stamp}"
     evidence.mkdir(parents=True)

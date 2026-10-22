@@ -71,5 +71,6 @@ func validate() -> void:
 		game.queue_free()
 	relay.queue_free()
 	await process_frame
+	await create_timer(0.2).timeout
 	print("ONLINE CHAPTER SYNC common=", common, " failures=", failures.size())
 	quit(0 if failures.is_empty() else 1)

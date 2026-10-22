@@ -4,7 +4,15 @@ extends Node
 # 同时监听两种传输：ENet（UDP，原生客户端）和 WebSocket（TCP，网页版客户端），两种连接进同一个房间。
 
 # 7：输入与逐帧广播改为紧凑二进制（见 encode_frame / encode_input），输入只在变化时上传。
-const PROTOCOL := 7
+# 8：入房双向脚本指纹校验、UDP 累计跳跃事件及断流恢复进度。
+const PROTOCOL := 8
+const Identity = preload("res://scripts/net_identity.gd")
+const PROGRESS_USEC := 500000
+const HELLO_TIMEOUT_MSEC := 6000
+const MAX_PENDING_JUMPS := 32
+# UDP 每帧刷新；WebSocket 的静态输入每秒刷新，因此使用独立的宽限时间。
+const INPUT_TIMEOUT_MSEC := 500
+const WS_INPUT_TIMEOUT_MSEC := 1500
 const DEFAULT_PORT := 24680
 const DEFAULT_WS_PORT := 24681
 const TICK := 1.0 / 60.0
@@ -24,6 +32,12 @@ const INPUT_SEQ_TAG := 0xC2
 
 var links: Array = []    # [{"api": SceneMultiplayer, "peer": MultiplayerPeer, "name": String}]，下标即传输类型
 var roles := {}          # Vector2i(传输类型, peer_id) -> 0 / 1；两种传输各自分配 peer_id，可能重复
+var verified := {}
+var awaiting_hello := {}
+var progress_usec := 0
+var jump_seq := [0, 0]
+var pending_jumps := [0, 0]
+var jump_output := [false, false]
 var inputs := [[0, 0, false], [0, 0, false]]
 var jump_latch := [false, false]
 var commands: Array = []
@@ -38,6 +52,9 @@ var next_send_usec := 0
 const MAX_LEAD := 90
 var acked := [0, 0]
 var input_seq := [-1, -1]
+var last_input_msec := [0, 0]
+var input_stale := [false, false]
+var desynced := false
 var port := DEFAULT_PORT
 var ws_port := DEFAULT_WS_PORT   # 0 表示不开 WebSocket
 
@@ -81,7 +98,14 @@ func add_link(peer: MultiplayerPeer, label: String) -> void:
 
 func _process(_delta: float) -> void:
 	for kind in range(1, links.size()): links[kind].api.poll()
+	for key in awaiting_hello.keys():
+		if Time.get_ticks_msec() - int(awaiting_hello[key]) >= HELLO_TIMEOUT_MSEC:
+			reject_peer(key, "版本握手超时，请更新客户端和中继。")
 	broadcast_due_frames()
+	if in_match and Time.get_ticks_usec() - progress_usec >= PROGRESS_USEC:
+		progress_usec = Time.get_ticks_usec()
+		# 即使 MAX_LEAD 暂停出帧，也告诉客户端服务器已有多少帧，解除互相等待。
+		for key in roles: send(key, ["progress", frame])
 
 func _exit_tree() -> void:
 	for link in links: link.peer.close()
@@ -145,10 +169,12 @@ static func decode_bundle(bytes: PackedByteArray) -> Array:
 		cursor += length
 	return result
 
-# 带序号的输入：标记 1 + 序号 2 + 两个轴各 1 + 跳跃 1 = 6 字节。
-static func encode_input_seq(seq: int, x: int, y: int, jump: bool) -> PackedByteArray:
-	var bytes := PackedByteArray([INPUT_SEQ_TAG, 0, 0, 0, 0, int(jump)])
+# 带序号的输入：标记 1 + 序号 2 + 两个轴各 1 + 跳跃状态 1 + 累计按下次数 2 = 8 字节。
+# 松开之后仍携带累计次数，短按所在的包全丢失也能从后续输入恢复；重复包不会重复跳跃。
+static func encode_input_seq(seq: int, x: int, y: int, jump: bool, presses: int = 0) -> PackedByteArray:
+	var bytes := PackedByteArray([INPUT_SEQ_TAG, 0, 0, 0, 0, int(jump), 0, 0])
 	bytes.encode_u16(1, seq & 0xFFFF)
+	bytes.encode_u16(6, presses & 0xFFFF)
 	bytes.encode_s8(3, clampi(x, -100, 100))
 	bytes.encode_s8(4, clampi(y, -100, 100))
 	return bytes
@@ -177,14 +203,17 @@ func _on_connected(key: Vector2i) -> void:
 		return
 	roles[key] = free[0]
 	log_line("玩家 %02d 已连接（%s %d）。" % [free[0] + 1, links[key.x].name, key.y])
-	send(key, ["welcome", free[0], PROTOCOL])
+	awaiting_hello[key] = Time.get_ticks_msec()
+	send(key, ["welcome", free[0], PROTOCOL, Identity.fingerprint()])
 	broadcast_lobby()
-	if roles.size() == 2: start_match()
+
 
 func _on_disconnected(key: Vector2i) -> void:
 	if not roles.has(key): return
 	log_line("玩家 %02d 已断开。" % (roles[key] + 1))
 	roles.erase(key)
+	verified.erase(key)
+	awaiting_hello.erase(key)
 	if in_match:
 		in_match = false
 		for other in roles: send(other, ["peer_left"])
@@ -202,6 +231,13 @@ func start_match() -> void:
 	jump_latch = [false, false]
 	history.clear()
 	input_seq = [-1, -1]
+	last_input_msec = [Time.get_ticks_msec(), Time.get_ticks_msec()]
+	input_stale = [false, false]
+	desynced = false
+	jump_seq = [0, 0]
+	pending_jumps = [0, 0]
+	jump_output = [false, false]
+	progress_usec = 0
 	next_send_usec = Time.get_ticks_usec()
 	acked = [0, 0]
 	in_match = true
@@ -211,35 +247,64 @@ func start_match() -> void:
 
 func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 	if not roles.has(key): return
+	if not verified.has(key):
+		# 版本握手是 Variant 数组；忽略握手前到达的二进制输入，避免按错误类型解码。
+		if bytes.is_empty() or bytes[0] != TYPE_ARRAY: return
+		var hello = bytes_to_var(bytes)
+		if not hello is Array or hello.size() != 3 or hello[0] != "hello": return
+		if int(hello[1]) != PROTOCOL or str(hello[2]) != Identity.fingerprint():
+			reject_peer(key, "版本不一致：客户端和中继必须使用同一版游戏。")
+			return
+		verified[key] = true
+		awaiting_hello.erase(key)
+		if roles.size() == 2 and verified.size() == 2 and not in_match: start_match()
+		return
 	var role: int = roles[key]
+	if desynced: return
 	if bytes.size() == 4 and bytes[0] == INPUT_TAG:
+		last_input_msec[role] = Time.get_ticks_msec()
+		input_stale[role] = false
 		var jump := bytes[3] != 0
 		inputs[role] = [bytes.decode_s8(1), bytes.decode_s8(2), jump]
 		if jump: jump_latch[role] = true
 		return
-	if bytes.size() == 6 and bytes[0] == INPUT_SEQ_TAG:
+	if bytes.size() == 8 and bytes[0] == INPUT_SEQ_TAG:
 		var seq := bytes.decode_u16(1)
 		if not seq_newer(seq, input_seq[role]): return
 		input_seq[role] = seq
+		var was_stale: bool = input_stale[role]
+		last_input_msec[role] = Time.get_ticks_msec()
+		input_stale[role] = false
 		var pressed := bytes[5] != 0
 		inputs[role] = [bytes.decode_s8(3), bytes.decode_s8(4), pressed]
-		if pressed: jump_latch[role] = true
+		var presses := bytes.decode_u16(6)
+		# 失联期间的旧短按不在恢复时集中重放；当前仍按住的跳跃照常生效。
+		if was_stale: jump_seq[role] = presses
+		if seq_newer(presses, jump_seq[role]):
+			pending_jumps[role] = mini(MAX_PENDING_JUMPS, pending_jumps[role] + ((presses - jump_seq[role]) & 0xFFFF))
+			jump_seq[role] = presses
 		return
 	var message = bytes_to_var(bytes)
 	if not message is Array or message.is_empty(): return
 	match message[0]:
 		"in":
 			if message.size() < 4: return
+			last_input_msec[role] = Time.get_ticks_msec()
+			input_stale[role] = false
 			inputs[role] = [clampi(int(message[1]), -100, 100), clampi(int(message[2]), -100, 100), bool(message[3])]
 			if message[3]: jump_latch[role] = true
 		"cmd":
 			if in_match and message.size() >= 3:
+				expire_inputs(Time.get_ticks_msec())
+				if message[1] == "combat" and input_stale[role]: return
 				commands.append([role, str(message[1]), str(message[2])])
 		"hash":
 			if message.size() >= 3: check_hash(role, int(message[1]), int(message[2]))
 		"ack":
-			if message.size() >= 2: acked[role] = maxi(acked[role], int(message[1]))
+			if message.size() >= 2: acked[role] = clampi(int(message[1]), acked[role], frame)
 		"resend":
+			if message.size() >= 3:
+				acked[role] = clampi(int(message[2]), acked[role], frame)
 			if message.size() >= 2: resend(key, int(message[1]))
 		"ping":
 			# 原样回给发送者，客户端据此测往返延迟；不进入对局帧，不影响同步。
@@ -248,11 +313,16 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 			# 客户端每 10 秒上报一次网络质量，记在主机的中继日志里，不用让对方截图就能看出卡在哪。
 			if message.size() >= 6:
 				log_line("玩家 %02d 网络：延迟 %d ms，抖动 %d ms，缓冲 %d 帧，近 10 秒卡顿 %d 次，帧率 %d" % [role + 1, int(message[1]), int(message[2]), int(message[3]), int(message[4]), int(message[5])])
+				if message.size() >= 7 and message[6] is Dictionary: log_line("玩家 %02d 诊断 %s" % [role + 1, JSON.stringify(message[6])])
 
 # 可靠补发：从客户端缺的那一帧起，按每包 40 帧发到当前帧。
 func resend(key: Vector2i, from: int) -> void:
+	if desynced: return
+	if from < maxi(0, frame - HISTORY):
+		reject_peer(key, "断流过久，历史帧已过期，请重新联机。")
+		return
 	var batch: Array = []
-	for index in range(maxi(from, frame - HISTORY), frame):
+	for index in range(maxi(0, from), frame):
 		if not history.has(index): continue
 		batch.append(history[index])
 		if batch.size() == 40:
@@ -261,6 +331,7 @@ func resend(key: Vector2i, from: int) -> void:
 	if not batch.is_empty(): send_raw(key, encode_bundle(batch))
 
 func check_hash(role: int, at: int, value: int) -> void:
+	if desynced: return
 	if hashes.size() > 64: hashes.clear()
 	var pair: Array = hashes.get(at, [null, null])
 	pair[role] = value
@@ -268,13 +339,16 @@ func check_hash(role: int, at: int, value: int) -> void:
 	if pair[0] == null or pair[1] == null: return
 	hashes.erase(at)
 	if pair[0] != pair[1]:
+		desynced = true
+		commands.clear()
 		log_line("第 %d 帧两端状态不一致。" % at)
 		for key in roles: send(key, ["desync", at])
 
 # 每 1/60 秒按单调微秒时钟准点发一帧；主循环偶有延迟时补齐，落后过多（暂停出帧后）从当前时刻重新计时，
 # 不一次补发一大串。旧版在物理帧里累加，Windows 上与游戏同机运行时物理帧成串挤在一起，帧就一阵一阵地发。
 func broadcast_due_frames() -> void:
-	if not in_match: return
+	if not in_match or desynced: return
+	expire_inputs(Time.get_ticks_msec())
 	var now := Time.get_ticks_usec()
 	var step := int(TICK * 1000000.0)
 	if now - next_send_usec > step * 6: next_send_usec = now
@@ -285,7 +359,7 @@ func broadcast_due_frames() -> void:
 		next_send_usec += step
 		var a: Array = inputs[0]
 		var b: Array = inputs[1]
-		var packet := encode_frame(frame, a, b, a[2] or jump_latch[0], b[2] or jump_latch[1], commands)
+		var packet := encode_frame(frame, a, b, next_jump(0), next_jump(1), commands)
 		jump_latch = [false, false]
 		commands.clear()
 		history[frame] = packet
@@ -297,3 +371,38 @@ func broadcast_due_frames() -> void:
 			if key.x == ENET: send_raw(key, bundle, MultiplayerPeer.TRANSFER_MODE_UNRELIABLE_ORDERED)
 			else: send_raw(key, packet)
 		frame += 1
+
+# 在共同输入帧中释放持续控制，不能让两端各自根据本机时钟修改模拟。
+# 即使慢端上限暂停出帧，也先排好释放命令，恢复后的第一帧会应用它。
+func expire_inputs(now: int) -> void:
+	if not in_match or desynced: return
+	for key in roles:
+		if not verified.has(key): continue
+		var role: int = roles[key]
+		var timeout := INPUT_TIMEOUT_MSEC if key.x == ENET else WS_INPUT_TIMEOUT_MSEC
+		if input_stale[role] or now - int(last_input_msec[role]) < timeout: continue
+		input_stale[role] = true
+		inputs[role] = [0, 0, false]
+		jump_latch[role] = false
+		pending_jumps[role] = 0
+		jump_output[role] = false
+		commands = commands.filter(func(entry): return not (entry[0] == role and entry[1] == "combat"))
+		commands.append([role, "combat", "0,0,0,0"])
+
+# 连续恢复的短按之间插入松开帧；长按保持原行为，累计序号只用于识别新的按下事件。
+func next_jump(role: int) -> bool:
+	if pending_jumps[role] > 0:
+		if jump_output[role]:
+			jump_output[role] = false
+		else:
+			pending_jumps[role] -= 1
+			jump_output[role] = true
+	else:
+		jump_output[role] = inputs[role][2] or jump_latch[role]
+	return jump_output[role]
+
+func reject_peer(key: Vector2i, reason: String) -> void:
+	awaiting_hello.erase(key)
+	send(key, ["rejected", reason])
+	get_tree().create_timer(0.2).timeout.connect(func():
+		if links[key.x].api.get_peers().has(key.y): links[key.x].peer.disconnect_peer(key.y))

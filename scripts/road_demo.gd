@@ -288,18 +288,22 @@ static func find_bone(skeleton: Skeleton3D, humanoid: String, legacy: String) ->
 	return bone if bone >= 0 else skeleton.find_bone(legacy)
 
 const RESCUE_CLIPS := {"RopePull": "res://assets/humans/rescue_ropepull.glb", "Climb": "res://assets/humans/rescue_climb.glb"}
+# 枪械动作（收枪、取枪、捡枪、背枪、丢枪、换弹、泵动）：tools/blender/make_gun_anims.py 生成，只播放一次，由主角上半身层按模拟时间采样。
+const GUN_CLIPS := ["Holster", "Draw", "Pickup", "Stow", "Toss", "ReloadMag", "ReloadTank", "ShellStart", "ShellLoad", "ShellEnd", "Pump", "GrenadeStart", "GrenadeLoad", "GrenadeEnd"]
 var rescue_clips := {}
 
 func add_rescue_clips(player: AnimationPlayer) -> void:
 	if rescue_clips.is_empty():
-		for clip in RESCUE_CLIPS:
-			var scene: PackedScene = load(RESCUE_CLIPS[clip])
+		var sources := RESCUE_CLIPS.duplicate()
+		for clip in GUN_CLIPS: sources["Gun" + clip] = "res://assets/humans/gun_anims/gun_%s.glb" % clip.to_lower()
+		for clip in sources:
+			var scene: PackedScene = load(sources[clip]) if ResourceLoader.exists(sources[clip]) else null
 			if scene == null: continue
 			var root := scene.instantiate()
 			var source: Array = root.find_children("*", "AnimationPlayer", true, false)
 			if not source.is_empty() and not source[0].get_animation_list().is_empty():
 				var anim: Animation = source[0].get_animation(source[0].get_animation_list()[0]).duplicate()
-				anim.loop_mode = Animation.LOOP_LINEAR
+				anim.loop_mode = Animation.LOOP_NONE if clip.begins_with("Gun") else Animation.LOOP_LINEAR
 				# 动作源把脚骨叫 PT.L/PT.R，主角烘焙后是人形 LeftToes/RightToes。
 				for track in range(anim.get_track_count()):
 					var path := String(anim.track_get_path(track))
@@ -309,8 +313,27 @@ func add_rescue_clips(player: AnimationPlayer) -> void:
 			root.free()
 	var library: AnimationLibrary = player.get_animation_library("")
 	if library == null: return
+	# 枪械动作只给人形骨架（主角）：轨道改指向本角色骨架，丢掉它没有的骨骼，避免动画缓存报无法解析。
+	var base: Node = player.get_node_or_null(player.root_node)
+	var found: Array = base.find_children("*", "Skeleton3D", true, false) if base != null else []
+	var skeleton: Skeleton3D = found[0] if not found.is_empty() else null
+	var humanoid: bool = skeleton != null and skeleton.find_bone("UpperChest") >= 0
 	for clip in rescue_clips:
-		if not library.has_animation(clip): library.add_animation(clip, rescue_clips[clip])
+		if library.has_animation(clip): continue
+		if String(clip).begins_with("Gun"):
+			if humanoid: library.add_animation(clip, gun_clip_for(rescue_clips[clip], base.get_path_to(skeleton), skeleton))
+			continue
+		library.add_animation(clip, rescue_clips[clip])
+
+func gun_clip_for(source: Animation, skeleton_path: NodePath, skeleton: Skeleton3D) -> Animation:
+	var anim: Animation = source.duplicate()
+	for track in range(anim.get_track_count() - 1, -1, -1):
+		var bone := String(anim.track_get_path(track).get_concatenated_subnames())
+		if anim.track_get_type(track) != Animation.TYPE_ROTATION_3D or skeleton.find_bone(bone) < 0:
+			anim.remove_track(track)
+		else:
+			anim.track_set_path(track, NodePath(String(skeleton_path) + ":" + bone))
+	return anim
 
 # 两只手腕骨骼的世界坐标中点；找不到骨架时退回胸口高度。
 var hand_skeletons := {}

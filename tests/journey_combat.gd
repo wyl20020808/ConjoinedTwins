@@ -32,6 +32,10 @@ func validate() -> void:
 	check(not run.combat.weapons[0].is_empty() and run.combat.weapons[1].is_empty(),"nearest player alone picks gun")
 	check(run.combat.pickups.is_empty(),"pickup consumed once")
 	var weapon: Dictionary=run.combat.weapons[0]
+	# 捡起拿到手上要先完成 0.35 秒的取枪动作才能开火。
+	run.set_combat_input(true);ticks(run,run.Combat.DRAW_STEPS-2)
+	check(weapon.ammo==24,"pickup draw blocks firing for 0.35 seconds")
+	run.set_combat_input(false);ticks(run,2)
 	run.add_event("boar",240,-0.336)
 	run.set_combat_input(true)
 	ticks(run,41)
