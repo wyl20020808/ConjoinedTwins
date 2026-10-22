@@ -158,7 +158,19 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	gate.position = Vector3(0, -3.6, -(event.arena+60.0-event.y)/SCALE)
 	var thorns := spike_field(root, "Thorns", 2*int(ceil(Boss.HOLD/THORN_STEP)))
 	thorns.hide()
+	# 沉睡时地面只有一团发光根结，入场时被顶破；Boss 本体此时埋在地下。
+	var mound := prop(game, root, KNOT, Vector3(13.0, 3.2, 12.0))
+	mound.name = "Mound"
+	var mound_light := OmniLight3D.new()
+	mound_light.name = "MoundLight"
+	mound_light.light_color = AMBER
+	mound_light.omni_range = 14.0
+	mound_light.position = Vector3(0, 2.0, 0)
+	mound.add_child(mound_light)
+	telegraph(root, "Crack", 1, Color(1.0, 0.62, 0.2, 0.9))
+	spike_field(root, "IntroSpikes", INTRO_SPIKES)
 	build_bar(root)
+	build_cinema(root)
 
 static func build_bar(root: Node3D) -> void:
 	var layer := CanvasLayer.new()
@@ -207,6 +219,34 @@ static func build_bar(root: Node3D) -> void:
 		tick.color = Color(1, 1, 1, 0.55)
 		frame.add_child(tick)
 
+# 电影黑边、Boss 名称标题与“按跳跃跳过”提示，画在游戏界面之上。
+static func build_cinema(root: Node3D) -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "Cinema"
+	layer.layer = 4
+	layer.visible = false
+	root.add_child(layer)
+	for side in ["Top", "Bottom"]:
+		var bar := ColorRect.new()
+		bar.name = side
+		bar.color = Color.BLACK
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(bar)
+	for spec in [["Name", 64, Color("f6e2b8")], ["Epithet", 22, Color("d9c7a0")], ["Skip", 15, Color(1, 1, 1, 0.6)]]:
+		var label := Label.new()
+		label.name = spec[0]
+		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		label.add_theme_font_size_override("font_size", spec[1])
+		label.add_theme_color_override("font_color", spec[2])
+		label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+		label.add_theme_constant_override("outline_size", 8 if spec[0] == "Name" else 4)
+		layer.add_child(label)
+	layer.get_node("Name").text = Boss.NAME
+	layer.get_node("Epithet").text = "被腐化的森林守护者"
+	layer.get_node("Skip").text = "按跳跃键跳过"
+	layer.get_node("Skip").horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+
 # 一次性特效按“状态 + 技能序号”只触发一次。
 static func once(view: Node3D, key: String) -> bool:
 	if view.get_meta("fx_once", "") == key: return false
@@ -243,6 +283,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	thorns(view, event, run)
 	moments(game, view, event, age, dead)
 	bar(game, view, event, dead, death_age)
+	intro(game, view, event)
 
 # 动作按模拟时间直接取样：前摇映射到动作的蓄力段，出手映射到挥击段。
 static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool, death_age: float) -> void:
@@ -258,7 +299,13 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 	else:
 		match event.state:
 			"intro":
-				clip = "Roar"; t = clampf(age/Boss.INTRO, 0, 1)*2.2
+				# 破土时保持咆哮动作的下蹲蓄力姿势，站稳后放完整段咆哮，最后回到待机。
+				if age < Boss.INTRO_ROAR:
+					clip = "Roar"; t = 0.35
+				elif age < Boss.INTRO_ROARED:
+					clip = "Roar"; t = 0.35+(age-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR)*1.85
+				else:
+					clip = "Idle"; t = fposmod(run.elapsed, IDLE_LOOP)
 			"roar":
 				clip = "Roar"; t = clampf(age/Boss.ROAR, 0, 1)*2.2
 			"summon":
@@ -528,7 +575,7 @@ static func moments(game, view: Node3D, event: Dictionary, age: float, dead: boo
 	if event.phase == "dormant": return
 	var pace: float = Boss.PACE[event.stage]
 	match event.state:
-		"intro", "roar":
+		"roar":
 			if once(view, key):
 				game.sfx.play_at("wood_creak_heavy", base+Vector3(0, 6, 0), 2.0, 0.6)
 				game.sfx.play_at("tree_fall", base+Vector3(0, 6, 0), 0.0, 0.5)
@@ -559,7 +606,7 @@ static func moments(game, view: Node3D, event: Dictionary, age: float, dead: boo
 static func bar(game, view: Node3D, event: Dictionary, dead: bool, death_age: float) -> void:
 	var run = game.run
 	var layer: CanvasLayer = view.get_node("BossBar")
-	var show: bool = event.phase != "dormant" and (not dead or death_age < 3.0) and run.state in ["running", "paused"]
+	var show: bool = event.phase not in ["dormant", "intro"] and (not dead or death_age < 3.0) and run.state in ["running", "paused"]
 	layer.visible = show
 	if not show: return
 	var frame: Control = layer.get_node("Frame")
@@ -581,3 +628,146 @@ static func bar(game, view: Node3D, event: Dictionary, dead: bool, death_age: fl
 	title.size.x = width
 	title.text = "%s · 第 %d 阶段%s"%[Boss.NAME, event.stage+1, "  ·  树心暴露！" if exposed else ("  ·  护甲（伤害 25%）" if not dead else "")]
 	if dead: title.text = "%s 已倒下"%Boss.NAME
+
+# —— 入场动画 ——
+# 时间轴见 journey_boss.gd 的 INTRO_*：0–1.2 秒镜头拉高拉远、地面开裂；1.4 秒破土，根刺环形钻出；
+# 1.4–3.4 秒低机位仰拍 Boss 从地下升起；3.6–5.6 秒正面推近咆哮、冲击波与标题；5.6–7 秒镜头交还。
+const INTRO_SPIKES := 14
+
+static func intro_age(run, event: Dictionary) -> float:
+	if event.phase == "dormant": return -1.0
+	if event.phase == "intro": return run.elapsed-event.state_at
+	return Boss.INTRO+1.0
+
+static func shot(eye: Vector3, look: Vector3) -> Transform3D:
+	return Transform3D.IDENTITY.translated(eye).looking_at(look, Vector3.UP)
+
+static func ease01(x: float) -> float:
+	return smoothstep(0.0, 1.0, clampf(x, 0.0, 1.0))
+
+# 返回 {transform, fov}。home 为旅程镜头，game_shot 为 Boss 战镜头；运镜从前者出发、在后者落地。
+static func intro_camera(game, event: Dictionary, home: Transform3D, game_shot: Transform3D) -> Dictionary:
+	var run = game.run
+	var t: float = run.elapsed-event.state_at
+	var core: float = -event.y/SCALE
+	var players: float = -minf(run.a.position.y, run.b.position.y)/SCALE
+	var crane := shot(Vector3(0, 30, players+16), Vector3(0, 0, core+10))
+	var rise_from := shot(Vector3(12, 1.8, core+27), Vector3(0, 7, core))
+	var rise_to := shot(Vector3(8.5, 2.4, core+22), Vector3(0, 9, core))
+	var roar_from := shot(Vector3(2.8, 4.5, core+26), Vector3(0, HEIGHT*0.66, core))
+	var roar_to := shot(Vector3(1.6, 5.5, core+20), Vector3(0, HEIGHT*0.68, core))
+	if t < Boss.INTRO_CRANE:
+		var k := ease01(t/Boss.INTRO_CRANE)
+		return {"transform":home.interpolate_with(crane, k), "fov":lerpf(57.0, 60.0, k)}
+	if t < Boss.INTRO_RISE: return {"transform":crane, "fov":60.0}
+	if t < Boss.INTRO_ROAR:
+		return {"transform":rise_from.interpolate_with(rise_to, ease01((t-Boss.INTRO_RISE)/(Boss.INTRO_ROAR-Boss.INTRO_RISE))), "fov":50.0}
+	if t < Boss.INTRO_ROARED:
+		return {"transform":roar_from.interpolate_with(roar_to, ease01((t-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR))), "fov":48.0}
+	var k := ease01((t-Boss.INTRO_ROARED)/(Boss.INTRO-Boss.INTRO_ROARED))
+	return {"transform":roar_to.interpolate_with(game_shot, k), "fov":lerpf(48.0, 62.0, k)}
+
+static func intro(game, view: Node3D, event: Dictionary) -> void:
+	var run = game.run
+	var t := intro_age(run, event)
+	var boss: Node3D = view.get_node("Body/Colossus")
+	var mound: Node3D = view.get_node("Mound")
+	var crack: MeshInstance3D = view.get_node("Crack")
+	var spikes_field: MultiMeshInstance3D = view.get_node("IntroSpikes")
+	var layer: CanvasLayer = view.get_node("Cinema")
+	var base := world(event.origin, 0.1)
+	var fx = game.get("fx")
+	var hazard_fx = game.get("hazard_fx")
+	var key := "%.3f"%event.trigger
+	var skipped: bool = event.get("intro_skipped", false)
+	# 沉睡：只露出发光根结，微微起伏；开战后越抖越亮，破土时消失。
+	mound.visible = event.hp > 0 and t < Boss.INTRO_RISE
+	if mound.visible:
+		var pulse := 0.5+0.5*sin(run.elapsed*1.6)
+		var build := ease01(t/Boss.INTRO_RISE) if t >= 0.0 else 0.0
+		mound.scale = Vector3.ONE*(1.0+0.03*pulse+0.12*build)
+		mound.position = Vector3(event.origin.x/SCALE+sin(run.elapsed*40.0)*0.08*build, 0, 0)
+		(mound.get_node("MoundLight") as OmniLight3D).light_energy = 1.2+pulse*0.8+4.0*build
+	if event.phase == "dormant":
+		boss.visible = false
+		# 失败重打会恢复到开战前，开战时刻可能完全相同：沉睡时清掉入场一次性标记，下次开战重新播放。
+		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.15", "intro_wave0.55", "intro_wave0.95"]:
+			view.remove_meta("fx_" + tag)
+	elif event.phase == "intro":
+		# 破土前埋在地下；1.4–3.4 秒升起，升起途中轻微抖动。
+		var rise := ease01((t-Boss.INTRO_RISE)/(Boss.INTRO_RISEN-Boss.INTRO_RISE))
+		boss.visible = t >= Boss.INTRO_RISE
+		boss.position.y = -HEIGHT*1.02*(1.0-rise)
+		if rise < 1.0: boss.position.x += sin(run.elapsed*31.0)*0.18*(1.0-rise)
+	# 埋在地下时不让胸口补光从地面下透出来。
+	if not boss.visible: (boss.get_node("HeartLight") as OmniLight3D).light_energy = 0.0
+	# 地面裂纹：开战到破土之间由小变大，之后淡出。
+	crack.visible = t >= 0.0 and t < Boss.INTRO_RISEN
+	if crack.visible:
+		crack.position = Vector3(event.origin.x/SCALE, 0.08, 0)
+		crack.scale = Vector3.ONE*lerpf(6.0, 20.0, ease01(t/Boss.INTRO_RISE))
+		set_charge(crack, 1.0-ease01((t-Boss.INTRO_RISE)/1.2))
+	# 根刺环：破土瞬间一圈钻出，Boss 站稳后缩回。
+	var multi := spikes_field.multimesh
+	multi.visible_instance_count = 0
+	if t >= Boss.INTRO_RISE and t < Boss.INTRO_ROAR+0.4:
+		var base_transform: Transform3D = spikes_field.get_meta("base")
+		var grow := ease01((t-Boss.INTRO_RISE)/0.18)*(1.0-ease01((t-Boss.INTRO_RISEN)/0.6))
+		for n in range(INTRO_SPIKES):
+			var angle := TAU*n/INTRO_SPIKES+0.3
+			var radius := 8.5+float(n%3)*1.4
+			var outward := Vector3(cos(angle), 0, -sin(angle))
+			var basis := Basis(Vector3.UP, angle).rotated(outward.cross(Vector3.UP).normalized(), -0.35).scaled(Vector3(4.2, 4.2*maxf(grow, 0.01), 4.2))
+			multi.set_instance_transform(n, Transform3D(basis, Vector3(event.origin.x/SCALE, -0.3, 0)+outward*radius)*base_transform)
+		multi.visible_instance_count = INTRO_SPIKES
+	if t < 0.0 or t > Boss.INTRO+0.5:
+		layer.visible = false
+		return
+	# 声音与冲击：每次开战（以开战时刻区分）各触发一次；跳过时不补放已跳过的段落。
+	if t < Boss.INTRO_RISE and once_tag(view, "intro_rumble", key):
+		game.sfx.play_at("boss_rumble", base+Vector3(0, 1, 0), 2.0, 1.0)
+	if t >= 0.0 and t < Boss.INTRO_RISEN and fx != null and int(run.elapsed/run.FIXED_STEP)%14 == 0:
+		var spin: float = run.elapsed*7.3
+		fx.burst("dust", base+Vector3(cos(spin)*6.0, 0, sin(spin)*6.0))
+	if t >= Boss.INTRO_RISE and once_tag(view, "intro_burst", key) and not skipped:
+		game.sfx.play_at("boss_burst", base+Vector3(0, 1, 0), 3.0, 0.85)
+		game.sfx.play_at("tree_fall", base+Vector3(0, 3, 0), 0.0, 0.6)
+		if hazard_fx != null:
+			hazard_fx.slam(base, 10.0)
+			for n in range(6): hazard_fx.burst_debris(base+Vector3(cos(n)*5.0, 0.5, sin(n)*5.0), Color("5e4126"), 1.6)
+		if fx != null: fx.impact(base, AMBER, 12.0, 6.0)
+	if t >= Boss.INTRO_ROAR and once_tag(view, "intro_roar", key) and not skipped:
+		game.sfx.play_at("boss_roar", base+Vector3(0, HEIGHT*0.7, 2), 6.0, 1.0)
+		game.sfx.play("boss_roar", -10.0, 1.0)
+	for wave in [0.15, 0.55, 0.95]:
+		if t >= Boss.INTRO_ROAR+wave and once_tag(view, "intro_wave%.2f"%wave, key) and not skipped:
+			if fx != null: fx.impact(base, AMBER.lerp(Color.WHITE, 0.3), 14.0+wave*10.0, 4.0)
+			if hazard_fx != null and wave < 0.3: hazard_fx.slam(base, 12.0)
+	# 黑边、标题与跳过提示。
+	layer.visible = event.phase == "intro" and run.state in ["running", "paused"]
+	if not layer.visible: return
+	var size: Vector2 = game.get_viewport().get_visible_rect().size
+	var bars := ease01(t/0.6)*(1.0-ease01((t-(Boss.INTRO-0.7))/0.7))
+	var bar_height := size.y*0.12*bars
+	var top: ColorRect = layer.get_node("Top")
+	var bottom: ColorRect = layer.get_node("Bottom")
+	top.position = Vector2.ZERO
+	top.size = Vector2(size.x, bar_height)
+	bottom.position = Vector2(0, size.y-bar_height)
+	bottom.size = Vector2(size.x, bar_height)
+	var title := ease01((t-(Boss.INTRO_ROAR+0.4))/0.5)*(1.0-ease01((t-(Boss.INTRO_ROARED+0.2))/0.6))
+	var name_label: Label = layer.get_node("Name")
+	var epithet: Label = layer.get_node("Epithet")
+	name_label.position = Vector2(0, size.y*0.7)
+	name_label.size = Vector2(size.x, 80)
+	epithet.position = Vector2(0, size.y*0.7+74)
+	epithet.size = Vector2(size.x, 30)
+	name_label.modulate.a = title
+	epithet.modulate.a = title*0.9
+	# 标题由略大缩回原尺寸，配合咆哮的冲击感。
+	name_label.pivot_offset = Vector2(size.x*0.5, 40)
+	name_label.scale = Vector2.ONE*(1.12-0.12*title)
+	var skip: Label = layer.get_node("Skip")
+	skip.position = Vector2(0, size.y-bar_height*0.5-12)
+	skip.size = Vector2(size.x-24, 24)
+	skip.modulate.a = 0.0 if t < Boss.INTRO_SKIP_AFTER or t > Boss.INTRO-Boss.RETURN_TIME else bars

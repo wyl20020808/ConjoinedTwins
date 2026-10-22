@@ -47,6 +47,8 @@ const RECORDED_GROUPS := {
 	"smg_shot": 4, "shotgun_shot": 3, "launcher_shot": 2, "explosion": 2, "flame_start": 2,
 	"steam_hiss": 2, "hammer_swing": 2, "wood_creak_heavy": 2, "tree_fall": 2, "spike_spring": 2,
 	"rocket_whoosh": 2, "stone_slide_door": 0,
+	# Boss 入场：程序合成（build-tools/boss/make_boss_sfx.py），叠加降调的 CC0 木头与爆炸录音。
+	"boss_roar": 1, "boss_rumble": 1, "boss_burst": 1,
 	"flame_loop": 0, "fire_crackle_loop": 0, "machine_loop": 0, "stone_roll": 0, "cart_roll": 0,
 }
 var variants := {}

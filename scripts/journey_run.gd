@@ -254,6 +254,11 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	var previous := [a.position,b.position]
 	advance_events(FIXED_STEP)
 	if state!="running": return
+	if Boss.cinematic(self):
+		# 开战帧之后的同一步里也不再移动、开火或受伤。
+		input_a=Vector2.ZERO;input_b=Vector2.ZERO
+		combat.fire=[false,false]
+		invulnerable_until=maxf(invulnerable_until,elapsed+0.2)
 	var scale_a: float=Combat.MOVE_SCALE if not combat.weapons[0].is_empty() else 1.0
 	var scale_b: float=Combat.MOVE_SCALE if not combat.weapons[1].is_empty() else 1.0
 	prepare_terrain_lookup()
@@ -525,6 +530,10 @@ func set_combat_input(fire: bool, reload_pressed: bool=false, drop_pressed: bool
 
 func step(delta: float, input_a: Vector2=Vector2.ZERO, input_b: Vector2=Vector2.ZERO, jump_a: bool=false, jump_b: bool=false) -> void:
 	if solo_control and not external_companion: jump_b=jump_a
+	# Boss 入场动画期间两人原地观看：移动与跳跃输入清空，按跳跃改作“跳过动画”。
+	if state=="running" and Boss.cinematic(self):
+		if jump_a or jump_b: Boss.skip_intro(self)
+		input_a=Vector2.ZERO;input_b=Vector2.ZERO;jump_a=false;jump_b=false
 	super(delta,input_a,input_b,jump_a,jump_b)
 
 func companion_input(leader: Vector2) -> Vector2:

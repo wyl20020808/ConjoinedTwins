@@ -1103,6 +1103,8 @@ func sync_gates() -> void:
 		asset(end,"gate",Vector3.ZERO,6)
 		add_sign(end,"共同抵达 · 前方是下一段旅程",Vector3(0,7,0),36)
 	road.get_node("JourneyFinish").position.z=-run.finish_distance()/SCALE
+	# 终点门就在 Boss 身后：Boss 倒下前不显示，入场运镜和战斗画面里不出现“共同抵达”。
+	road.get_node("JourneyFinish").visible=not run.Boss.alive(run.Boss.boss(run))
 
 func build_journey_ui() -> void:
 	build_post_fx()
@@ -2224,19 +2226,28 @@ func camera_shot()->Transform3D:
 	return boss_camera(home)
 
 # 开战后到离开场地前都用 Boss 镜头：场地内可以后退，旅程镜头按最远进度定位会把人甩到画面外。
+# 入场动画期间由 BossView 的运镜接管，结束时正好落在 Boss 镜头上。
 func boss_camera(home:Transform3D)->Transform3D:
 	var event:Dictionary=run.Boss.boss(run)
+	if run.Boss.cinematic(run):
+		boss_camera_blend=1.0
+		var shot:Dictionary=BossView.intro_camera(self,event,home,boss_shot(event))
+		camera.fov=shot.fov
+		return shot.transform
 	var active:bool=not event.is_empty() and event.phase!="dormant" and run.progress()<run.finish_distance()
 	boss_camera_blend=move_toward(boss_camera_blend,1.0 if active else 0.0,frame_delta*0.7)
 	camera.fov=lerpf(57.0,BOSS_FOV,smoothstep(0.0,1.0,boss_camera_blend))
 	if boss_camera_blend<=0.0:
 		boss_camera_focus=-1.0
 		return home
+	return home.interpolate_with(boss_shot(event),smoothstep(0.0,1.0,boss_camera_blend))
+
+func boss_shot(event:Dictionary)->Transform3D:
 	var middle:float=clampf((run.a.position.y+run.b.position.y)*0.5,event.arena+run.Boss.FLOOR,event.arena+run.Boss.HOLD+200.0)
 	boss_camera_focus=middle if boss_camera_focus<0.0 else lerpf(boss_camera_focus,middle,clampf(frame_delta*2.5,0.0,1.0))
 	var eye:=Vector3(0,BOSS_EYE_HEIGHT,-(boss_camera_focus-BOSS_EYE_BACK)/SCALE)
 	var look:=Vector3(0,BOSS_LOOK_HEIGHT,-(boss_camera_focus+BOSS_LOOK_AHEAD)/SCALE)
-	return home.interpolate_with(Transform3D.IDENTITY.translated(eye).looking_at(look,Vector3.UP),smoothstep(0.0,1.0,boss_camera_blend))
+	return Transform3D.IDENTITY.translated(eye).looking_at(look,Vector3.UP)
 
 func update_journey_camera()->void:
 	if run.state=="paused":return
@@ -2422,6 +2433,8 @@ func update_journey_ui() -> void:
 	# Boss 战全程显示当前招式的躲避提示。
 	if run.state=="running" and not run.Boss.hint(run).is_empty():journey_hint.visible=true
 	if journey_hint.visible: journey_hint.text=run.active_hint()
+	# Boss 入场动画按电影画面呈现：整个游戏界面层收起，只留黑边和标题（由 BossView 绘制）；暂停时照常显示菜单。
+	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and run.Boss.cinematic(run))
 	update_settings_panel()
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
 	update_chapter_bar(viewport,inset,hud_width)
