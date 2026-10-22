@@ -334,7 +334,7 @@ func sync() -> void:
 	# 一次建立可见拾取集合，同时清理已领取和离开窗口的节点。
 	var nearby:={}
 	for pickup in run.combat.pickups:
-		if absf(pickup.position.y-run.distance)<3000:nearby[pickup.id]=pickup
+		if game.view_gap(pickup.position.y)<3000:nearby[pickup.id]=pickup
 	for id in pickup_views.keys():
 		if not nearby.has(id):
 			var collected:Node3D=pickup_views[id]
@@ -370,7 +370,7 @@ func sync() -> void:
 		view.position=Vector3(pickup.position.x/20,0.65+sin(run.elapsed*2)*0.08,-pickup.position.y/20)
 		var spin:Node3D=view.get_node_or_null("Model")
 		if spin!=null:spin.rotation.y=run.elapsed*0.9+float(pickup.id)
-		view.visible=absf(pickup.position.y-run.distance)<3000
+		view.visible=game.view_gap(pickup.position.y)<3000
 		for child in view.get_children():
 			if child is Label3D:child.visible=visual_state not in ["rescue","failed"]
 	# 丢出去还在空中的枪：对应的地面拾取物等落地后再显示。

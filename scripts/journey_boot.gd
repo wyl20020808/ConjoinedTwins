@@ -118,6 +118,8 @@ func process_assets() -> void:
 	if not ready: return
 	game = assets.resources[JOURNEY].instantiate()
 	game.incremental_loading = true
+	# 有界面的正式游玩才播开场运镜；无界面自动化检查直接开局。
+	game.opening_enabled = DisplayServer.get_name() != "headless"
 	if chapter == Catalog.TRAINING: game.training_entry = true
 	else: game.start_chapter = chapter
 	# 保持首屏资源强引用，后续主题换材质时直接复用已读入的贴图。
