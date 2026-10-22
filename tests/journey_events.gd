@@ -8,7 +8,8 @@ func check(ok:bool,name:String)->void:
 func isolated(kind:String):
 	var run=Journey.new()
 	run.obstacles.clear();run.kinds.clear();run.obstacle_heights.clear();run.obstacle_ids.clear();run.hazard_specs.clear();run.journey_events.clear();run.charge_gates.clear();run.select_charge_gate()
-	run.add_event(kind,800,1)
+	# 倒树等人走近才起裂，放在触发距离之内。
+	run.add_event(kind,700 if kind=="tree" else 800,1)
 	run.a.position=Vector2(100,300);run.b.position=Vector2(150,300)
 	run.rope.reset(run.a.position,run.b.position)
 	run.clear_input=false;run.state="running"
@@ -24,7 +25,7 @@ func _initialize()->void:
 		run.a.position.x=-240;run.b.position.x=-190
 		run.advance_events(run.FIXED_STEP)
 		check(event.locked_x==locked and event.trigger==trigger,kind+" lock does not track")
-		run.elapsed=trigger+(run.TREE_WARNING+0.3 if kind=="tree" else 3.1)
+		run.elapsed=trigger+(run.TREE_WARNING+run.TREE_FALL*0.8 if kind=="tree" else 3.1)
 		run.advance_events(run.FIXED_STEP)
 		check(event.phase in ["active","falling"],kind+" activates")
 		var phase_before:String=event.phase
@@ -47,7 +48,15 @@ func _initialize()->void:
 	var event:Dictionary=tree.journey_events[0]
 	event.trigger=0
 	tree.advance_events(tree.FIXED_STEP)
-	check(event.phase=="fallen" and tree.obstacles[event.obstacle]==event.rect,"fallen tree retains collision")
+	var segments:Array=tree.tree_segments(event)
+	check(event.phase=="fallen" and range(tree.TREE_SEGMENTS).all(func(n):return tree.obstacles[event.trunk[n]]==segments[n]),"fallen tree retains collision")
+	# 倒向锁定在两人所在方向：两人站在树的左前方，树干朝左前方倒。
+	var aimed=isolated("tree")
+	aimed.a.position=Vector2(-100,420);aimed.b.position=Vector2(-50,420)
+	aimed.advance_events(aimed.FIXED_STEP)
+	var lean:Dictionary=aimed.journey_events[0]
+	check(lean.trigger>=0 and lean.direction.x<-0.3 and lean.direction.y<0,"tree falls toward players")
+	aimed.dispose()
 	tree.dispose()
 	print("JOURNEY EVENT CHECKS ",checked," FAILURES ",failed.size())
 	quit(0 if failed.is_empty() else 1)

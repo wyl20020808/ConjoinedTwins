@@ -20,6 +20,9 @@ const HAMMER_RATE := HAMMER_ANGLE * TAU / HAMMER_PERIOD
 # 新机关采用分段线性往复，转向时刻显式参与连续碰撞分片。
 const SHUTTLE_PERIOD := 1.6
 const SHUTTLE_REACH := 80.0
+# 单台往复机关可在 spec 中覆盖横移半幅与周期（旅程的撞石横扫整条路）。
+static func shuttle_reach(state: Dictionary) -> float: return state.get("reach", SHUTTLE_REACH)
+static func shuttle_period(state: Dictionary) -> float: return state.get("period", SHUTTLE_PERIOD)
 const PISTON_PERIOD := 1.8
 const STEAM_PRESSURE := 0.4
 const STEAM_JET := 0.8
@@ -30,7 +33,7 @@ const STEAM_SAFE := 0.65
 static func motion_envelope(kind:String,rect:Rect2,state:Dictionary)->Rect2:
 	match kind:
 		"hammer":return rect.grow(HAMMER_LENGTH+HAMMER_HEAD.length()+8.0)
-		"shuttle":return rect.grow(SHUTTLE_REACH)
+		"shuttle":return rect.grow(shuttle_reach(state))
 		"press","piston":return rect.grow(16.0)
 		"drone":return rect.merge(Rect2(rect.position+state.velocity*5.0,rect.size))
 		"forklift":
@@ -59,7 +62,7 @@ static func time_cuts(kind: String, state: Dictionary, start: float, end: float)
 	var cuts: Array = [start, end]
 	var trigger: float = state.get("trigger", -1.0)
 	if kind in ["shuttle", "piston"]:
-		var half_period := (SHUTTLE_PERIOD if kind == "shuttle" else PISTON_PERIOD) * 0.5
+		var half_period := (shuttle_period(state) if kind == "shuttle" else PISTON_PERIOD) * 0.5
 		var phase: float = state.get("phase", 0.0)
 		for n in range(int(floor((start + phase) / half_period)), int(ceil((end + phase) / half_period)) + 1):
 			var turn := n * half_period - phase
@@ -102,11 +105,13 @@ static func sample(kind: String, rect: Rect2, state: Dictionary, time: float) ->
 	var stage := "warning" if warning else "ready"
 	var center := rect.get_center()
 	if kind == "shuttle":
-		var wave := absf(fposmod(time + state.phase, SHUTTLE_PERIOD) / SHUTTLE_PERIOD * 2.0 - 1.0)
+		var period := shuttle_period(state)
+		var reach := shuttle_reach(state)
+		var wave := absf(fposmod(time + state.phase, period) / period * 2.0 - 1.0)
 		var moving := rect
-		moving.position.x += (wave * 2.0 - 1.0) * SHUTTLE_REACH
+		moving.position.x += (wave * 2.0 - 1.0) * reach
 		parts.append(part("ram", moving, 0, 70))
-		parts.append(part("track", Rect2(rect.position - Vector2(SHUTTLE_REACH,0), rect.size + Vector2(SHUTTLE_REACH*2,0)), -3, 0, false))
+		parts.append(part("track", Rect2(rect.position - Vector2(reach,0), rect.size + Vector2(reach*2,0)), -3, 0, false))
 		stage = "shuttling"
 	elif kind == "piston":
 		var wave := absf(fposmod(time + state.phase, PISTON_PERIOD) / PISTON_PERIOD * 2.0 - 1.0)
@@ -189,7 +194,7 @@ static func sample(kind: String, rect: Rect2, state: Dictionary, time: float) ->
 	var bounds: Rect2 = parts[0].rect
 	for p in parts: bounds = bounds.merge(p.rect)
 	var reach := HAMMER_LENGTH * sin(HAMMER_ANGLE) + HAMMER_HEAD.x * 0.5
-	var envelope := Rect2(center - Vector2(reach, HAMMER_HEAD.y * 0.5), Vector2(reach * 2, HAMMER_HEAD.y)) if kind == "hammer" else (Rect2(rect.position - Vector2(SHUTTLE_REACH,0), rect.size + Vector2(SHUTTLE_REACH*2,0)) if kind == "shuttle" else rect)
+	var envelope := Rect2(center - Vector2(reach, HAMMER_HEAD.y * 0.5), Vector2(reach * 2, HAMMER_HEAD.y)) if kind == "hammer" else (Rect2(rect.position - Vector2(shuttle_reach(state),0), rect.size + Vector2(shuttle_reach(state)*2,0)) if kind == "shuttle" else rect)
 	return {"rect": bounds, "bottom": 0.0, "top": TOPS[kind], "active": true,
 		"warning": warning, "stage": stage, "parts": parts, "launch": rect.get_center(),
 		"velocity": state.velocity, "flight": flight, "envelope": envelope,

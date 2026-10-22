@@ -1013,15 +1013,17 @@ func sync_events() -> void:
 		body.position=Vector3(rect.get_center().x/SCALE,event.bottom/SCALE,-(rect.get_center().y-event.y)/SCALE)
 		body.visible=event.phase!="spent"
 		if event.kind=="tree":
-			# 树根位于倒伏范围的一端，最终树干与实心碰撞矩形对齐。
+			# 树根固定在路侧，绕水平轴朝锁定方向（两人所在处）倒下，最终树干与分段碰撞对齐。
 			var age:float=run.elapsed-event.trigger
-			var fall:float=clampf((age-Journey.TREE_WARNING)/0.65,0,1) if event.trigger>=0 else 0.0
-			body.position.x=event.rect.get_center().x/SCALE-event.side*5.5
-			body.rotation.z=-event.side*fall*PI/2
-			# 预警期越来越晃，最后一刻先向倒伏方向歪一下。
+			var fall:float=clampf((age-Journey.TREE_WARNING)/Journey.TREE_FALL,0,1) if event.trigger>=0 else 0.0
+			var toward:=Vector3(event.direction.x,0,-event.direction.y)
+			body.position=Vector3(event.base.x/SCALE,0,0)
+			# 越倒越快（重力加速），预警期越来越晃，最后一刻先朝倒伏方向歪一下。
+			var tilt:float=fall*fall*PI/2
 			if event.phase=="warning":
 				var crack:float=clampf(age/Journey.TREE_WARNING,0,1)
-				body.rotation.z=sin(run.elapsed*14)*(0.02+0.05*crack)-event.side*0.08*crack*crack
+				tilt=sin(run.elapsed*14)*(0.02+0.05*crack)+0.1*crack*crack
+			body.basis=Basis(Vector3.UP.cross(toward).normalized(),tilt)
 		elif event.kind=="swing":
 			var pivot:=Vector3(0,10,0)
 			var tip:=body.position+Vector3(0,2,0)
@@ -1037,6 +1039,12 @@ func sync_events() -> void:
 		var warning:Node3D=view.get_node("Warning")
 		warning.visible=event.phase in ["warning","falling"]
 		warning.position.x=event.locked_x/SCALE if event.kind in ["stone","monster"] else event.rect.get_center().x/SCALE
+		if event.kind=="tree":
+			# 倒伏落点：沿锁定方向铺开整根树干长度。
+			var middle:Vector2=event.base+event.direction*Journey.TREE_LENGTH*0.5
+			warning.position=Vector3(middle.x/SCALE,0,-(middle.y-event.y)/SCALE)
+			warning.rotation.y=atan2(event.direction.x,-event.direction.y)
+			warning.scale.z=Journey.TREE_LENGTH/SCALE/2.5
 		if event.kind=="monster":
 			warning.position.z=-(event.landing.y-event.y)/SCALE
 			if run.Monsters.ranged(event) or run.Monsters.charges(event):
@@ -1060,33 +1068,43 @@ func sync_events() -> void:
 			sound_events[event.id]=true
 			var center:Vector2=event.rect.get_center()
 			var at:=Vector3(center.x/SCALE,1.0,-center.y/SCALE)
-			sfx.play_at("warning",at,-4.0,0.75 if event.kind=="boar" else 1.0)
+			sfx.play_at("warning",at,0.0,0.75 if event.kind=="boar" else 1.0)
 			# 预警期叠加真实机关声：大树根部断裂吱嘎、摆锤木梁受力。
-			if event.kind in ["tree","swing"]: sfx.play_at("wood_creak_heavy",at,-3.0,0.8 if event.kind=="tree" else 1.0)
+			if event.kind in ["tree","swing"]: sfx.play_at("wood_creak_heavy",at,2.0,0.8 if event.kind=="tree" else 1.0)
 			# 野猪刨地哼叫；推车村民吆喝一声开始推。
-			elif event.kind=="boar": sfx.play_at("growl",at+Vector3(0,0.3,0),-6.0,1.7)
-			elif event.kind=="cart": sfx.play_at("grunt",Vector3(-event.side*25.5,1.4,-event.y/SCALE),-8.0,0.9)
+			elif event.kind=="boar": sfx.play_at("growl",at+Vector3(0,0.3,0),-1.0,1.7)
+			elif event.kind=="cart": sfx.play_at("grunt",Vector3(-event.side*25.5,1.4,-event.y/SCALE),-3.0,0.9)
 		var phase_key:="%s:%s"%[event.id,event.phase]
 		if event.phase in ["falling","fallen","spent","active"] and event.kind in ["tree","stone","boar"] and not sound_events.has(phase_key):
 			sound_events[phase_key]=true
-			var hit:Vector2=event.rect.get_center() if event.kind=="tree" else Vector2(event.locked_x,event.y)
+			var hit:Vector2=event.sample.get_center() if event.kind=="tree" else Vector2(event.locked_x,event.y)
 			var hit_at:=Vector3(hit.x/SCALE,0.5,-hit.y/SCALE)
-			if event.kind=="tree" and event.phase=="falling": sfx.play_at("tree_fall",hit_at,0.0)
+			if event.kind=="tree" and event.phase=="falling": sfx.play_at("tree_fall",hit_at,3.0)
 			# 树干砸地：沉闷的撞击加碎枝。
 			elif event.kind=="tree" and event.phase=="fallen":
-				sfx.play_at("punch_heavy",hit_at,-3.0,0.55)
-				sfx.play_at("rubble",hit_at,-8.0,0.7)
+				sfx.play_at("punch_heavy",hit_at,2.0,0.55)
+				sfx.play_at("rubble",hit_at,-2.0,0.7)
 			# 野猪冲出时尖叫；村民出手时"嘿"一声，石块破空。
-			elif event.kind=="boar" and event.phase=="active": sfx.play_at("snarl",hit_at,-5.0,1.6)
+			elif event.kind=="boar" and event.phase=="active": sfx.play_at("snarl",hit_at,0.0,1.6)
 			elif event.kind=="stone" and event.phase=="active":
-				sfx.play_at("grunt",Vector3(event.side*18,1.4,-event.y/SCALE),-7.0,1.05)
-				sfx.play_at("whoosh",hit_at+Vector3(0,2.0,0),-10.0,1.3)
-			elif event.kind=="stone" and event.phase=="spent" and int(event.get("hp",1))>0 and event.trigger>=0: sfx.play_at("rubble",hit_at,-4.0,0.9)
+				sfx.play_at("grunt",Vector3(event.side*18,1.4,-event.y/SCALE),-2.0,1.05)
+				sfx.play_at("whoosh",hit_at+Vector3(0,2.0,0),-3.0,1.3)
+			elif event.kind=="stone" and event.phase=="spent" and int(event.get("hp",1))>0 and event.trigger>=0: sfx.play_at("rubble",hit_at,1.0,0.9)
+		# 水车摆臂：每次扫过路中呼地一声，木梁同时吱嘎受力。
+		if event.kind=="swing" and event.phase=="active" and view.visible:
+			var swing_age:float=maxf(0,run.elapsed-event.trigger-2.8)
+			var half:int=floori(swing_age*2.0/PI)
+			var swing_key:="%s:swing:%d"%[event.id,half]
+			if not sound_events.has(swing_key):
+				sound_events[swing_key]=true
+				var arm_at:=Vector3(event.sample.get_center().x/SCALE,2.0,-event.y/SCALE)
+				sfx.play_at("whoosh",arm_at,-1.0,0.6)
+				sfx.play_at("wood_creak_heavy",arm_at,-6.0,1.15)
 		if event.kind=="cart" and event.phase=="active" and view.visible:
 			var cart_at:Vector3=body.global_position
 			if rolling_cart==null or camera.global_position.distance_to(cart_at)<camera.global_position.distance_to(rolling_cart): rolling_cart=cart_at
 	# 推车滚动声只保留离镜头最近的一辆。
-	sfx.loop_at("event_cart","cart_roll",rolling_cart!=null and run.state=="running",rolling_cart if rolling_cart!=null else Vector3.ZERO,-5.0)
+	sfx.loop_at("event_cart","cart_roll",rolling_cart!=null and run.state=="running",rolling_cart if rolling_cart!=null else Vector3.ZERO,0.0)
 
 func build_gate(gate: Dictionary) -> Node3D:
 	var root:=Node3D.new()
@@ -1120,7 +1138,9 @@ func build_gate(gate: Dictionary) -> Node3D:
 	if gate.id=="waterwheel": asset(root,"waterwheel",Vector3(19,0,0),9,PI/2)
 	elif "bridge" in gate.id:
 		# 桥面中心对准模拟吊桥（门后 140 单位，长 212 单位）；转 180° 让铰链在对岸，桥板朝玩家放下。
-		asset(root,"drawbridge",Vector3(0,-0.1,-7),0.8,PI)
+		# 吊桥单独挂在 Bridge 节点下：门框淡出时桥面保留，两人还要从桥上走过去。
+		var bridge:=Node3D.new();bridge.name="Bridge";root.add_child(bridge)
+		asset(bridge,"drawbridge",Vector3(0,-0.1,-7),0.8,PI)
 	return root
 
 func sync_gates() -> void:
@@ -1144,11 +1164,11 @@ func sync_gates() -> void:
 			if stage!=heard and run.state=="running":
 				var deck:=view.global_position+Vector3(0,1.0,-7.0)
 				if stage==1:
-					sfx.play_at("chain_rattle",deck+Vector3(0,2.0,0),-6.0,1.0)
-					sfx.play_at("wood_creak_heavy",deck,-8.0,1.1)
+					sfx.play_at("chain_rattle",deck+Vector3(0,2.0,0),0.0,1.0)
+					sfx.play_at("wood_creak_heavy",deck,-3.0,1.1)
 				elif stage==2:
-					sfx.play_at("wood_knock",deck,-2.0,0.6)
-					sfx.play_at("plate_heavy",deck,-9.0,0.7)
+					sfx.play_at("wood_knock",deck,2.0,0.6)
+					sfx.play_at("plate_heavy",deck,-3.0,0.7)
 			view.set_meta("bridge_stage",stage)
 		if gate.id=="waterwheel":sample_animation(view,"WheelTurn",run.elapsed)
 		view.position=Vector3(0,0,-gate.door.position.y/SCALE)
@@ -1164,7 +1184,7 @@ func sync_gates() -> void:
 		# 栅栏开门后沉入地面而不是升到半空，免得悬在镜头与角色之间挡住视线。
 		for side in [-1,1]:view.get_node("Door/SideBarrier%d"%side).position.y=2.4-opening*4.9
 		# 门开后，后面的人走近门前 8 米起整座门框逐渐淡出，穿过门洞时不再遮挡角色。
-		if gate.open:fade_passed_color_gate(view,gate.door.position.y-200.0)
+		if gate.open:fade_passed_color_gate(view,gate.door.position.y-200.0,view.get_node_or_null("Bridge"))
 		elif view.has_meta("faded"):
 			view.remove_meta("faded")
 			for node in view.find_children("*","GeometryInstance3D",true,false):
@@ -3054,13 +3074,15 @@ func build_color_gate(view:Node3D,rect:Rect2,role:int)->void:
 
 # 角色通过水晶门后，拱门正落在镜头下缘，会挡住前路并和角色头顶的 01/02 重复。
 # 按落后距离让整座门（含标签）逐渐淡出，最后直接隐藏；碰撞与判定完全不变。
-func fade_passed_color_gate(view:Node3D,y:float)->void:
+# keep 子树（如放下的吊桥）不参与淡出，整座视图也不因此隐藏。
+func fade_passed_color_gate(view:Node3D,y:float,keep:Node=null)->void:
 	var behind: float = run.distance-y
 	var fade: float = clampf((behind-40.0)/180.0,0.0,1.0)
 	if fade>0:view.set_meta("faded",true)
-	view.visible=view.visible and fade<0.99
+	if keep==null:view.visible=view.visible and fade<0.99
 	if not view.visible:return
 	for node in view.find_children("*","GeometryInstance3D",true,false):
+		if keep!=null and keep.is_ancestor_of(node):continue
 		if node is Label3D:
 			var base:Color=node.get_meta("look_base_modulate",node.modulate)
 			node.set_meta("look_base_modulate",base)
