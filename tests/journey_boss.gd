@@ -61,9 +61,27 @@ func verify()->void:
 	var saved_progress:float=run.checkpoint.progress
 	check(run.bounded(Vector2(0,boss.arena+1700)).y==boss.arena+Boss.HOLD,"Boss 存活时前进被限制在树心前")
 	check(not run.mid_checkpoint_clear() and not run.checkpoint_ground_clear(),"战斗中不补充存档")
-	check(run.active_hint().contains(Boss.NAME),"苏醒提示")
+	# —— 入场动画：不能移动、开火、受伤，Boss 不能被锁定；开场 0.8 秒后按跳跃可跳过 ——
+	check(Boss.cinematic(run) and Boss.hint(run).is_empty(),"入场动画期间不显示招式提示")
+	run.combat.weapons[0]=run.Combat.gun()
+	var held:Vector2=run.a.position
+	for n in range(60):
+		run.set_combat_input(true)
+		run.step(run.FIXED_STEP,Vector2(1,1),Vector2(-1,1))
+	check(run.a.position.distance_to(held)<0.01,"入场动画期间输入不移动角色")
+	check(run.combat.weapons[0].ammo==run.Combat.WEAPONS.smg.magazine and run.combat.weapons[0].target==-1,"入场动画期间不开火、不锁定 Boss")
+	run.Combat.hit(run,0,"test:intro",50)
+	check(run.combat.health[0]==100,"入场动画期间不受伤害")
+	run.step(run.FIXED_STEP,Vector2.ZERO,Vector2.ZERO,true,false)
+	check(boss.phase=="intro" and run.elapsed-boss.state_at<Boss.INTRO_SKIP_AFTER,"开场 0.8 秒内按跳跃不跳过")
+	for n in range(roundi(0.4/run.FIXED_STEP)):run.step(run.FIXED_STEP)
+	run.step(run.FIXED_STEP,Vector2.ZERO,Vector2.ZERO,false,true)
+	check(boss.get("intro_skipped",false) and run.elapsed-boss.state_at>=Boss.INTRO-Boss.RETURN_TIME-0.01,"任一人按跳跃跳到镜头交还段")
+	check(run.a.position.distance_to(held)<0.01 and run.heights[1]==0.0,"跳过用的跳跃不让角色起跳")
+	run.set_combat_input(false)
+	run.combat.weapons[0]={}
 	until(run,boss,"idle")
-	check(boss.phase=="fight","苏醒结束进入战斗")
+	check(boss.phase=="fight" and not Boss.cinematic(run),"入场结束进入战斗")
 	# —— 护甲与锁定 ——
 	run.combat.weapons[0]=run.Combat.gun();place(run,boss.arena+1250);fresh(run);ticks(run,1)
 	check(run.combat.weapons[0].target==boss.id,"自动锁定 Boss 树心")

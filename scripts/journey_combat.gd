@@ -185,7 +185,10 @@ static func box_blocks(from: Vector2, to: Vector2, from_height: float, to_height
 
 static func visible_target(run, role: int, event: Dictionary, reach: float = RANGE) -> bool:
 	if event.get("hp",0)<=0 or event.phase=="spent": return false
-	if event.kind=="boss": reach+=run.Boss.RANGE_BONUS
+	if event.kind=="boss":
+		# 沉睡和入场动画期间不能被锁定。
+		if event.phase!="fight": return false
+		reach+=run.Boss.RANGE_BONUS
 	var from: Vector2=run.a.position if role==0 else run.b.position
 	var to := enemy_position(event)
 	var delta := to-from
