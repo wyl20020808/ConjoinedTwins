@@ -2419,7 +2419,10 @@ func update_journey_ui() -> void:
 	weapon_ammo.visible=not weapon.is_empty()
 	weapon_detail.text=""
 	if not weapon.is_empty():
-		if weapon.reload>0: weapon_detail.text="换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP)
+		# 逐发装填显示已装弹数，开火可打断。
+		if weapon.reload>0 and run.Combat.spec(weapon).get("per_shell",false): weapon_detail.text="装填 %d/%d · 开火可打断"%[weapon.ammo,run.Combat.spec(weapon).magazine] if weapon.ammo>0 else "装填 %d/%d"%[weapon.ammo,run.Combat.spec(weapon).magazine]
+		elif weapon.reload>0: weapon_detail.text="换弹 %.1f 秒"%(weapon.reload*Run.FIXED_STEP)
+		elif weapon.cooldown>0 and run.combat.get("motion",[{},{}])[role].get("kind","") in ["swap","pickup","drop"] and run.elapsed-float(run.combat.motion[role].time)<0.6: weapon_detail.text="取枪中"
 		elif weapon.ammo==0 and weapon.reserve==0: weapon_detail.text="弹药耗尽"
 	# 背上的第二把枪：显示名称与换枪键。
 	var spare: Dictionary=run.Combat.backup(run,role) if not run.combat.is_empty() else {}

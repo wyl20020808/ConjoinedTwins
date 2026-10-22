@@ -70,6 +70,7 @@ static func startup_paths(web: bool = OS.has_feature("web")) -> Array:
 		for name in ["Pine", "Bush", "TallGrass", "Column"]: paths.append("res://assets/decor/%s.glb" % name)
 	# Adventurer_A 只作动画来源；主角模型为 Tripo 生成的 hero_01/02。
 	for name in ["hero_01", "hero_02", "Adventurer_A", "rescue_climb", "rescue_ropepull"]: paths.append("res://assets/humans/%s.glb" % name)
+	for clip in ["holster", "draw", "pickup", "stow", "toss", "reloadmag", "reloadtank", "shellstart", "shellload", "shellend", "pump", "grenadestart", "grenadeload", "grenadeend"]: paths.append("res://assets/humans/gun_anims/gun_%s.glb" % clip)
 	for name in ["sign", "gate"]: paths.append("res://assets/journey/%s.glb" % name)
 	return paths
 static func hazard_paths(kinds: Array) -> Array:

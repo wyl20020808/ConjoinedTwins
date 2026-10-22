@@ -9,17 +9,21 @@ const FIRE_STEPS := 20
 const RANGE := 400.0
 const PICKUP_RADIUS := 20.0
 const MOVE_SCALE := 0.85
-# 双枪：手上一把，背上最多一把。换枪 0.3 秒内不能开火，收起的枪中断换弹。
-const SWAP_STEPS := 36
+# 双枪：手上一把，背上最多一把。换枪是“收枪上背 → 从背上取枪”两段动作，共 0.55 秒内不能开火；收起的枪中断换弹。
+const SWAP_STEPS := 66
+# 从地上捡起拿到手上 0.35 秒后才能开火；丢枪后从背上取枪共 0.6 秒。
+const DRAW_STEPS := 42
+const DROP_DRAW_STEPS := 72
 # 四种枪。步数按 120 Hz 固定步计；冲锋枪数值与旧版完全一致。
-# 霰弹枪：7 颗弹丸扇形散开，按弹丸实际覆盖敌人身体的角宽计数，近距离一发 63。
+# 霰弹枪：7 颗弹丸扇形散开，按弹丸实际覆盖敌人身体的角宽计数，近距离一发 63；
+# 逐发装填（起手 0.17 秒，每发 0.33 秒），弹仓里有弹时扣扳机可打断装填。
 # 喷火器：每 0.05 秒对锥形范围内所有可见敌人各烧 3 点，射程短、持续压制。
-# 榴弹发射器：命中点 95 单位半径内所有敌人各受 45，适合打成群的怪。
+# 榴弹发射器：命中点 95 单位半径内所有敌人各受 45，适合打成群的怪；逐发塞进弹巢（起手 0.25 秒，每发 0.43 秒）。
 const WEAPONS := {
 	"smg":{"name":"冲锋枪","magazine":24,"reserve":72,"max_reserve":144,"reload":168,"fire":20,"damage":10,"range":400.0,"ammo_pickup":48},
-	"shotgun":{"name":"霰弹枪","magazine":6,"reserve":18,"max_reserve":36,"reload":192,"fire":66,"damage":9,"pellets":7,"spread":0.32,"range":280.0,"ammo_pickup":12},
+	"shotgun":{"name":"霰弹枪","magazine":6,"reserve":18,"max_reserve":36,"reload":40,"reload_start":20,"per_shell":true,"fire":66,"damage":9,"pellets":7,"spread":0.32,"range":280.0,"ammo_pickup":12},
 	"flamer":{"name":"喷火器","magazine":100,"reserve":100,"max_reserve":200,"reload":216,"fire":6,"damage":3,"cone":0.6,"range":190.0,"ammo_pickup":60},
-	"launcher":{"name":"榴弹发射器","magazine":4,"reserve":8,"max_reserve":16,"reload":240,"fire":96,"damage":45,"splash":95.0,"range":480.0,"ammo_pickup":4}}
+	"launcher":{"name":"榴弹发射器","magazine":4,"reserve":8,"max_reserve":16,"reload":52,"reload_start":30,"per_shell":true,"fire":96,"damage":45,"splash":95.0,"range":480.0,"ammo_pickup":4}}
 const ENEMY_RADIUS := 28.0
 # 接触伤害按机关类型区分；持续接触每秒最多结算一次。
 const CONTACT_INTERVAL := 1.0
@@ -34,13 +38,19 @@ const HAZARD_DAMAGE := {
 static func fresh() -> Dictionary:
 	return {"health":[100,100], "weapons":[{},{}], "backups":[{},{}], "pickups":[], "serial":0,
 		"fire":[false,false], "reload":[false,false], "drop":[false,false], "swap":[false,false],
-		"invulnerable":[0.0,0.0], "hits":{}, "shots":[{},{}], "shot_serial":0,
+		"invulnerable":[0.0,0.0], "hits":{}, "shots":[{},{}], "shot_serial":0, "motion":[{},{}],
 		"kills":0, "notice":"靠近枪械自动拾取，最多带两把；鼠标左键开火，R 换弹，Q 换枪，G 丢枪"}
 
 # 旧存档与测试夹具没有背枪槽，按需补齐；两端在同一固定步补，联机一致。
 static func ensure_slots(run) -> void:
 	if not run.combat.has("backups"): run.combat.backups=[{},{}]
 	if not run.combat.has("swap"): run.combat.swap=[false,false]
+	if not run.combat.has("motion"): run.combat.motion=[{},{}]
+
+# 收枪、取枪、捡枪、丢枪的动作记录：只供画面按模拟时间播放，不参与判定；随存档恢复。
+static func set_motion(run, role: int, kind: String, from: String, to: String, at: Vector2 = Vector2.ZERO, pickup: int = -1) -> void:
+	ensure_slots(run)
+	run.combat.motion[role]={"kind":kind,"time":run.elapsed,"from":from,"to":to,"at":at,"pickup":pickup}
 
 static func backup(run, role: int) -> Dictionary:
 	ensure_slots(run)
@@ -69,7 +79,9 @@ static func weapon_name(weapon: Dictionary) -> String:
 static func start_reload(run, role: int) -> void:
 	var weapon: Dictionary=run.combat.weapons[role]
 	if weapon.is_empty() or weapon.reload>0 or weapon.ammo>=spec(weapon).magazine or weapon.reserve<=0: return
-	weapon.reload=spec(weapon).reload
+	var data: Dictionary=spec(weapon)
+	weapon.reload=data.reload+int(data.get("reload_start",0))
+	weapon.reload_total=weapon.reload
 	run.combat.notice="%02d 正在换弹，可继续移动和跳跃"%[role+1]
 
 static func drop_weapon(run, role: int) -> void:
@@ -78,19 +90,23 @@ static func drop_weapon(run, role: int) -> void:
 	var point: Vector2=run.a.position if role==0 else run.b.position
 	weapon.reload=0
 	weapon.target=-1
+	var dropped_id := -1
 	if run.has_ground_support(point):
 		add_pickup(run,"gun",point,weapon)
 		var pickup: Dictionary=run.combat.pickups[-1]
 		pickup.blocked_role=role
 		pickup.blocked_until=run.elapsed+1.0
+		dropped_id=pickup.id
 	run.combat.weapons[role]={}
+	set_motion(run,role,"drop",weapon.get("type","smg"),"",point,dropped_id)
 	run.combat.notice="武器已丢下，移动速度恢复" if run.has_ground_support(point) else "武器落入缺口，移动速度恢复"
 	# 背上还有枪时自动拿到手上。
 	var spare: Dictionary=backup(run,role)
 	if not spare.is_empty():
-		spare.cooldown=SWAP_STEPS
+		spare.cooldown=DROP_DRAW_STEPS
 		run.combat.weapons[role]=spare
 		run.combat.backups[role]={}
+		run.combat.motion[role].to=spare.get("type","smg")
 		run.combat.notice="%02d 丢下武器，换上背后的%s"%[role+1,weapon_name(spare)]
 
 # 手上与背上的枪互换；背上没有枪时不动作。
@@ -104,6 +120,7 @@ static func swap_weapon(run, role: int) -> void:
 	spare.cooldown=maxi(int(spare.get("cooldown",0)),SWAP_STEPS)
 	run.combat.weapons[role]=spare
 	run.combat.backups[role]=held
+	set_motion(run,role,"swap",held.get("type",""),spare.get("type","smg"))
 	run.combat.notice="%02d 换上%s"%[role+1,weapon_name(spare)]
 
 static func collect(run, previous: Array) -> void:
@@ -128,13 +145,16 @@ static func collect(run, previous: Array) -> void:
 			"gun":
 				var picked: Dictionary=gun(pickup.get("weapon_type","smg")) if pickup.weapon.is_empty() else pickup.weapon.duplicate(true)
 				if run.combat.weapons[nearest].is_empty():
+					picked.cooldown=maxi(int(picked.get("cooldown",0)),DRAW_STEPS)
 					run.combat.weapons[nearest]=picked
+					set_motion(run,nearest,"pickup","",picked.get("type","smg"),pickup.position)
 					run.combat.notice="%02d 拾取%s · 移动速度 85%%"%[nearest+1,weapon_name(picked)]
 				else:
 					# 手上有枪：新枪背到背上，按换枪键取用。
 					picked.reload=0
 					picked.target=-1
 					run.combat.backups[nearest]=picked
+					set_motion(run,nearest,"stow","",picked.get("type","smg"),pickup.position)
 					run.combat.notice="%02d 拾取%s，背在背上 · Q 换枪"%[nearest+1,weapon_name(picked)]
 			"ammo":
 				# 弹药箱同时补满手上与背上的枪，各按自身枪种的补给量。
@@ -256,7 +276,16 @@ static func tick(run, previous: Array) -> void:
 		weapon.cooldown=maxi(0,weapon.cooldown-1)
 		if weapon.reload>0:
 			weapon.reload-=1
-			if weapon.reload==0:
+			if weapon.reload==0 and data.get("per_shell",false):
+				# 逐发装填：每压进一发重新计时，直到装满或没有备弹。
+				weapon.ammo+=1
+				weapon.reserve-=1
+				weapon.loaded=int(weapon.get("loaded",0))+1
+				if weapon.ammo<data.magazine and weapon.reserve>0:
+					weapon.reload=data.reload
+					weapon.reload_total=data.reload
+				else: weapon.loaded=0
+			elif weapon.reload==0:
 				var amount: int=mini(data.magazine-weapon.ammo,weapon.reserve)
 				weapon.ammo+=amount
 				weapon.reserve-=amount
@@ -266,6 +295,10 @@ static func tick(run, previous: Array) -> void:
 		weapon.target=target.get("id",-1)
 		# 单人模式的搭档由模拟自己扣扳机：看得见敌人就开火，存档与重放结果一致。
 		var firing: bool=run.combat.fire[role] or (run.solo_control and role==1 and not target.is_empty())
+		# 逐发装填的枪弹仓里有弹时，扣扳机直接打断装填开火。
+		if firing and weapon.reload>0 and data.get("per_shell",false) and weapon.ammo>0:
+			weapon.reload=0
+			weapon.loaded=0
 		if not firing or weapon.reload>0 or weapon.cooldown>0: continue
 		if weapon.ammo==0:
 			start_reload(run,role)

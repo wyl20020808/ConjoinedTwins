@@ -127,6 +127,23 @@ Blender 5.2.2 LTS 后台运行 `build-tools/journey/make_assets.py`，生成三�
 - 树干继续复用本文件已有来源记录的 Pine_Bark_NormalTree 贴图与法线；叶脉使用本项目 journey_natural_leaf.gdshader 程序材质，无新增外部贴图。
 - 弓手、冲锋者、灰鬃狼由本项目基础网格组合生成；造型、关节动作、预警线与箭矢无新增外部素材。
 
+## 2026-10-21 Tripo 枪械与 Blender 枪械动作
+
+用户授权在已登录的 Tripo Studio 账号中以文字生成四把枪，Agent 在应用内置浏览器填写提示词、提交并导出 GLB。参数：H3.1、关闭超清几何、开启纹理/去光/PBR、2K 贴图、三角面、面数上限 20000。共消耗 180 积分（含一件误用旧设置的无贴图模型与一件被弃用的左轮式榴弹发射器）。
+
+**许可待确认**：同上，正式发布前由用户在账号中确认套餐授权并按需署名。
+
+| 文件 | 内容 | 三角面 | 字节 | SHA256 前缀 | 使用位置 |
+| --- | --- | ---: | ---: | --- | --- |
+| `assets/weapons/tripo_smg.glb` | 黑色机匣、橄榄绿护木冲锋枪，弹匣拆为独立网格 | 19,222 | 1,739,100 | b0a5ae67ebf525ee | 冲锋枪（手持、背枪、地面拾取） |
+| `assets/weapons/tripo_shotgun.glb` | 胡桃木护木泵动霰弹枪 | 18,996 | 1,936,336 | 4645d81c5a223bd8 | 霰弹枪 |
+| `assets/weapons/tripo_flamer.glb` | 红色燃料罐喷火器 | 18,968 | 1,633,732 | 515bc033e4fcce94 | 喷火器 |
+| `assets/weapons/tripo_launcher.glb` | 六发转轮榴弹发射器 | 18,650 | 1,671,504 | acda6bcc86cb97de | 榴弹发射器 |
+
+入库前经 `build-tools/journey/process_tripo_weapons.py`（Blender）统一为枪口 -Z、右手握把对齐 `GRIP_RIGHT`，写入 Muzzle/Magazine/GripLeft/Port/ChargingHandle 标记点，冲锋枪弹匣拆出 `MagazineMesh`；再用 `build-tools/shrink_glb.py` 把贴图缩到 1024。提示词、Tripo 任务号、原始与入库哈希见 `build-tools/journey/tripo-weapon-assets.json`；原始导出保存在工程外 `/Users/apple/ConjoinedTwins-art-assets/tripo-weapons-20261021/raw/`。原程序化 `assets/weapons/{shotgun,flamer,launcher}.glb` 保留但不再引用。
+
+`assets/humans/gun_anims/gun_*.glb`（14 段）与 `scripts/gun_action_curves.gd`：本项目用 `tools/blender/make_gun_anims.py` 在 `Adventurer_A.glb` 骨架上按关键帧生成的上半身枪械动作（收枪、取枪、捡枪、背枪、丢枪、各枪换弹、泵动），无新增外部素材；导入时沿用 `bonemap_quaternius.tres` 重定向到主角。
+
 ## 2026-10-19 Tripo 文生 3D 怪物与村民
 
 用户在自己的 Tripo Studio 账号（studio.tripo3d.ai）中以文生 3D 生成，Agent 在应用内置浏览器中填写提示词并提交，用户本人导出 GLB。生成参数：H3.1 高精度模型、关闭超清几何、开启纹理与去光处理、2K 贴图、三角面、面数上限 6000。导出后用 `build-tools/shrink_glb.py` 把内嵌贴图缩到 1024（JPEG q88），几何不变。
