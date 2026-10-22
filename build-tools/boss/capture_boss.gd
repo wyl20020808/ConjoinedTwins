@@ -41,7 +41,7 @@ func shot(name: String) -> void:
 	await RenderingServer.frame_post_draw
 	var path := out.path_join(name + ".png")
 	var error := root.get_texture().get_image().save_png(path)
-	print("BOSS_CAPTURE ", path, " error=", error, " state=", Boss.boss(game.run).get("state", ""))
+	print("BOSS_CAPTURE ", path, " error=", error, " state=", Boss.boss(game.run).get("state", ""), " run=", game.run.state)
 
 func capture() -> void:
 	out = OS.get_environment("BOSS_CAPTURE_DIR")
@@ -69,6 +69,8 @@ func capture() -> void:
 	await shot("01_approach")
 	place(boss.arena + 320)
 	steps(int(1.6 / run.FIXED_STEP))
+	# 截图只渲染几帧，Boss 镜头的渐入直接拉满。
+	game.boss_camera_blend = 1.0
 	await shot("02_intro_roar")
 	steps(int(2.0 / run.FIXED_STEP))
 	place(boss.arena + 1150)
@@ -108,6 +110,22 @@ func capture() -> void:
 	Combat.damage(run, boss, boss.max_hp)
 	steps(int(2.0 / run.FIXED_STEP))
 	await shot("11_defeated")
+	# 场地内后退：Boss 存活时两人退到场地前段，镜头跟随，射程加长后仍能锁定。
+	run.retry()
+	run.state = "running"
+	for gate in run.charge_gates:
+		gate.open = true
+		gate.opened_at = -10.0
+	run.select_charge_gate()
+	boss = Boss.boss(run)
+	run.combat.weapons = [Combat.gun("smg"), Combat.gun("shotgun")]
+	place(boss.arena + 320)
+	steps(int(3.5 / run.FIXED_STEP))
+	place(boss.arena + 650)
+	steps(2)
+	game.boss_camera_blend = 1.0
+	game.boss_camera_focus = -1.0
+	await shot("12_retreat_long_range")
 	game.queue_free()
 	for n in range(4): await process_frame
 	quit(0)

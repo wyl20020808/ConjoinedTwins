@@ -68,6 +68,14 @@ const Fx = preload("res://scripts/journey_fx.gd")
 var fx
 const Buddy=preload("res://scripts/journey_buddy.gd")
 const BossView=preload("res://scripts/journey_boss_view.gd")
+# Boss 战镜头：比旅程镜头更高更远、视角更宽，跟随两人中点在场地内前后移动，朝向仍固定向前。
+const BOSS_EYE_HEIGHT := 12.5
+const BOSS_EYE_BACK := 420.0
+const BOSS_LOOK_HEIGHT := 5.5
+const BOSS_LOOK_AHEAD := 620.0
+const BOSS_FOV := 62.0
+var boss_camera_blend := 0.0
+var boss_camera_focus := -1.0
 var buddy=Buddy.new()
 var play_mode:="solo"
 var mode_buttons:Array[Button]=[]
@@ -2213,7 +2221,22 @@ func camera_shot()->Transform3D:
 	if run.state=="failed":return super()
 	var home:=camera_home
 	home.origin.z-=run.distance/SCALE
-	return home
+	return boss_camera(home)
+
+# 开战后到离开场地前都用 Boss 镜头：场地内可以后退，旅程镜头按最远进度定位会把人甩到画面外。
+func boss_camera(home:Transform3D)->Transform3D:
+	var event:Dictionary=run.Boss.boss(run)
+	var active:bool=not event.is_empty() and event.phase!="dormant" and run.progress()<run.finish_distance()
+	boss_camera_blend=move_toward(boss_camera_blend,1.0 if active else 0.0,frame_delta*0.7)
+	camera.fov=lerpf(57.0,BOSS_FOV,smoothstep(0.0,1.0,boss_camera_blend))
+	if boss_camera_blend<=0.0:
+		boss_camera_focus=-1.0
+		return home
+	var middle:float=clampf((run.a.position.y+run.b.position.y)*0.5,event.arena+run.Boss.FLOOR,event.arena+run.Boss.HOLD+200.0)
+	boss_camera_focus=middle if boss_camera_focus<0.0 else lerpf(boss_camera_focus,middle,clampf(frame_delta*2.5,0.0,1.0))
+	var eye:=Vector3(0,BOSS_EYE_HEIGHT,-(boss_camera_focus-BOSS_EYE_BACK)/SCALE)
+	var look:=Vector3(0,BOSS_LOOK_HEIGHT,-(boss_camera_focus+BOSS_LOOK_AHEAD)/SCALE)
+	return home.interpolate_with(Transform3D.IDENTITY.translated(eye).looking_at(look,Vector3.UP),smoothstep(0.0,1.0,boss_camera_blend))
 
 func update_journey_camera()->void:
 	if run.state=="paused":return

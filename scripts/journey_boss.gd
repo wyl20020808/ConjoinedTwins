@@ -8,6 +8,10 @@ const CHAPTERS := [0]
 const ARENA := 1800.0
 const TRIGGER := 300.0
 const HOLD := 1380.0
+# 开战后场地内可以自由前后走：最远退到入口根墙前（场地起点 + FLOOR），不受旅程“最多后退 10 米”的限制。
+const FLOOR := 120.0
+# 打 Boss 时各种枪的射程额外 +25 米，不必贴脸输出。
+const RANGE_BONUS := 500.0
 const CORE := 1540.0
 const NAME := "枯根巨像"
 const MAX_HP := 3000
@@ -31,15 +35,15 @@ const SPIKE_SPEED := 900.0
 const SPIKE_HALF := 28.0
 const SPIKE_LINGER := 0.5
 const SPIKE_DAMAGE := 25
-# 横扫：根臂贴地一挥，掀起一道沿道路纵向铺开的根浪横扫全宽；根浪覆盖树心前 28 米的射击区，
-# 跳起高于 SWEEP_TOP 才能躲开（退到射程外也安全，但打不到树心）。二阶段起双臂连扫。
+# 横扫：根臂贴地一挥，掀起一道沿道路纵向铺满整个场地的根浪横扫全宽，跳起高于 SWEEP_TOP 才能躲开。
+# 二阶段起双臂连扫。
 const SWEEP_WINDUP := 1.4
 const SWEEP_TIME := 0.6
 const SWEEP_SECOND := 0.75
 const SWEEP_HALF := 30.0
 const SWEEP_TOP := 16.0
 const SWEEP_DAMAGE := 35
-const SWEEP_DEPTH := 560.0
+const SWEEP_DEPTH := HOLD-FLOOR
 # 孢果：落点锁定在两人附近，飞行后爆炸。
 const SEED_WINDUP := 1.3
 const SEED_FLIGHT := 0.9
@@ -67,10 +71,19 @@ static func enabled(run) -> bool:
 static func start_y(run) -> float:
 	return run.finish_distance()-ARENA
 
+# 站位约束每个子步都要查 Boss；按登记时记下的下标直接取，失配时再整表查找。
 static func boss(run) -> Dictionary:
+	var index:int=run.boss_index
+	if index>=0 and index<run.journey_events.size() and run.journey_events[index].kind=="boss": return run.journey_events[index]
 	for event in run.journey_events:
 		if event.kind=="boss": return event
 	return {}
+
+# 开战后的后退下限；未开战或已击败时不限制（INF）。
+static func floor_y(run) -> float:
+	var event:=boss(run)
+	if not alive(event) or event.phase=="dormant": return INF
+	return event.arena+FLOOR
 
 static func alive(event: Dictionary) -> bool:
 	return not event.is_empty() and event.hp>0
@@ -86,6 +99,7 @@ static func add(run) -> void:
 	var arena:=start_y(run)
 	var core:=Vector2(0,arena+CORE)
 	var body:=Rect2(-180,core.y-40,360,220)
+	run.boss_index=run.journey_events.size()
 	run.journey_events.append({"id":run.event_serial,"kind":"boss","arena":arena,"y":core.y,"origin":core,"spawn":core,
 		"rect":body,"sample":body,"previous":body,"bottom":0.0,"top":0.0,"side":0.0,"locked_x":0.0,"combined":false,"obstacle":-1,
 		"trigger":-1.0,"phase":"dormant","hp":MAX_HP,"max_hp":MAX_HP,"stage":0,

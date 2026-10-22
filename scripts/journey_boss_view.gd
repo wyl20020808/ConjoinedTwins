@@ -12,9 +12,14 @@ const KNOT := "res://assets/boss/binding_root.glb"
 const WALL := "res://assets/boss/root_wall.glb"
 const PATHS := [BODY, SPIKE, POD, KNOT, WALL]
 const SCALE := 20.0
-# 模型原生高 1、正前方 -X；放大到约 14 米并转向镜头（+Z）。
-const HEIGHT := 14.0
-const CHEST := 0.68
+# 模型原生高 1、正前方 +X；放大到约 16 米并转向镜头（+Z）。
+const HEIGHT := 16.5
+# 胸口树心在模型里的高度比例与前凸距离（米）；模型自带发光树心，额外的发光核只在硬直时放大。
+const CHEST := 0.6
+const CHEST_FRONT := 1.7
+# 换动作时用 0.25 秒（模拟时间）把上一帧骨骼姿势过渡到新动作，避免瞬间跳变显得僵硬。
+const CROSSFADE := 0.25
+const IDLE_LOOP := 6.0
 const SPIKE_STEP := 90.0
 const SPIKE_SIZE := 3.2
 const MAX_SPIKES := 48
@@ -87,13 +92,17 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	var model: Node3D = load(BODY).instantiate()
 	model.name = "Figure"
 	model.scale = Vector3.ONE*HEIGHT
-	model.rotation.y = PI/2
+	model.rotation.y = -PI/2
 	boss.add_child(model)
 	var players := model.find_children("*", "AnimationPlayer", true, false)
 	if not players.is_empty():
 		var player: AnimationPlayer = players[0]
 		player.speed_scale = 0.0
+		# 只在 animate() 里按模拟时间取样，引擎不再每帧覆盖骨骼，换动作的渐变才保得住。
+		player.callback_mode_process = AnimationMixer.ANIMATION_CALLBACK_MODE_PROCESS_MANUAL
 		boss.set_meta("anim", player)
+		var skeletons := model.find_children("*", "Skeleton3D", true, false)
+		if not skeletons.is_empty(): boss.set_meta("skeleton", skeletons[0])
 	var parts: Array = []
 	meshes(model, parts)
 	boss.set_meta("meshes", parts)
@@ -105,7 +114,7 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	sphere.height = 1.5
 	heart.mesh = sphere
 	heart.material_override = game.material("boss_heart", AMBER, 4.0)
-	heart.position = Vector3(0, HEIGHT*CHEST, 0.9)
+	heart.position = Vector3(0, HEIGHT*CHEST, CHEST_FRONT)
 	heart.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	boss.add_child(heart)
 	var light := OmniLight3D.new()
@@ -241,11 +250,11 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 	var player: AnimationPlayer = boss.get_meta("anim")
 	var pace: float = Boss.PACE[event.stage]
 	var clip := "Idle"
-	var t: float = fposmod(run.elapsed, 4.0)
+	var t: float = fposmod(run.elapsed, IDLE_LOOP)
 	if dead:
 		clip = "Death"; t = minf(death_age, 3.0)
 	elif event.phase == "dormant":
-		clip = "Idle"; t = fposmod(run.elapsed*0.5, 4.0)
+		clip = "Idle"; t = fposmod(run.elapsed*0.5, IDLE_LOOP)
 	else:
 		match event.state:
 			"intro":
@@ -261,8 +270,8 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 				var windup: float = Boss.SWEEP_WINDUP*pace
 				var arm := 1 if Boss.sweep_arms(event) == 2 and age >= windup+Boss.SWEEP_TIME else 0
 				var side: float = event.sweep_side*(1.0 if arm == 0 else -1.0)
-				# 根浪从 +x 侧出发时用模型右臂（画面右侧）。
-				clip = "SweepR" if side > 0 else "SweepL"
+				# 模型 L 臂在画面右侧（+x）：根浪从 +x 侧出发时用 L 臂。
+				clip = "SweepL" if side > 0 else "SweepR"
 				var start: float = windup+arm*Boss.SWEEP_SECOND
 				if arm == 0 and age < windup: t = age/windup*0.7
 				else: t = minf(0.7+(age-start)/Boss.SWEEP_TIME*0.3, 2.0) if age >= start else 0.55+(age-(windup+Boss.SWEEP_TIME))/(start-windup-Boss.SWEEP_TIME)*0.15
@@ -276,25 +285,39 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 			"stagger":
 				clip = "Stagger"; t = age if age < 0.35 else 0.35+fposmod(age-0.35, 1.65)
 			"recover":
-				clip = "Idle"; t = fposmod(run.elapsed, 4.0)
+				clip = "Idle"; t = fposmod(run.elapsed, IDLE_LOOP)
 	var name: String = boss.get_meta("clip_" + clip, "")
 	if name.is_empty():
 		for candidate in player.get_animation_list():
 			if candidate.get_slice("|", candidate.get_slice_count("|")-1) == clip: name = candidate
 		boss.set_meta("clip_" + clip, name)
 	if name.is_empty(): return
-	if player.current_animation != name: player.play(name)
+	var skeleton: Skeleton3D = boss.get_meta("skeleton", null)
+	if player.current_animation != name:
+		# 记下切换前的骨骼姿势，随后按模拟时间渐变到新动作。
+		if skeleton != null and player.current_animation != "":
+			var snapshot: Array = []
+			for bone in range(skeleton.get_bone_count()): snapshot.append(skeleton.get_bone_pose_rotation(bone))
+			boss.set_meta("blend_from", snapshot)
+			boss.set_meta("blend_at", run.elapsed)
+		player.play(name)
 	player.seek(clampf(t, 0.0, player.current_animation_length), true)
+	var blend: float = (run.elapsed-float(boss.get_meta("blend_at", -10.0)))/CROSSFADE
+	if skeleton != null and blend < 1.0 and boss.has_meta("blend_from"):
+		var from: Array = boss.get_meta("blend_from")
+		var w := smoothstep(0.0, 1.0, maxf(blend, 0.0))
+		for bone in range(mini(from.size(), skeleton.get_bone_count())):
+			skeleton.set_bone_pose_rotation(bone, (from[bone] as Quaternion).slerp(skeleton.get_bone_pose_rotation(bone), w))
 
 static func heart(run, boss: Node3D, event: Dictionary, age: float, dead: bool) -> void:
 	var core: MeshInstance3D = boss.get_node("Heart")
 	var light: OmniLight3D = boss.get_node("HeartLight")
 	var exposed: bool = Boss.exposed(event)
 	var pulse := 0.5+0.5*sin(run.elapsed*(9.0 if exposed else 2.2))
-	core.visible = not dead
-	core.scale = Vector3.ONE*((1.4+pulse*0.3) if exposed else (0.7+pulse*0.1))
-	# 硬直时身体前倾，树心跟随下移前探。
-	core.position = Vector3(0, HEIGHT*(CHEST-0.12*smoothstep(0, 0.35, age)) if exposed else HEIGHT*CHEST, 2.2 if exposed else 0.9)
+	# 模型自带树心，平时只补光；硬直时额外的发光核从胸口放大前探（身体前扑，树心下移）。
+	core.visible = exposed and not dead
+	core.scale = Vector3.ONE*(1.0+pulse*0.35)*smoothstep(0.0, 0.3, age)
+	core.position = Vector3(0, HEIGHT*(CHEST-0.14*smoothstep(0, 0.35, age)) if exposed else HEIGHT*CHEST, CHEST_FRONT+(1.8 if exposed else 0.0))
 	light.position = core.position+Vector3(0, 0, 1.4)
 	light.light_energy = 0.0 if dead else ((5.0+pulse*3.0) if exposed else (1.2+pulse*0.6))
 	light.light_color = Color("fff0b8") if exposed else AMBER
