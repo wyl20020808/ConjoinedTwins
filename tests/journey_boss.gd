@@ -67,6 +67,14 @@ func verify()->void:
 	# —— 护甲与锁定 ——
 	run.combat.weapons[0]=run.Combat.gun();place(run,boss.arena+1250);fresh(run);ticks(run,1)
 	check(run.combat.weapons[0].target==boss.id,"自动锁定 Boss 树心")
+	# Boss 战中可以在场地内前后走：退到入口根墙前也不会被判“挤出画面”，射程加长后远处也能锁定。
+	place(run,boss.arena+700);ticks(run,1)
+	check(run.combat.weapons[0].target==boss.id,"射程加长：离树心 42 米仍能锁定")
+	check(run.bounded(Vector2(0,boss.arena+40)).y==boss.arena+Boss.FLOOR,"场地内最远退到入口根墙前")
+	run.distance=boss.arena+Boss.HOLD;place(run,boss.arena+1300)
+	for n in range(600):run.step(run.FIXED_STEP,Vector2(0,-1),Vector2(0,-1))
+	check(run.state=="running" and minf(run.a.position.y,run.b.position.y)<boss.arena+400,"真实输入可以一路后退到场地前段")
+	check(absf(run.distance-maxf(minf(run.a.position.y,run.b.position.y),boss.arena+Boss.FLOOR))<0.01,"战斗中进度跟随落后者")
 	var hp:int=boss.hp
 	run.Combat.damage(run,boss,10)
 	check(boss.hp==hp-maxi(1,roundi(10*Boss.ARMOR)),"护甲状态只受 25% 伤害")
