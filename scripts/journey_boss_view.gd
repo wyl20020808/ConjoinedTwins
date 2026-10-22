@@ -222,28 +222,29 @@ static func build_bar(root: Node3D) -> void:
 		tick.color = Color(1, 1, 1, 0.55)
 		frame.add_child(tick)
 
-# 咆哮口雾：仰头时从口部向上方喷出的暖色雾团（映着树心的琥珀光），逐渐扩散变淡。世界坐标发射，Boss 动作不会拖着雾走。
+# 咆哮口雾：从张开的嘴里沿着头的朝向喷出的一股暖色气流（映着树心的琥珀光），出口细、往外散开变淡。
+# 量与团块都控制在不挡住脸的程度；世界坐标发射，节点每帧摆到嘴前、局部 +Z 对准喷出方向。
 static func build_breath() -> GPUParticles3D:
 	var particles := GPUParticles3D.new()
 	particles.name = "Breath"
-	particles.amount = 220
-	particles.lifetime = 2.0
+	particles.amount = 60
+	particles.lifetime = 0.6
 	particles.local_coords = false
 	particles.emitting = false
 	particles.visibility_aabb = AABB(Vector3(-20, -5, -20), Vector3(40, 30, 40))
 	var process := ParticleProcessMaterial.new()
-	process.direction = Vector3(0, 0.88, 0.48)
-	process.spread = 24.0
-	process.initial_velocity_min = 7.0
+	process.direction = Vector3(0, 0, 1)
+	process.spread = 12.0
+	process.initial_velocity_min = 8.0
 	process.initial_velocity_max = 11.0
 	process.damping_min = 4.0
-	process.damping_max = 6.0
-	process.gravity = Vector3(0, 0.3, 0)
-	process.scale_min = 0.8
-	process.scale_max = 1.4
+	process.damping_max = 5.0
+	process.gravity = Vector3.ZERO
+	process.scale_min = 0.7
+	process.scale_max = 1.0
 	var grow := Curve.new()
-	grow.add_point(Vector2(0, 0.35))
-	grow.add_point(Vector2(1, 2.2))
+	grow.add_point(Vector2(0, 0.25))
+	grow.add_point(Vector2(1, 1.5))
 	var grow_texture := CurveTexture.new()
 	grow_texture.curve = grow
 	process.scale_curve = grow_texture
@@ -257,7 +258,7 @@ static func build_breath() -> GPUParticles3D:
 	process.color_ramp = fade_texture
 	particles.process_material = process
 	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE*5.0
+	quad.size = Vector2.ONE*3.0
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -388,8 +389,12 @@ static func mouth(boss: Node3D) -> Vector3:
 		var bone := skeleton.find_bone("Head")
 		if bone >= 0:
 			var head: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(bone).origin
-			return head+Vector3(0, HEIGHT*0.05, HEIGHT*0.05)
+			return head+Vector3.BACK*HEIGHT*0.05-Vector3.UP*HEIGHT*0.02
 	return boss.global_position+Vector3(0, HEIGHT*0.88, HEIGHT*0.05)
+
+# 口部朝向：朝两人所在的前方（+Z）斜向上约 25°。仰头时颈到头的方向偏向身后，不能拿来当喷口方向。
+static func mouth_direction(_boss: Node3D) -> Vector3:
+	return (Vector3.BACK*0.9+Vector3.UP*0.42).normalized()
 
 # 电影黑边、Boss 名称标题与“按跳跃跳过”提示，画在游戏界面之上。
 static func build_cinema(root: Node3D) -> void:
@@ -1002,7 +1007,9 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	# 咆哮张口（动作的后仰段）时喷出口雾。
 	var breath: GPUParticles3D = boss.get_node("Breath")
 	var roaring: bool = event.phase == "intro" and t >= Boss.INTRO_ROAR+0.5 and t < Boss.INTRO_ROARED-0.4 and run.state == "running"
-	if roaring: breath.global_position = mouth(boss)
+	if roaring:
+		var aim := mouth_direction(boss)
+		breath.global_transform = Transform3D(Basis.looking_at(-aim, Vector3.UP if absf(aim.y) < 0.98 else Vector3.BACK), mouth(boss))
 	if breath.emitting != roaring: breath.emitting = roaring
 	# 地面震动：咆哮与破土时整片场地四处扬尘，越靠近两人越密。
 	if fx != null and intro_shake(t) > 0.2 and int(run.elapsed/run.FIXED_STEP)%5 == 0:

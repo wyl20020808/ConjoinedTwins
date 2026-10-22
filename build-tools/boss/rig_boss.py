@@ -455,11 +455,13 @@ def claw_wind(s):
 def claw_strike(s, extra=0):
     sign = 1 if s == 'L' else -1
     o = 'R' if s == 'L' else 'L'
+    # 从侧上方（蓄力位）斜向下扫到身前中间偏下：落点比最初略高（外展 30°→40°），前臂顺直，
+    # 手腕不再向下勾，爪尖顺着扫下的方向伸出而不是指地。
     return pose(Spine=compose(twist(-16 * sign - extra * 0.3 * sign), lean(14)), Chest=compose(twist(-30 * sign - extra * 0.5 * sign), lean(22)),
                 Neck=compose(twist(12 * sign), lean(4)), Head=compose(twist(18 * sign), lean(8)),
-                **{'UpperArm_' + s: compose(raise_side(s, 30), swing_front(s, 95 + extra), reach_forward(28)),
-                   'Forearm_' + s: compose(swing_front(s, 35), reach_forward(-10)),
-                   'Hand_' + s: swing_front(s, 40 + extra),
+                **{'UpperArm_' + s: compose(raise_side(s, 40), swing_front(s, 95 + extra), reach_forward(28)),
+                   'Forearm_' + s: swing_front(s, 30),
+                   'Hand_' + s: swing_front(s, 20 + extra * 0.5),
                    'UpperArm_' + o: compose(raise_side(o, 28), swing_front(o, -20)), 'Forearm_' + o: raise_side(o, 15)}) | palm_lead(s)
 
 
@@ -478,7 +480,8 @@ sky_inhale = pose(Spine=lean(14), Chest=lean(18), Neck=lean(12), Head=lean(12),
 
 
 def sky_peak(shake):
-    return dict(pose(Spine=lean(-20 + shake), Chest=compose(lean(-32 - shake), twist(2 * shake)), Neck=lean(-30), Head=compose(lean(-38 + shake), twist(-2 * shake)),
+    # 后仰总量控制在约 60°：头仰向天空，但从正面低机位仍看得到脸和张开的嘴。
+    return dict(pose(Spine=lean(-9 + shake), Chest=compose(lean(-16 - shake), twist(2 * shake)), Neck=lean(-14), Head=compose(lean(-20 + shake), twist(-2 * shake)),
                 UpperArm_L=compose(raise_side('L', 52 + 2 * shake), swing_front('L', -30)),
                 UpperArm_R=compose(raise_side('R', 52 - 2 * shake), swing_front('R', -30)),
                 Forearm_L=compose(raise_side('L', 25), swing_front('L', -10)), Forearm_R=compose(raise_side('R', 25), swing_front('R', -10)),

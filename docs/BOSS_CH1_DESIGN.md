@@ -191,3 +191,15 @@
   ```
 
 自测：`journey_boss` 679 项、`journey_boss_intro_fx`、只用输入的实打 `journey_boss_playthrough`、`journey_combat`、`journey_monsters` 均 0 失败；`check_journey_performance.py` 唯一未通过项是 `journey_pursuit` 退出时 10 个对象 / 3 个资源泄漏告警，与未改动的 `origin/test` 基线相同（报告 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-polish-perf-20261021/summary.json`）。入场画面在 macOS 真实渲染下按时间轴截图核对（工程外 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-palm-20261021/`）；Controller 独立测试未运行，挥爪观感待用户试玩确认。
+
+### 13.1 第二轮试玩反馈（同分支）
+
+用户看过后反馈：挥爪时掌心和手臂仍朝下，没有顺着运动方向；咆哮镜头完全看不到头，只有一团气，气太多、头偏低，希望稍微抬头、少量从口中喷出。用户补充：手臂不用抬很高，只要角度稍微往上，应该是从左上或右上往身前中间偏下挥。
+
+- **挥爪**：保持“侧上方蓄力 → 斜向下扫到身前中间偏下”的轨迹，落点只略抬高（上臂外展 30°→40°），前臂顺直；去掉原来手腕向下 40° 的勾（爪尖因此指地），改为向掌心一侧勾 20°，掌心继续外翻 45° 领路。中途试过把横扫抬到肩高水平，用户确认不需要，已退回。
+  - 量化：掌心法线与运动方向余弦两爪整段 0.95–1.0；爪尖方向的竖直分量由原来的 −0.6 至 −0.95（垂直指地）变为 −0.35 至 −0.6，顺着向下斜扫的方向。
+- **仰天咆哮**：后仰总量由约 120° 减到约 60°（脊柱 −9°、胸 −16°、颈 −14°、头 −20°），正面低机位能看到头。
+- **口雾**：220 粒、2 秒、5 米大团改为 60 粒、0.6 秒、3 米，从嘴前朝两人方向斜向上约 25° 短促喷出，不再在头顶堆成一根气柱（原来的阻尼加向上重力会让雾停在原地往上飘）。
+- `capture_intro.gd` 支持环境变量 `BOSS_CAPTURE_MOMENTS` 只截指定时刻。
+
+自测：`journey_boss` 679 项、`journey_boss_intro_fx`、`journey_boss_playthrough` 0 失败；`check_journey_performance.py` 全部通过（报告 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-polish-perf-20261021b/summary.json`）。游戏内入场截图在 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-v2-20261021/d/`。观感待用户再看。
