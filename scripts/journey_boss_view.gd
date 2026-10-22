@@ -135,7 +135,8 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	spike_field(root, "Spikes", MAX_SPIKES)
 	# 根浪（巨臂横扫）：根墙模型竖着铺在道路纵向，横向扫过。
 	for arm in range(2):
-		var wave := prop(game, root, WALL, Vector3(Boss.SWEEP_DEPTH/SCALE, 2.8, 2.2))
+		# 高 1.3 米、厚 1.8 米的贴地根浪，看上去跳得过去；厚度与判定宽度（SWEEP_HALF×2）一致。
+		var wave := prop(game, root, WALL, Vector3(Boss.SWEEP_DEPTH/SCALE, 1.3, Boss.SWEEP_HALF*2/SCALE*0.82))
 		wave.name = "Wave%d"%arm
 		wave.rotation.y = PI/2
 		wave.hide()
@@ -143,7 +144,8 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 		var pod := prop(game, root, POD, Vector3(1.8, 2.1, 1.8))
 		pod.name = "Pod%d"%n
 		pod.hide()
-	var knot := prop(game, root, KNOT, Vector3(4.6, 1.4, 4.4))
+	# 缚根缠在场地左侧的缠柱根部，扎根汲取时钻出发光，提示玩家去绕柱。
+	var knot := prop(game, root, KNOT, Vector3(3.2, 1.3, 3.0))
 	knot.name = "Knot"
 	var knot_light := OmniLight3D.new()
 	knot_light.name = "KnotLight"
@@ -663,8 +665,9 @@ static func waves(game, view: Node3D, event: Dictionary) -> void:
 		wave.visible = x != INF
 		if x == INF: continue
 		var center: float = event.arena+Boss.HOLD-Boss.SWEEP_DEPTH*0.5
-		wave.position = Vector3(x/SCALE, 0, local_z(event, center))
-		wave.rotation.z = -event.sweep_side*(1.0 if arm == 0 else -1.0)*0.25
+		# 贴地：绕根浪自身的长轴（道路纵向）朝前进方向前倾，整条底边都压在地面上。
+		wave.position = Vector3(x/SCALE, -0.15, local_z(event, center))
+		wave.rotation.x = -event.sweep_side*(1.0 if arm == 0 else -1.0)*0.25
 		if fx != null and int(run.elapsed/run.FIXED_STEP)%6 == 0:
 			for along in [-0.35, 0.0, 0.35]:
 				fx.burst("dust", world(Vector2(x, center+along*Boss.SWEEP_DEPTH), 0.1))
@@ -706,10 +709,13 @@ static func knot(game, view: Node3D, event: Dictionary, age: float) -> void:
 	node.position = Vector3(event.binding.x/SCALE, -1.4*(1.0-rise), local_z(event, event.binding.y))
 	var burn: float = Boss.burn_ratio(event)
 	var light: OmniLight3D = node.get_node("KnotLight")
-	light.light_energy = 1.5+burn*6.0
+	light.light_energy = 2.5+burn*6.0
 	light.light_color = AMBER.lerp(Color("fff6dc"), burn)
 	var fx = game.get("fx")
-	if active and age >= windup and Boss.burning(run, event) and fx != null and int(run.elapsed/run.FIXED_STEP)%10 == 0:
+	# 缠绕进度增加时迸火花、绳子摩擦声。
+	var growing: bool = burn > float(node.get_meta("burn_seen", 0.0))+0.002
+	node.set_meta("burn_seen", burn)
+	if active and age >= windup and growing and fx != null and int(run.elapsed/run.FIXED_STEP)%10 == 0:
 		fx.burst("spark", world(event.binding, 1.2))
 		game.sfx.play_at("rope", world(event.binding, 1.0), -10.0, 1.4)
 	if event.state == "stagger" and once_tag(view, "burst", "%d"%event.skill_seq):
@@ -778,8 +784,8 @@ static func moments(game, view: Node3D, event: Dictionary, age: float, dead: boo
 		"sweep", "seeds", "summon":
 			if once(view, key): game.sfx.play_at("wood_creak_heavy", base+Vector3(0, 6, 0), -2.0, 0.9)
 			if event.state == "summon" and age >= Boss.SUMMON_WINDUP*pace and once_tag(view, "strike", key):
-				for x in [-220.0, 220.0]:
-					var at := world(Vector2(x, event.arena+Boss.HOLD+100), 0.1)
+				for point in Boss.summon_points(event):
+					var at := world(point, 0.1)
 					if hazard_fx != null: hazard_fx.slam(at, 2.5)
 				game.sfx.play_at("rubble", base, -2.0, 1.0)
 		"root":
@@ -1006,6 +1012,10 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 		game.sfx.play_at("wood_creak_heavy", base+Vector3(0, HEIGHT*0.6, 2), 6.0, 0.45)
 		game.sfx.play_at("boss_rumble", base+Vector3(0, 2, 2), 0.0, 0.8)
 		game.sfx.play_at("boss_roar", base+Vector3(0, HEIGHT*0.7, 2), -4.0, 0.62)
+	# 破土瞬间一声贴耳的怒吼（不随距离衰减、不受镜头远近影响）；跳过入场时也在跳过那一刻补上，登场必有声。
+	if t >= Boss.INTRO_RISE and once_tag(view, "intro_cry", key):
+		game.sfx.play("boss_roar", 0.0, 0.85)
+		game.sfx.play("boss_burst", -3.0, 0.9)
 	if t >= Boss.INTRO_RISE and once_tag(view, "intro_burst", key) and not skipped:
 		game.sfx.play_at("boss_burst", base+Vector3(0, 1, 0), 3.0, 0.85)
 		game.sfx.play_at("tree_fall", base+Vector3(0, 3, 0), 0.0, 0.6)
