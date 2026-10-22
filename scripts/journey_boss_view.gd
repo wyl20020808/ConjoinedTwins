@@ -227,18 +227,18 @@ static func build_bar(root: Node3D) -> void:
 static func build_breath() -> GPUParticles3D:
 	var particles := GPUParticles3D.new()
 	particles.name = "Breath"
-	particles.amount = 60
-	particles.lifetime = 0.6
+	particles.amount = 70
+	particles.lifetime = 0.8
 	particles.local_coords = false
 	particles.emitting = false
 	particles.visibility_aabb = AABB(Vector3(-20, -5, -20), Vector3(40, 30, 40))
 	var process := ParticleProcessMaterial.new()
 	process.direction = Vector3(0, 0, 1)
 	process.spread = 12.0
-	process.initial_velocity_min = 8.0
-	process.initial_velocity_max = 11.0
-	process.damping_min = 4.0
-	process.damping_max = 5.0
+	process.initial_velocity_min = 14.0
+	process.initial_velocity_max = 18.0
+	process.damping_min = 2.5
+	process.damping_max = 3.5
 	process.gravity = Vector3.ZERO
 	process.scale_min = 0.7
 	process.scale_max = 1.0
@@ -389,12 +389,22 @@ static func mouth(boss: Node3D) -> Vector3:
 		var bone := skeleton.find_bone("Head")
 		if bone >= 0:
 			var head: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(bone).origin
-			return head+Vector3.BACK*HEIGHT*0.05-Vector3.UP*HEIGHT*0.02
+			return head+mouth_direction(boss)*HEIGHT*0.06
 	return boss.global_position+Vector3(0, HEIGHT*0.88, HEIGHT*0.05)
 
-# 口部朝向：朝两人所在的前方（+Z）斜向上约 25°。仰头时颈到头的方向偏向身后，不能拿来当喷口方向。
-static func mouth_direction(_boss: Node3D) -> Vector3:
-	return (Vector3.BACK*0.9+Vector3.UP*0.42).normalized()
+# 口部朝向：颈到头的方向（仰头时偏上偏后）与朝向两人的前方（+Z）各半，再略微上抬。
+# 不能直接朝 +Z 喷：正面机位下朝镜头飞的雾会在画面上叠在脸上，把头挡住。
+static func mouth_direction(boss: Node3D) -> Vector3:
+	var skeleton: Skeleton3D = boss.get_meta("skeleton", null)
+	var up := Vector3.UP
+	if skeleton != null:
+		var neck := skeleton.find_bone("Neck")
+		var head := skeleton.find_bone("Head")
+		if neck >= 0 and head >= 0:
+			var a: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(neck).origin
+			var b: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(head).origin
+			if a.distance_to(b) > 0.001: up = (b-a).normalized()
+	return (up*0.5+Vector3.BACK*0.5+Vector3.UP*0.2).normalized()
 
 # 电影黑边、Boss 名称标题与“按跳跃跳过”提示，画在游戏界面之上。
 static func build_cinema(root: Node3D) -> void:

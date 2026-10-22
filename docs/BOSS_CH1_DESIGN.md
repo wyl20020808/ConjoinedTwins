@@ -203,3 +203,13 @@
 - `capture_intro.gd` 支持环境变量 `BOSS_CAPTURE_MOMENTS` 只截指定时刻。
 
 自测：`journey_boss` 679 项、`journey_boss_intro_fx`、`journey_boss_playthrough` 0 失败；`check_journey_performance.py` 全部通过（报告 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-polish-perf-20261021b/summary.json`）。游戏内入场截图在 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-v2-20261021/d/`。观感待用户再看。
+
+### 13.2 第三轮试玩反馈：咆哮时头又被口雾挡住（同分支）
+
+用户反馈：中途有一版头是看得见的，提交后的版本又看不见头、被雾挡住，希望头再稍微抬一点。
+
+- **原因**：13.1 中途截图（`boss-intro-v2-20261021/b/`）口雾沿“颈→头方向与前方各半、略上抬”喷出，头清楚可见；提交前改成固定朝两人前方（+Z）斜上 25°。正面机位下朝镜头飞的雾在画面上正好叠在脸上，所以头又被挡住。
+- **口雾**：恢复看得见头的那版：沿颈→头方向与 +Z 各半再略上抬，从头前方 0.06 倍身高处喷出；70 粒、0.8 秒、初速 14–18、阻尼 2.5–3.5、无重力，喷得快、离脸快。
+- **抬头**：RoarSky 躯干后仰保持不变（脊柱 −9°、胸 −16°），颈 −14°→−18°、头 −20°→−28°，只让头再仰一些，不躲到胸口后面。
+
+自测：`journey_boss` 679 项、`journey_boss_intro_fx`、`journey_boss_playthrough` 0 失败；`check_journey_performance.py` 全部通过（报告 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-polish-perf-20261022c/summary.json`）。入场截图在工程外 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-v3-20261022/`。观感待用户再看。

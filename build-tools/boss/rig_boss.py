@@ -480,8 +480,8 @@ sky_inhale = pose(Spine=lean(14), Chest=lean(18), Neck=lean(12), Head=lean(12),
 
 
 def sky_peak(shake):
-    # 后仰总量控制在约 60°：头仰向天空，但从正面低机位仍看得到脸和张开的嘴。
-    return dict(pose(Spine=lean(-9 + shake), Chest=compose(lean(-16 - shake), twist(2 * shake)), Neck=lean(-14), Head=compose(lean(-20 + shake), twist(-2 * shake)),
+    # 躯干后仰保持较小（约 25°），只把颈和头再抬高一些：头仰向天空，又不会躲到胸口后面，正面低机位仍看得到脸和张开的嘴。
+    return dict(pose(Spine=lean(-9 + shake), Chest=compose(lean(-16 - shake), twist(2 * shake)), Neck=lean(-18), Head=compose(lean(-28 + shake), twist(-2 * shake)),
                 UpperArm_L=compose(raise_side('L', 52 + 2 * shake), swing_front('L', -30)),
                 UpperArm_R=compose(raise_side('R', 52 - 2 * shake), swing_front('R', -30)),
                 Forearm_L=compose(raise_side('L', 25), swing_front('L', -10)), Forearm_R=compose(raise_side('R', 25), swing_front('R', -10)),
