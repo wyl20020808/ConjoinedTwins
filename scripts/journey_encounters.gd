@@ -4,9 +4,12 @@ const RandomLayout=preload("res://scripts/journey_random.gd")
 const Boss=preload("res://scripts/journey_boss.gd")
 const STEP:=240.0
 const REUSED:=["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
-const RIDGE:=["rail","pillar","cargo","road_gap","active_spikes","rail","collapse","pillar"]
-const FOREST:=["rail","pillar","tree","road_gap","collapse","boar","rail","swing","pillar","tree","active_spikes","boar"]
-const VILLAGE:=["cargo","stone","rail","cart","pillar","active_spikes","road_gap","swing","collapse","stone","rail","pillar"]
+# 主节拍只放会动的机关：原矮木栏、立柱、巨岩等静态占位改为往复撞石、摆锤、扫杆、活塞等动态机关。
+const RIDGE:=["shuttle","hammer","sweeper","road_gap","active_spikes","shuttle","collapse","piston"]
+const FOREST:=["shuttle","hammer","tree","road_gap","collapse","boar","shuttle","swing","sweeper","tree","active_spikes","boar"]
+const VILLAGE:=["sweeper","stone","shuttle","cart","hammer","active_spikes","road_gap","swing","collapse","stone","shuttle","piston"]
+# 飞行波次：组首拍（工业机关拍）额外加一波空中来袭，与中拍迎面波次错开。
+const AIR:=["drone","fly_body","fly_low","rocket"]
 const MID_GATES:=[
 	[4800.0,false,"ridge_lock","石门供能 · 分侧拉紧连线",false],
 	[12000.0,true,"forest_bridge","林间木桥 · 双板放桥",true],
@@ -116,9 +119,12 @@ static func build(run)->void:
 		# 窄路替换的拍子不消费机关配额，完整章节仍覆盖所有共享机关。
 		var kind:String=layout.draw("reused",REUSED) if n%3==0 else layout.draw("theme:"+theme,kinds)
 		run.encounter_markers.append({"y":y,"kind":kind,"blocked":blocked,"formation":n>2})
-		if n>2: formation(run,n,y,blocked,layout.draw("formation",[0,1,2,3]))
+		# 往复撞石横扫整条路，扫掠线上不再摆立柱、巨岩等阵型件，免得撞石穿模。
+		if n>2 and kind!="shuttle": formation(run,n,y,blocked,layout.draw("formation",[0,1,2,3]))
 		if n%3!=0 and n>3:small_beats.append([n,y,blocked])
 		if n%3==1 and n>3: moving_wave(run,n,y,blocked,layout.draw("wave",["drone","fly_body","stone_ball","fly_low","iron_ball","rocket"]))
+		# 横贯全路的往复撞石已经占满整条路，不再叠加空中波次。
+		if n%3==0 and n>3 and kind!="shuttle": moving_wave(run,n,y,blocked,layout.draw("air",AIR))
 		if n%3==2 and n>3:
 			if special=="barrel":
 				due.pop_front()
@@ -132,7 +138,7 @@ static func build(run)->void:
 			"sweeper":rect=Rect2(blocked*120-5,y,10,10)
 			"hammer":rect=Rect2(blocked*75-26,y,52,44)
 			"press","steam","piston":rect=Rect2(blocked*120-70,y,140,60)
-			"shuttle":rect=Rect2(blocked*130-35,y,70,45)
+			"shuttle":rect=Rect2(-SHUTTLE_WIDTH/2,y,SHUTTLE_WIDTH,45)
 			"lift","slope","steps","tilt":rect=Rect2(blocked*140-65,y,130,160)
 			"pillar":rect=Rect2(blocked*95-12,y,24,24)
 			"cargo":rect=Rect2(blocked*130-55,y,110,70)
@@ -149,6 +155,11 @@ static func build(run)->void:
 			run.hazard_specs[index].amplitude=layout.draw("amplitude",[16.0,24.0,28.0])
 			run.hazard_specs[index].period=3.2
 		if kind=="collapse":run.hazard_specs[index].grace=2.8
+		if kind=="shuttle":
+			# 往复撞石从路中出发，横扫覆盖整条路面，两人需要看准撞石离开再通过。
+			run.hazard_specs[index].reach=run.EDGE-SHUTTLE_WIDTH/2
+			run.hazard_specs[index].period=SHUTTLE_PERIOD
+			run.hazard_specs[index].phase=float(layout.draw("shuttle_phase",[0.0,.9,1.8,2.7]))
 		if kind=="active_spikes":run.hazard_specs[index].phase=float(layout.draw("spike_phase",[0,.7,1.4,2.1]))
 		# 换侧首拍先整理站位，金币放在同侧后续节拍，密集地图仍遵守奖励池上限。
 		if n%3!=0:
@@ -207,6 +218,7 @@ static func shift_layout(run,cut_list:Array,anchors:Array)->void:
 		if shift==0.0:continue
 		event.y+=shift
 		for key in ["rect","previous","sample"]:event[key].position.y+=shift
+		if event.has("base"):event.base.y+=shift
 	for reward in run.rewards:reward.position.y+=shift_at(cut_list,reward.position.y)
 
 # 后一节拍的缺口可能向前侵入上一机关。生成完成后按全部实体底座切分缺口，
@@ -246,7 +258,9 @@ static func narrow_terrain(run,route:Dictionary)->void:
 		left=center+22
 	if left<run.EDGE:run.add_hazard("road_gap",Rect2(left,route.start,run.EDGE-left,route.end-route.start))
 
-# 小型地刺与矮栏补充大机关；主通道外缘仍可走，窄桥内不塞障碍。
+const SHUTTLE_WIDTH:=90.0
+const SHUTTLE_PERIOD:=3.6
+# 小型地刺补充大机关；主通道外缘仍可走，窄桥内不塞障碍。
 # 小机关在危险侧排成一行（固定列），与主机关、倒树等事件重叠时换到下一列或后一排，
 # 不再零散斜排；危险侧放不下时才退到对侧内缘，数量不因避让而减少。
 const SMALL_COLUMNS:=[250.0,165.0,80.0,0.0,-135.0]
@@ -259,14 +273,17 @@ static func small_hazards(run,n:int,y:float,side:float,layout=null)->void:
 		# 迎面滚动/飞行物会离开原位，不占用固定列；工业机关的 velocity 是摆动参数，仍算占位。
 		var spec:Dictionary=run.hazard_specs[i]
 		if run.kinds[i]=="drone" or (spec.has("velocity") and not spec.get("industrial",false)) or spec.get("front",false):continue
-		if run.obstacles[i].intersects(area):blockers.append(run.obstacles[i].grow(8))
+		# 往复撞石按整条横扫轨迹占位，小地刺不放进撞石的扫掠线。
+		var footprint:Rect2=run.obstacles[i].grow_individual(spec.reach,0,spec.reach,0) if run.kinds[i]=="shuttle" and spec.has("reach") else run.obstacles[i]
+		if footprint.intersects(area):blockers.append(footprint.grow(8))
 	for event in run.journey_events:
 		if event.kind!="monster" and event.rect.intersects(area):blockers.append(event.rect.grow(8))
 	for j in range(3):
 		var kind:String=kinds[j]
 		# 碎石块读起来像悬空的土块，试玩反馈要求去掉；原位改为贴地的活动地刺，
 		# 保留洗牌次序与小机关密度。
-		if kind=="cargo":kind="active_spikes"
+		# 矮木栏同样是静态占位，试玩反馈要求只保留会动的机关。
+		if kind in ["cargo","rail"]:kind="active_spikes"
 		# 最后一个小机关的完整身体碰撞包络必须早于 marker.y+110，
 		# 防止两人开始整理下一段站位时，仍横穿上一段的尾部危险。
 		var size:=Vector2(44,28) if kind=="active_spikes" else Vector2(52,10)
@@ -391,4 +408,3 @@ static func formation(run,n:int,y:float,blocked:float,variant:int=-1)->void:
 		3:
 			var index:int=run.add_hazard("steps",Rect2(blocked*155-65,start,130,85))
 			run.hazard_specs[index].amplitude=24.0
-			run.add_hazard("rail",Rect2(blocked*170-110,start+95,220,12))

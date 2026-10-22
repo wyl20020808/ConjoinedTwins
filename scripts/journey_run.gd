@@ -237,16 +237,24 @@ func add_hazard(kind: String, rect: Rect2) -> int:
 	return index
 
 func add_event(kind: String, y: float, side: float, combined: bool = false) -> void:
-	var x := side*125.0
-	var width := 240.0 if kind=="tree" else (32.0 if kind=="boar" else (140.0 if kind=="cart" else (80.0 if kind=="swing" else 24.0)))
-	var rect := Rect2(x-width/2,y-50 if kind=="tree" else y-35,width,100 if kind=="tree" else 70)
+	var x := side*(TREE_BASE if kind=="tree" else 125.0)
+	var width := TREE_WIDTH if kind=="tree" else (32.0 if kind=="boar" else (140.0 if kind=="cart" else (80.0 if kind=="swing" else 24.0)))
+	var rect := Rect2(x-width/2,y-width/2 if kind=="tree" else y-35,width,width if kind=="tree" else 70)
 	var index := -1
+	var trunk:Array=[]
 	if kind=="tree":
-		# 倒下之后成为实心树干。砸下阶段另做伤害扫掠。
-		index = add_hazard("cargo",Rect2(x-width/2,y-50 if kind=="tree" else y-35,width,100 if kind=="tree" else 70))
-		obstacles[index].position.x = EDGE+1000
-		obstacle_heights[index] = 52.0
+		# 倒下之后树干分段成为实心障碍，贴合斜向倒伏的树干；砸下阶段另做伤害判定。
+		for n in range(TREE_SEGMENTS):
+			index = add_hazard("cargo",Rect2(EDGE+1000,y,TREE_WIDTH,TREE_WIDTH))
+			obstacle_heights[index] = 52.0
+			trunk.append(index)
+		index = trunk[0]
 	journey_events.append({"id":event_serial,"kind":kind,"y":y,"side":side,"rect":rect,"trigger":-1.0,"phase":"ready","previous":rect,"sample":rect,"bottom":0.0,"top":60.0,"obstacle":index,"combined":combined,"locked_x":x})
+	if kind=="tree":
+		journey_events[-1].trunk=trunk
+		journey_events[-1].base=Vector2(x,y)
+		journey_events[-1].direction=Vector2(0,-1)
+		journey_events[-1].approach=Vector2.INF
 	if kind in ["boar","stone"]:
 		journey_events[-1].hp=30 if kind=="boar" else 40
 		journey_events[-1].max_hp=journey_events[-1].hp
@@ -305,9 +313,38 @@ func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
 	Combat.tick(self,previous)
 	check_event_hits(previous)
 
-# 倒树改为人走近才断：约 26 米内起裂，1.4 秒吱嘎预警后倒下，正常步行恰好赶到树前，需要提早换侧。
-const TREE_TRIGGER := 520.0
-const TREE_WARNING := 1.4
+# 倒树等人走近约 23 米才起裂：按两人是否在前进预测到达位置，0.5 秒吱嘎后朝两人倒下，
+# 0.6 秒砸地。树干 15 米长，分四段判定；看准倒向横移或停步即可躲开。
+const TREE_TRIGGER := 460.0
+const TREE_WARNING := 0.5
+const TREE_FALL := 0.6
+const TREE_LENGTH := 300.0
+const TREE_WIDTH := 44.0
+const TREE_BASE := 230.0
+const TREE_SEGMENTS := 4
+# 砸地前最后这段时间（倒伏进度 ≥ 60%）树干已低于头顶，才结算砸中。
+const TREE_STRIKE := 0.6
+
+# 树干各段的轴对齐包围盒：沿倒伏方向等分，每段外扩半个树干宽。
+static func tree_segments(event: Dictionary) -> Array[Rect2]:
+	var result: Array[Rect2] = []
+	var base: Vector2 = event.base
+	var direction: Vector2 = event.direction
+	for n in range(TREE_SEGMENTS):
+		var p0: Vector2 = base+direction*TREE_LENGTH*n/TREE_SEGMENTS
+		var p1: Vector2 = base+direction*TREE_LENGTH*(n+1)/TREE_SEGMENTS
+		result.append(Rect2(Vector2(minf(p0.x,p1.x),minf(p0.y,p1.y)),(p1-p0).abs()).grow(TREE_WIDTH/2))
+	return result
+
+# 锁定倒向：两人中点；两人正在前进时按步行速度推算倒地时刻的位置。单步位移受绳索与碰撞修正影响，
+# 只用来判断是否在前进，不直接外推。树总是朝镜头一侧（两人来的方向）倒，落点至少在树根前 5 米。
+func aim_tree(event: Dictionary) -> void:
+	var mid: Vector2 = (a.position+b.position)*0.5
+	var advancing: bool = event.approach!=Vector2.INF and mid.y-event.approach.y>0.5
+	var aim: Vector2 = mid+Vector2(0,WALK_SPEED*(TREE_WARNING+TREE_FALL) if advancing else 0.0)
+	aim.x=clampf(aim.x,-EDGE+TREE_WIDTH,EDGE-TREE_WIDTH)
+	aim.y=minf(aim.y,event.base.y-100.0)
+	event.direction=(aim-event.base).normalized()
 
 func event_sample(event: Dictionary,time: float) -> Dictionary:
 	if event.kind=="monster": return Monsters.sample(event,time)
@@ -322,8 +359,12 @@ func event_sample(event: Dictionary,time: float) -> Dictionary:
 		var flight:=maxf(0,age-2.8)
 		if kind=="tree":
 			flight=maxf(0,age-TREE_WARNING)
-			phase="warning" if age<TREE_WARNING else ("falling" if flight<0.65 else "fallen")
+			phase="warning" if age<TREE_WARNING else ("falling" if flight<TREE_FALL else "fallen")
 			top=26.0 if phase=="fallen" else 160.0
+			if phase!="warning":
+				var segments:=tree_segments(event)
+				rect=segments[0]
+				for segment in segments: rect=rect.merge(segment)
 		elif kind=="boar":
 			rect.position.y-=flight*240
 			top=34.0
@@ -338,7 +379,8 @@ func event_sample(event: Dictionary,time: float) -> Dictionary:
 			top=bottom+20
 			if flight>0.65: phase="spent"
 		elif kind=="swing":
-			rect.position.x=sin(flight*2.0)*150-40
+			# 摆臂横扫覆盖整条路面，两侧都无法贴边躲过，只能看准摆臂离开再通过。
+			rect.position.x=sin(flight*2.0)*(EDGE-60)-40
 			top=80
 	return {"rect":rect,"phase":phase,"bottom":bottom,"top":top}
 
@@ -358,14 +400,18 @@ func advance_events(_dt: float) -> void:
 		if event.trigger<0 and maxf(a.position.y,b.position.y)>=event.y-reach:
 			event.trigger=elapsed
 			if event.kind=="stone": event.locked_x=clampf((a.position.x+b.position.x)*0.5,-EDGE+30,EDGE-30)
+			if event.kind=="tree": aim_tree(event)
 			event.warning_positions=[a.position,b.position]
+		if event.kind=="tree" and event.trigger<0: event.approach=(a.position+b.position)*0.5
 		var sample:=event_sample(event,elapsed+FIXED_STEP)
 		event.previous=event.sample
 		event.sample=sample.rect
 		event.phase=sample.phase
 		event.bottom=sample.bottom
 		event.top=sample.top
-		if event.kind=="tree" and event.phase=="fallen": obstacles[event.obstacle]=event.rect
+		if event.kind=="tree" and event.phase=="fallen" and obstacles[event.trunk[0]].position.x>EDGE:
+			var segments:=tree_segments(event)
+			for n in range(TREE_SEGMENTS): obstacles[event.trunk[n]]=segments[n]
 
 func check_event_hits(previous: Array) -> void:
 	for event in journey_events:
@@ -373,6 +419,9 @@ func check_event_hits(previous: Array) -> void:
 		var old: Rect2=event.previous
 		var current: Rect2=event.sample
 		if current.position.y>maxf(a.position.y,b.position.y)+700 or current.end.y<minf(a.position.y,b.position.y)-700: continue
+		if event.kind=="tree" and event.phase=="falling":
+			if tree_strikes(event,previous) and state!="running": return
+			continue
 		for role in range(2):
 			var point: Vector2=a.position if role==0 else b.position
 			var motion: Vector2=current.position-old.position
@@ -397,6 +446,26 @@ func check_event_hits(previous: Array) -> void:
 						Combat.hit(self,role,"journey:%d"%event.id,Combat.HAZARD_DAMAGE[event.kind],true)
 						if state!="running": return
 					break
+
+# 倒树砸地：树干放低到头顶以下后，按四段树干分别判定角色身体与绳段，共用事件冷却。
+func tree_strikes(event: Dictionary,previous: Array) -> bool:
+	if elapsed-event.trigger-TREE_WARNING<TREE_FALL*TREE_STRIKE: return false
+	var segments:=tree_segments(event)
+	var path:=rope.physical_path()
+	var z:=rope.physical_heights()
+	for segment in segments:
+		var struck:=false
+		for role in range(2):
+			var point: Vector2=a.position if role==0 else b.position
+			if swept_body_hits(previous[role],point,foot_height(role),foot_height(role),segment.grow(Motion.RADIUS),0.0,52.0):struck=true
+		for n in range(1,path.size()):
+			if minf(z[n-1],z[n])<=52.0 and segment_hits(path[n-1],path[n],segment):struck=true
+		if not struck: continue
+		for role in range(2):
+			Combat.hit(self,role,"journey:%d"%event.id,Combat.HAZARD_DAMAGE.tree,true)
+			if state!="running": return true
+		return true
+	return false
 
 func update_checkpoint() -> void:
 	if journey_events.is_empty(): return
