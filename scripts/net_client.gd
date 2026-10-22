@@ -13,7 +13,8 @@ const HASH_INTERVAL := 60
 const DEFAULT_SERVER := "wss://www.u4139693.nyat.app:57412/ws"
 # SakuraFrp UDP 隧道（本地 127.0.0.1:24680）的公网地址“主机:端口”。填了以后桌面版优先走 UDP：
 # 丢包时靠冗余帧补齐，不像 TCP 那样整体卡住；UDP 连不上会自动退回上面的 wss。留空则只用 wss。
-const DEFAULT_UDP_SERVER := "www.u4139693.nyat.app:47997"
+# 游戏专用节点要求用节点 IP 连接（域名在开代理的电脑上会被解析成代理内部地址，UDP 走不通）。
+const DEFAULT_UDP_SERVER := "103.91.208.133:54145"
 # UDP 握手没有明确的失败信号，超过这个时间仍未连上就换下一个地址。
 const CONNECT_TIMEOUT_MSEC := 6000
 const ADDRESS_FILE := "user://online.cfg"
