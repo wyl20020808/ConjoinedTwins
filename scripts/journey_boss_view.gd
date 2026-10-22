@@ -222,28 +222,29 @@ static func build_bar(root: Node3D) -> void:
 		tick.color = Color(1, 1, 1, 0.55)
 		frame.add_child(tick)
 
-# 咆哮口雾：仰头时从口部向上方喷出的暖色雾团（映着树心的琥珀光），逐渐扩散变淡。世界坐标发射，Boss 动作不会拖着雾走。
+# 咆哮口雾：从张开的嘴里沿着头的朝向喷出的一股暖色气流（映着树心的琥珀光），出口细、往外散开变淡。
+# 量与团块都控制在不挡住脸的程度；世界坐标发射，节点每帧摆到嘴前、局部 +Z 对准喷出方向。
 static func build_breath() -> GPUParticles3D:
 	var particles := GPUParticles3D.new()
 	particles.name = "Breath"
-	particles.amount = 220
-	particles.lifetime = 2.0
+	particles.amount = 70
+	particles.lifetime = 0.8
 	particles.local_coords = false
 	particles.emitting = false
 	particles.visibility_aabb = AABB(Vector3(-20, -5, -20), Vector3(40, 30, 40))
 	var process := ParticleProcessMaterial.new()
-	process.direction = Vector3(0, 0.88, 0.48)
-	process.spread = 24.0
-	process.initial_velocity_min = 7.0
-	process.initial_velocity_max = 11.0
-	process.damping_min = 4.0
-	process.damping_max = 6.0
-	process.gravity = Vector3(0, 0.3, 0)
-	process.scale_min = 0.8
-	process.scale_max = 1.4
+	process.direction = Vector3(0, 0, 1)
+	process.spread = 12.0
+	process.initial_velocity_min = 14.0
+	process.initial_velocity_max = 18.0
+	process.damping_min = 2.5
+	process.damping_max = 3.5
+	process.gravity = Vector3.ZERO
+	process.scale_min = 0.7
+	process.scale_max = 1.0
 	var grow := Curve.new()
-	grow.add_point(Vector2(0, 0.35))
-	grow.add_point(Vector2(1, 2.2))
+	grow.add_point(Vector2(0, 0.25))
+	grow.add_point(Vector2(1, 1.5))
 	var grow_texture := CurveTexture.new()
 	grow_texture.curve = grow
 	process.scale_curve = grow_texture
@@ -257,7 +258,7 @@ static func build_breath() -> GPUParticles3D:
 	process.color_ramp = fade_texture
 	particles.process_material = process
 	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE*5.0
+	quad.size = Vector2.ONE*3.0
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -388,8 +389,22 @@ static func mouth(boss: Node3D) -> Vector3:
 		var bone := skeleton.find_bone("Head")
 		if bone >= 0:
 			var head: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(bone).origin
-			return head+Vector3(0, HEIGHT*0.05, HEIGHT*0.05)
+			return head+mouth_direction(boss)*HEIGHT*0.06
 	return boss.global_position+Vector3(0, HEIGHT*0.88, HEIGHT*0.05)
+
+# 口部朝向：颈到头的方向（仰头时偏上偏后）与朝向两人的前方（+Z）各半，再略微上抬。
+# 不能直接朝 +Z 喷：正面机位下朝镜头飞的雾会在画面上叠在脸上，把头挡住。
+static func mouth_direction(boss: Node3D) -> Vector3:
+	var skeleton: Skeleton3D = boss.get_meta("skeleton", null)
+	var up := Vector3.UP
+	if skeleton != null:
+		var neck := skeleton.find_bone("Neck")
+		var head := skeleton.find_bone("Head")
+		if neck >= 0 and head >= 0:
+			var a: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(neck).origin
+			var b: Vector3 = skeleton.global_transform*skeleton.get_bone_global_pose(head).origin
+			if a.distance_to(b) > 0.001: up = (b-a).normalized()
+	return (up*0.5+Vector3.BACK*0.5+Vector3.UP*0.2).normalized()
 
 # 电影黑边、Boss 名称标题与“按跳跃跳过”提示，画在游戏界面之上。
 static func build_cinema(root: Node3D) -> void:
@@ -922,8 +937,8 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if event.phase == "dormant":
 		boss.visible = false
 		# 失败重打会恢复到开战前，开战时刻可能完全相同：沉睡时清掉入场一次性标记，下次开战重新播放。
-		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.55", "intro_wave0.95", "intro_wave1.35",
-				"intro_soil0.0", "intro_soil1.1", "intro_soil2.2", "intro_claw0", "intro_claw1", "intro_claw_hit0", "intro_claw_hit1", "intro_bloom"]:
+		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0", "intro_wave1", "intro_wave2",
+				"intro_soil0", "intro_soil1", "intro_soil2", "intro_claw0", "intro_claw1", "intro_claw_hit0", "intro_claw_hit1", "intro_bloom"]:
 			view.remove_meta("fx_" + tag)
 	elif event.phase == "intro":
 		# 破土前埋在地下；1.4–3.4 秒升起，升起途中轻微抖动。
@@ -967,8 +982,10 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if smoking: smoke.global_position = base+Vector3(0, 5.5, 1.5)
 	if smoke.emitting != smoking: smoke.emitting = smoking
 	var soil: GPUParticles3D = view.get_node("Soil")
-	for burst in [0.0, 1.1, 2.2]:
-		if t >= Boss.INTRO_RISE+burst and t < Boss.INTRO_RISEN and once_tag(view, "intro_soil%.1f"%burst, key) and not skipped:
+	# 标记名只能用字母、数字和下划线（元数据名里不能有小数点），按序号区分三次泼土。
+	for n in range(3):
+		var burst: float = [0.0, 1.1, 2.2][n]
+		if t >= Boss.INTRO_RISE+burst and t < Boss.INTRO_RISEN and once_tag(view, "intro_soil%d"%n, key) and not skipped:
 			soil.global_position = base
 			soil.amount_ratio = 1.0 if burst == 0.0 else 0.55
 			soil.restart()
@@ -1000,15 +1017,18 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	# 咆哮张口（动作的后仰段）时喷出口雾。
 	var breath: GPUParticles3D = boss.get_node("Breath")
 	var roaring: bool = event.phase == "intro" and t >= Boss.INTRO_ROAR+0.5 and t < Boss.INTRO_ROARED-0.4 and run.state == "running"
-	if roaring: breath.global_position = mouth(boss)
+	if roaring:
+		var aim := mouth_direction(boss)
+		breath.global_transform = Transform3D(Basis.looking_at(-aim, Vector3.UP if absf(aim.y) < 0.98 else Vector3.BACK), mouth(boss))
 	if breath.emitting != roaring: breath.emitting = roaring
 	# 地面震动：咆哮与破土时整片场地四处扬尘，越靠近两人越密。
 	if fx != null and intro_shake(t) > 0.2 and int(run.elapsed/run.FIXED_STEP)%5 == 0:
 		var e: float = run.elapsed
 		var spot := Vector2(sin(e*13.7)*260.0, lerpf(event.arena+Boss.TRIGGER, event.origin.y-120.0, 0.5+0.5*sin(e*7.9)))
 		fx.burst("dust", world(spot, 0.05))
-	for wave in [0.55, 0.95, 1.35]:
-		if t >= Boss.INTRO_ROAR+wave and once_tag(view, "intro_wave%.2f"%wave, key) and not skipped:
+	for n in range(3):
+		var wave: float = [0.55, 0.95, 1.35][n]
+		if t >= Boss.INTRO_ROAR+wave and once_tag(view, "intro_wave%d"%n, key) and not skipped:
 			if fx != null: fx.impact(base, AMBER.lerp(Color.WHITE, 0.3), 14.0+wave*10.0, 4.0)
 			if hazard_fx != null and wave < 0.6: hazard_fx.slam(base, 12.0)
 	# 黑边、标题与跳过提示。

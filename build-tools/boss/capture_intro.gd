@@ -39,6 +39,10 @@ func capture() -> void:
 	out = OS.get_environment("BOSS_CAPTURE_DIR")
 	if out.is_empty(): out = ProjectSettings.globalize_path("user://boss-intro")
 	DirAccess.make_dir_recursive_absolute(out)
+	# 可用环境变量 BOSS_CAPTURE_MOMENTS（逗号分隔的秒数）只截指定时刻。
+	var moments: Array = MOMENTS
+	if not OS.get_environment("BOSS_CAPTURE_MOMENTS").is_empty():
+		moments = Array(OS.get_environment("BOSS_CAPTURE_MOMENTS").split(",")).map(func(x): return float(x))
 	game = load("res://scenes/journey.tscn").instantiate()
 	game.incremental_loading = true
 	game.start_chapter = 0
@@ -63,13 +67,13 @@ func capture() -> void:
 	var start: float = boss.state_at
 	# 每渲染一帧推进 1/60 秒模拟，粒子按真实帧时间运动，与正常游玩的节奏一致。
 	Engine.max_fps = 60
-	for moment in MOMENTS:
+	for moment in moments:
 		while run.elapsed - start < moment - 0.0001:
 			run.step(run.FIXED_STEP)
 			run.step(run.FIXED_STEP)
 			game.sync_view()
 			await process_frame
-		await shot("intro_%02d_t%.1f" % [MOMENTS.find(moment) + 1, moment])
+		await shot("intro_%02d_t%.1f" % [moments.find(moment) + 1, moment])
 	game.queue_free()
 	for n in range(4): await process_frame
 	quit(0)
