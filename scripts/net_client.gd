@@ -34,6 +34,17 @@ var candidates: Array[String] = []
 var chain_origin := ""
 var connect_started_msec := 0
 var input_seq := 0
+var jump_seq := 0
+var jump_was_down := false
+# 无需等未来帧揭示缺口：超时主动补帧，补发请求同时携带已应用帧数。
+const RECOVERY_USEC := 500000
+const RESEND_INTERVAL_MSEC := 250
+var server_frame := 0
+var last_applied_usec := 0
+var prepare_waits := 0
+var simulation_usec := 0
+var simulation_peak_usec := 0
+var simulation_samples := 0
 var resend_wanted := false
 var resend_msec := 0
 var resends := 0
@@ -271,7 +282,9 @@ func send_input(move: Vector2, jump: bool) -> void:
 	if peer is ENetMultiplayerPeer:
 		# UDP：每帧都发、带序号、不可靠；丢一包下一帧就补上，不等重传。
 		if not connected: return
-		var packet := Relay.encode_input_seq(input_seq, roundi(clampf(move.x, -1, 1) * 100), roundi(clampf(move.y, -1, 1) * 100), jump)
+		if jump and not jump_was_down: jump_seq = (jump_seq + 1) & 0xFFFF
+		jump_was_down = jump
+		var packet := Relay.encode_input_seq(input_seq, roundi(clampf(move.x, -1, 1) * 100), roundi(clampf(move.y, -1, 1) * 100), jump, jump_seq)
 		input_seq = (input_seq + 1) & 0xFFFF
 		send_raw(packet, MultiplayerPeer.TRANSFER_MODE_UNRELIABLE_ORDERED)
 		return
@@ -291,6 +304,7 @@ func report(frame: int, state_hash: int) -> void:
 
 # 每模拟 15 帧回报一次进度，服务器据此让快的一方等慢的一方。
 func acknowledge(frame: int) -> void:
+	last_applied_usec = Time.get_ticks_usec()
 	if frame % 15 == 0: send(["ack", frame])
 
 func _on_packet(_id: int, bytes: PackedByteArray) -> void:
@@ -313,11 +327,18 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 	if not message is Array or message.is_empty(): return
 	match message[0]:
 		"welcome":
-			if int(message[2]) != Relay.PROTOCOL:
+			if message.size() < 4 or int(message[2]) != Relay.PROTOCOL or str(message[3]) != compatibility_fingerprint():
 				stop("版本不一致：请两人都安装同一版游戏。")
 				return
 			role = int(message[1])
+			send(["hello", Relay.PROTOCOL, compatibility_fingerprint()])
 			status_changed.emit("你是 %02d 号，等待队友加入…" % (role + 1))
+		"rejected":
+			if message.size() >= 2: stop(str(message[1]))
+		"progress":
+			if in_match and message.size() >= 2:
+				server_frame = maxi(server_frame, int(message[1]))
+				if server_frame - next_frame - frames.size() >= Relay.REDUNDANCY: resend_wanted = true
 		"lobby":
 			if not in_match and role >= 0:
 				status_changed.emit("你是 %02d 号 · 房间 %d/2 人" % [role + 1, int(message[1])])
@@ -326,6 +347,19 @@ func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 		"match":
 			frames.clear()
 			gaps.clear()
+			input_seq = 0
+			jump_seq = 0
+			jump_was_down = false
+			resend_wanted = false
+			resends = 0
+			resend_msec = 0
+			server_frame = 0
+			last_arrival_usec = Time.get_ticks_usec()
+			last_applied_usec = last_arrival_usec
+			prepare_waits = 0
+			simulation_usec = 0
+			simulation_peak_usec = 0
+			simulation_samples = 0
 			starved = false
 			stalls = 0
 			last_input = PackedByteArray()
@@ -354,6 +388,7 @@ func receive_bundle(bundle: Array) -> void:
 	for frame: Dictionary in bundle:
 		if frame.is_empty(): continue
 		var index := int(frame.index)
+		server_frame = maxi(server_frame, index + 1)
 		var expected := next_frame + frames.size()
 		if index < expected: continue
 		if index > expected:
@@ -412,11 +447,14 @@ func _process(delta: float) -> void:
 		_on_connection_failed()
 		return
 	if not connected: return
-	if resend_wanted and in_match and Time.get_ticks_msec() - resend_msec > 250:
+	if in_match and not desynced and peer is ENetMultiplayerPeer:
+		if Time.get_ticks_usec() - last_arrival_usec >= RECOVERY_USEC and (frames.is_empty() or server_frame > next_frame + frames.size()):
+			resend_wanted = true
+	if resend_wanted and in_match and not desynced and Time.get_ticks_msec() - resend_msec >= RESEND_INTERVAL_MSEC:
 		resend_wanted = false
 		resend_msec = Time.get_ticks_msec()
 		resends += 1
-		send(["resend", next_frame + frames.size()])
+		send(["resend", next_frame + frames.size(), next_frame])
 	ping_clock += delta
 	if ping_clock >= 1.0:
 		ping_clock = 0.0
@@ -426,16 +464,35 @@ func _process(delta: float) -> void:
 	if stat_clock >= 10.0:
 		stat_clock = 0.0
 		var line := [roundi(rtt_ms), roundi(jitter_ms()), frames.size(), stalls_window, roundi(Engine.get_frames_per_second())]
-		send(["stat"] + line)
+		send(["stat"] + line + [diagnostics()])
 		var file := FileAccess.open(DIAG_FILE, FileAccess.READ_WRITE if FileAccess.file_exists(DIAG_FILE) else FileAccess.WRITE)
 		if file != null:
 			file.seek_end()
 			file.store_line("%s 你是 %02d 号 延迟 %d ms 抖动 %d ms 缓冲 %d 帧 近10秒卡顿 %d 次 帧率 %d" % ([Time.get_datetime_string_from_system(), role + 1] + line))
+			file.store_line(JSON.stringify(diagnostics()))
 			file.close()
 		stalls_window = 0
+		prepare_waits = 0
+		simulation_usec = 0
+		simulation_peak_usec = 0
+		simulation_samples = 0
+
+func record_simulation(usec: int, prepared: bool) -> void:
+	if not prepared: prepare_waits += 1
+	else:
+		simulation_usec += usec
+		simulation_peak_usec = maxi(simulation_peak_usec, usec)
+		simulation_samples += 1
+
+func diagnostics() -> Dictionary:
+	return {"transport": transport_name(), "server_frame": server_frame, "applied_frame": next_frame,
+		"missing_frames": maxi(0, server_frame - next_frame - frames.size()), "buffer": frames.size(),
+		"resends": resends, "no_progress_ms": (Time.get_ticks_usec() - last_applied_usec) / 1000,
+		"prepare_waits": prepare_waits, "simulation_mean_usec": simulation_usec / maxi(1, simulation_samples),
+		"simulation_peak_usec": simulation_peak_usec, "held_ticks": held_ticks, "doubled_ticks": doubled_ticks}
 
 func diagnostics_text() -> String:
-	return "延迟 %s · 抖动 %d ms · 缓冲 %d 帧 · 卡顿 %d 次 · %d 帧/秒" % [("%d ms" % roundi(rtt_ms)) if rtt_ms >= 0 else "—", roundi(jitter_ms()), frames.size(), stalls, roundi(Engine.get_frames_per_second())]
+	return transport_name() + " · " + "延迟 %s · 抖动 %d ms · 缓冲 %d 帧 · 卡顿 %d 次 · %d 帧/秒" % [("%d ms" % roundi(rtt_ms)) if rtt_ms >= 0 else "—", roundi(jitter_ms()), frames.size(), stalls, roundi(Engine.get_frames_per_second())]
 
 # 取出本次物理帧要模拟的帧：通常一帧；积压时追帧，保留少量缓冲吸收网络抖动。
 func take_frames(maximum: int = -1) -> Array:
@@ -448,3 +505,6 @@ func take_frames(maximum: int = -1) -> Array:
 	frames = frames.slice(count)
 	next_frame += count
 	return out
+
+func compatibility_fingerprint() -> String:
+	return Relay.Identity.fingerprint()

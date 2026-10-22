@@ -38,3 +38,7 @@ python build-tools/prepare_windows.py
 
 未在两台真实电脑上验证；队友的基础延迟（约 106 毫秒）属于线路问题，需更换离双方更近的 SakuraFrp 节点才能降低。
 `journey_combat_online.gd` 在 `ONLINE_TRANSPORT=mixed` 下有 3 项失败，改动前同样存在：测试默认 `games[0]` 是 01 号，混合传输时 WebSocket 一端先连上拿到 01 号。按实际编号检查时，UDP 玩家的开火、换弹、丢枪、后退均两端同步。
+
+## 双机恢复修复（任务分支，尚未合并）
+
+`fix/native-online-recovery` 将联机协议升级为 8，加入断流主动补帧、UDP 短按跳跃恢复、双向脚本指纹握手、角色与绳索显示平滑以及分层诊断。Windows 打包入口会自动刷新指纹；更新时须同步更新中继与双方 EXE。具体行为、验证与未验收边界见 [双电脑原生联机恢复](NATIVE_ONLINE_RECOVERY.md)。本轮没有替换正在运行的服务或发布新包。

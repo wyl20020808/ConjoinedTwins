@@ -143,6 +143,9 @@ var last_prepare_ok := false
 var prefetch_clock := 0.0
 var net_diag: Label
 var camera_smoothed := false
+const OnlinePresentation = preload("res://scripts/online_presentation.gd")
+var online_presentation = OnlinePresentation.new()
+var online_rope_target: Array[Vector3] = []
 var combat_view: Node3D
 var combat_status: Label
 var combat_health: ProgressBar
@@ -1665,6 +1668,8 @@ func health_bar(color: Color, height: float) -> ProgressBar:
 	return result
 
 func reset_journey_views() -> void:
+	online_presentation.reset()
+	online_rope_target.clear()
 	buddy.reset()
 	failed_animation_started=[false,false]
 	rescue_seen=[0,0]
@@ -1763,6 +1768,14 @@ func _physics_process(delta: float) -> void:
 			frame_costs[sample[0]]=cost
 
 func _process(delta:float)->void:
+	# 上次的插值只留在显示节点上；采集新目标前恢复原目标，避免反馈进动画和后续采样。
+	if online_presentation.target.size() >= 4 and robots.size() == 2:
+		for i in range(2):
+			robots[i].position=online_presentation.target[i]
+			shadows[i].position=online_presentation.target[i+2]
+	if not online_visual_enabled():
+		online_presentation.reset()
+		online_rope_target.clear()
 	# 受击红边和低血量暗角先于视图更新，暂停时也自然衰减。
 	if is_instance_valid(vignette_mat):
 		damage_flash=maxf(0.0,damage_flash-delta*2.4)
@@ -1785,6 +1798,7 @@ func _process(delta:float)->void:
 			var duration:=Time.get_ticks_usec()-started
 			cost.samples+=1;cost.total_usec+=duration;cost.max_usec=maxi(cost.max_usec,duration)
 			frame_costs.render_view=cost
+	if scene_prepared and online_visual_enabled(): smooth_online_visuals(delta)
 	# 暂停、失败、救援、结算与开始页时，喷火/滚石/机械等持续声一律停下。
 	if run.state!="running" and is_instance_valid(sfx): sfx.stop_loops()
 
@@ -1887,7 +1901,8 @@ func sync_view() -> void:
 		var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
 		rope_view.energy_level=1.0+night*0.6
 		rope_view.set_tension(run.rope_tension(),run.rope_status(),get_process_delta_time() if run.state=="running" else 0.0)
-		rope_view.simulate(path,0,Color.WHITE,0)
+		if online_visual_enabled(): online_rope_target=path
+		else: rope_view.simulate(path,0,Color.WHITE,0)
 		sync_rope_light(path,night)
 	update_journey_camera()
 	var theme:String=run.theme_at(run.distance)
@@ -1923,6 +1938,25 @@ func sync_view() -> void:
 	if coop_fx:coop_fx.sync(path)
 	update_journey_ui()
 	publish_web_verification()
+
+# 角色、影子和整条绳在同一个时间窗口插值，避免绳端脱离角色；不修改 run 和碰撞。
+# 只有这一小段显示处理在高刷新率的中间帧运行，不重复同步整套场景。
+func online_visual_enabled()->bool:
+	return play_mode=="online" and is_instance_valid(net) and net.in_match and run.state=="running" and not run.Boss.cinematic(run)
+
+func smooth_online_visuals(delta:float)->void:
+	if robots.size()!=2 or online_rope_target.size()<2:return
+	var points:Array[Vector3]=[robots[0].position,robots[1].position,shadows[0].position,shadows[1].position]
+	points.append_array(online_rope_target)
+	var shown:Array[Vector3]=online_presentation.sample(points,delta)
+	for i in range(2):
+		robots[i].position=shown[i]
+		shadows[i].position=shown[i+2]
+	var rope_points:Array[Vector3]=[]
+	rope_points.assign(shown.slice(4))
+	rope_view.simulate(rope_points,0,Color.WHITE,0)
+	var night:float=float(atmosphere.palette_for(run.level_index).hero_light) if atmosphere and atmosphere.enabled else 0.0
+	sync_rope_light(rope_points,night)
 
 # 救援时双手握绳：被救者双手握在头顶上方的绳段并交替倒手，拉绳者双手握在身前的绳段。
 # 必须在战斗视图之后调用（它每帧清除骨骼覆盖）；只改表现，不改模拟。
@@ -3112,13 +3146,17 @@ func online_process(delta:float)->void:
 			break
 		# 保留完整帧等待分帧准备，命令只执行一次，不跳帧或推进模拟时间。
 		last_prepare_ok=not incremental_loading or prepare_journey_frame()
-		if not last_prepare_ok: break
+		if not last_prepare_ok:
+			net.record_simulation(0,false)
+			break
+		var simulation_start:=Time.get_ticks_usec()
 		net.take_frames(1)
 		var before:String=run.state
 		run.step(Run.FIXED_STEP*2,frame.a,frame.b,frame.ja,frame.jb)
 		if run.state!=before:clear_controls()
 		# 状态指纹要序列化整局状态，只在需要上报的帧计算。
 		if index%NetClient.HASH_INTERVAL==0:net.report(index,run.sync_hash())
+		net.record_simulation(Time.get_ticks_usec()-simulation_start,true)
 		net.acknowledge(index+1)
 		online_frame_applied.emit(index)
 		applied+=1

@@ -32,7 +32,10 @@ func validate()->void:
 		game.input_override={"a":Vector2.ZERO,"b":Vector2.ZERO,"ja":false,"jb":false}
 		game.online_frame_applied.connect(func(index):record(endpoint,index,game))
 		games.append(game)
-		game.net.connect_to("ws://127.0.0.1:24832" if endpoint==1 or OS.get_environment("ONLINE_TRANSPORT")!="mixed" else "127.0.0.1:24831")
+		var transport:=OS.get_environment("ONLINE_TRANSPORT")
+		game.net.connect_to("ws://127.0.0.1:24832" if transport=="ws" or (transport=="mixed" and endpoint==1) else "127.0.0.1:24831")
+		# 先确认 01 分配完成，混合传输不能依靠谁的握手更快来猜玩家编号。
+		check(await until(func():return game.net.role==endpoint),"endpoint receives expected role %d"%endpoint)
 	check(await until(func():return games.all(func(g):return g.net.in_match)),"two production journey clients connect")
 	if not games.all(func(g):return g.net.in_match):quit(1);return
 	games[0].command("primary")
@@ -74,5 +77,6 @@ func validate()->void:
 	check(games[0].run.sync_hash()!=hash_before,"event phases included in network fingerprint")
 	for game in games:game.net.disconnect_from();game.queue_free()
 	relay.queue_free();await process_frame
+	await create_timer(0.2).timeout
 	print("COMBAT ONLINE common=",common," failures=",failures.size())
 	quit(0 if failures.is_empty() else 1)
