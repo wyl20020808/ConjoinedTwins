@@ -1,3 +1,3 @@
 extends RefCounted
 # 自动生成：python3 build-tools/network_manifest.py。导出前刷新，禁止手工填版本。
-const FINGERPRINT := "ab11ea33265b083512241b2d81bf80b5ec8d59b381773b21145d09143a6f99ec"
+const FINGERPRINT := "202a937abb2178d80522639f9c874c8abf6cc85c324fa1cdbcdb6c3b668fe271"

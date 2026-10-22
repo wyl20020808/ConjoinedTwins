@@ -7,6 +7,8 @@ const AssetQueue = preload("res://scripts/road_asset_queue.gd")
 const MainMenu = preload("res://scripts/main_menu.gd")
 const LoadingScreen = preload("res://scripts/loading_screen.gd")
 const Catalog = preload("res://scripts/chapter_catalog.gd")
+const CloudUpdate = preload("res://scripts/cloud_update.gd")
+const UpdatePanel = preload("res://scripts/update_panel.gd")
 const JOURNEY := "res://scenes/journey.tscn"
 var assets = AssetQueue.new()
 var game: Node
@@ -52,6 +54,25 @@ func _ready() -> void:
 	if not show_menu:
 		menu.visible = false
 		enter_chapter(direct_chapter)
+	elif CloudUpdate.supported():
+		check_update()
+
+# 桌面版启动先检查云更新：有新版本则下载后重启进入，已是最新或连不上就直接进主界面；
+# 需要玩家处理的情况（例如要重新下载安装包）停在面板上，点“继续游戏”进入当前版本。
+func check_update() -> void:
+	menu.visible = false
+	var panel := UpdatePanel.new()
+	overlay.add_child(panel)
+	panel.close_button.text = "继续游戏"
+	var leave := func():
+		panel.queue_free()
+		menu.visible = true
+		menu.refresh()
+	panel.closed.connect(leave)
+	panel.updater.finished.connect(func(outcome, message):
+		if outcome == "offline": menu.update_note = "未连上更新服务器，使用当前版本"
+		if outcome in ["current", "offline"]: leave.call())
+	panel.start_check()
 
 func enter_chapter(value: int) -> void:
 	chapter = value

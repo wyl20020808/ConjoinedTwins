@@ -11,6 +11,7 @@ extends Node
 # 解压失败（例如引擎不支持 brotli）时改为下载未压缩的原包。
 signal changed
 
+const CloudUpdate = preload("res://scripts/cloud_update.gd")
 const MANIFEST := "packs.json"
 # 下载块：HTTPRequest 每帧只读一块，块太小会把缓存命中时的读取速度限制在每帧 64KB。
 const CHUNK := 4 << 20
@@ -36,6 +37,10 @@ var cache_polls := 20
 var raw_fallback := {}
 
 func _ready() -> void:
+	# 桌面版云更新后的进程：该版本的数据包已全部下载到本机，启动时一次挂载，之后与整包相同。
+	if CloudUpdate.mount_installed_packs():
+		manifest_state = "none"
+		return
 	var url := packs_url()
 	if url.is_empty():
 		manifest_state = "none"

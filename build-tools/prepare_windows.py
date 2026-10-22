@@ -27,6 +27,8 @@ TEMPLATE = CACHE / "windows_release_x86_64.exe"
 MANIFEST = CACHE / "windows-template-source.json"
 OUTPUT = ROOT / "builds/windows/ConjoinedTwins"
 ARCHIVE = ROOT / "builds/windows/ConjoinedTwins-Windows.zip"
+# 版本号：导出时间（UTC）+ 提交，按字符串比较即新旧；导出时写入包内，云更新据此判断是否需要更新。
+RELEASE = ROOT / "ct_release.txt"
 DEFAULT_ENGINE = "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe"
 API = "https://api.github.com/repos/godotengine/godot-builds/releases/tags/4.7.1-stable"
 ASSET = "Godot_v4.7.1-stable_export_templates.tpz"
@@ -37,6 +39,8 @@ README = """共生连线 · Windows 版
 3. 在主界面选好章节 → 开始页选“远程双人” → 点“连接队友”。服务器地址已经填好，不用改。
    联机章节以 01 号（先连上的人）选的为准，两人都载入完成后点“出发”。
 4. 操作：WASD 移动，空格跳跃，鼠标左键射击，R 换弹，Q 换枪，G 丢枪，Esc 暂停；也支持手柄。
+5. 自动更新：每次启动先检查更新，有新版本会自动下载并重启进入，不用重新安装。
+   主机换了链接时，点主界面右上角“检查更新”，把新链接粘贴到第一行，点“保存并检查更新”。
 
 需要主机那台电脑保持开机，并运行着联机服务（deploy\\windows\\启动网页服务器.cmd）和 SakuraFrp。
 """
@@ -86,6 +90,11 @@ def export(engine):
     from network_manifest import generate
     generate()
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", "scripts", "scenes", "assets",
+                            ":!scripts/net_manifest.gd"], cwd=ROOT,
+                           capture_output=True, text=True).stdout.strip()
+    RELEASE.write_text(f"{stamp}-{commit or 'nogit'}{'-dirty' if dirty else ''}", encoding="utf-8")
     evidence = ROOT / f"builds/windows-evidence-{stamp}"
     evidence.mkdir(parents=True)
     if OUTPUT.exists():
@@ -106,6 +115,7 @@ def export(engine):
             archive.write(path, f"ConjoinedTwins/{path.name}")
     print(f"exe {exe.stat().st_size} bytes, pck {pck.stat().st_size} bytes", flush=True)
     print(f"zip {ARCHIVE} {ARCHIVE.stat().st_size} bytes sha256 {sha(ARCHIVE)}", flush=True)
+    print(f"release {RELEASE.read_text(encoding='utf-8')}", flush=True)
     print(f"export exit={code}, evidence={evidence}", flush=True)
     return True
 

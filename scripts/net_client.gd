@@ -6,6 +6,7 @@ signal match_started(seed: int)
 signal match_stopped(reason: String)
 
 const Relay = preload("res://scripts/net_relay.gd")
+const CloudUpdate = preload("res://scripts/cloud_update.gd")
 const HASH_INTERVAL := 60
 # 桌面版（发给朋友的 Windows 程序）默认连接的服务器：经 SakuraFrp TCP 隧道（自动 HTTPS）到主机电脑上的
 # deploy/windows/serve_web.py，再由 /ws 转给联机中继。可用启动参数 -- --server=地址 覆盖；
@@ -182,25 +183,35 @@ static func remember_address(address: String) -> void:
 
 static func is_default(address: String) -> bool:
 	var text := address.strip_edges()
-	return text == DEFAULT_SERVER or (not DEFAULT_UDP_SERVER.is_empty() and text == DEFAULT_UDP_SERVER)
+	return not text.is_empty() and text in [DEFAULT_SERVER, DEFAULT_UDP_SERVER, ws_server(), udp_server()]
+
+# 实际使用的默认地址：云更新清单下发的优先（主机换隧道或节点后不必重新打包），没有时用内置常量。
+static func udp_server() -> String:
+	var value := CloudUpdate.server("udp")
+	return value if not value.is_empty() else DEFAULT_UDP_SERVER
+
+static func ws_server() -> String:
+	var value := CloudUpdate.server("ws")
+	return value if not value.is_empty() else DEFAULT_SERVER
 
 static func preferred_default() -> String:
-	return DEFAULT_UDP_SERVER if not DEFAULT_UDP_SERVER.is_empty() else DEFAULT_SERVER
+	return udp_server() if not udp_server().is_empty() else ws_server()
 
 # 开始页“连接队友”：用默认地址时依次尝试本机联机服务（主机自己玩，免绕隧道）→ UDP 隧道 → wss；
 # 玩家自己填的地址只连这一个。
 func connect_auto(address: String) -> void:
 	var list: Array[String] = [address.strip_edges()]
 	if is_default(address) and not OS.has_feature("web"):
-		if not DEFAULT_UDP_SERVER.is_empty() and not list.has(DEFAULT_UDP_SERVER): list.push_front(DEFAULT_UDP_SERVER)
-		if not list.has(DEFAULT_SERVER): list.append(DEFAULT_SERVER)
+		var udp := udp_server()
+		if not udp.is_empty() and not list.has(udp): list.push_front(udp)
+		if not list.has(ws_server()): list.append(ws_server())
 		if DisplayServer.get_name() != "headless" and await local_relay_running():
 			list.push_front("127.0.0.1")
 			status_changed.emit("检测到本机联机服务，直接连接本机…")
 	connect_chain(list)
 
 func connect_chain(list: Array[String]) -> void:
-	chain_origin = list[0] if not list.has(DEFAULT_SERVER) else DEFAULT_SERVER
+	chain_origin = list[0] if not list.has(ws_server()) else ws_server()
 	candidates = list.slice(1)
 	connect_to(list[0])
 
