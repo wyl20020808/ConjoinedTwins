@@ -58,6 +58,12 @@ $relay = Start-Process -FilePath $Engine -WindowStyle Hidden -PassThru `
 	-ArgumentList @("--headless", "--main-pack", "`"$(Join-Path $Site 'index.pck')`"", "res://scenes/net_relay.tscn") `
 	-RedirectStandardOutput (Join-Path $Logs "relay-$stamp.log") -RedirectStandardError (Join-Path $Logs "relay-$stamp.err.log")
 Set-Content (Join-Path $State "relay.pid") $relay.Id
+# 中继与主机的游戏同机运行：调高优先级，发帧节奏不被游戏渲染挤乱。控制台版会再起一个引擎子进程，两者都调。
+Start-Sleep -Milliseconds 800
+foreach ($id in @($relay.Id) + @(Get-CimInstance Win32_Process -Filter "ParentProcessId=$($relay.Id)" | ForEach-Object { $_.ProcessId })) {
+	$process = Get-Process -Id $id -ErrorAction SilentlyContinue
+	if ($process) { try { $process.PriorityClass = "AboveNormal" } catch { Write-Output "无法调整中继优先级：$_" } }
+}
 $web = Start-Process -FilePath $Python -WindowStyle Hidden -PassThru `
 	-ArgumentList @("-u", "`"$(Join-Path $PSScriptRoot 'serve_web.py')`"", "--root", "`"$Site`"", "--port", $Port) `
 	-RedirectStandardOutput (Join-Path $Logs "web-$stamp.log") -RedirectStandardError (Join-Path $Logs "web-$stamp.err.log")
