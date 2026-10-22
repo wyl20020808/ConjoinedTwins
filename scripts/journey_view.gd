@@ -142,6 +142,7 @@ var online_entry := false
 var last_prepare_ok := false
 var prefetch_clock := 0.0
 var net_diag: Label
+var camera_smoothed := false
 var combat_view: Node3D
 var combat_status: Label
 var combat_health: ProgressBar
@@ -2247,7 +2248,17 @@ func update_journey_camera()->void:
 		var target:=camera_shot()
 		if not dramatic and camera.transform.origin.distance_to(target.origin)<.01:
 			camera.transform=target;journey_camera_returning=false
-	else:camera.transform=camera_shot()
+	else:
+		var shot:=camera_shot()
+		# 联机时模拟偶尔少走或多走一帧（缓冲变速），镜头直接贴着进度会整屏一顿；
+		# 这里只让镜头前后方向平滑跟随，约 60 毫秒收敛，大跳变（重试、存档恢复）直接贴上。不影响模拟与同步。
+		if play_mode=="online" and is_instance_valid(net) and net.in_match:
+			var gap:=shot.origin.z-camera.transform.origin.z
+			if absf(gap)<3.0 and camera_smoothed:
+				shot.origin.z=camera.transform.origin.z+gap*(1.0-exp(-frame_delta*16.0))
+			camera_smoothed=true
+		else:camera_smoothed=false
+		camera.transform=shot
 
 func sync_journey_rewards() -> void:
 	while reward_views.size()<run.rewards.size():
@@ -3092,6 +3103,7 @@ func online_process(delta:float)->void:
 		if run.state!=before:clear_controls()
 		# 状态指纹要序列化整局状态，只在需要上报的帧计算。
 		if index%NetClient.HASH_INTERVAL==0:net.report(index,run.sync_hash())
+		net.acknowledge(index+1)
 		online_frame_applied.emit(index)
 		applied+=1
 		if Time.get_ticks_usec()-start>=budget:break

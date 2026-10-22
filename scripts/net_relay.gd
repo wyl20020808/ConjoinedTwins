@@ -32,12 +32,18 @@ var in_match := false
 var hashes := {}         # frame -> [hash0, hash1]
 var clock := 0.0
 var history := {}        # 帧号 -> 编码后的帧，供 UDP 冗余与补发
+var next_send_usec := 0
+# 双方回报的已模拟帧号；领先最慢的一方超过 MAX_LEAD 帧就暂停出帧（帧同步里快的一方等慢的一方），
+# 避免一端卡顿或载入时服务器一路往前、对方越积越多。
+const MAX_LEAD := 90
+var acked := [0, 0]
 var input_seq := [-1, -1]
 var port := DEFAULT_PORT
 var ws_port := DEFAULT_WS_PORT   # 0 表示不开 WebSocket
 
 func _ready() -> void:
-	Engine.max_fps = 120
+	# 发帧按微秒时钟排期（见 _process），主循环跑快一些让每帧准点发出；与游戏同机时也不被渲染挤得忽快忽慢。
+	Engine.max_fps = 1000
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--port="): port = int(arg.get_slice("=", 1))
 		if arg.begins_with("--ws-port="): ws_port = int(arg.get_slice("=", 1))
@@ -75,6 +81,7 @@ func add_link(peer: MultiplayerPeer, label: String) -> void:
 
 func _process(_delta: float) -> void:
 	for kind in range(1, links.size()): links[kind].api.poll()
+	broadcast_due_frames()
 
 func _exit_tree() -> void:
 	for link in links: link.peer.close()
@@ -195,6 +202,8 @@ func start_match() -> void:
 	jump_latch = [false, false]
 	history.clear()
 	input_seq = [-1, -1]
+	next_send_usec = Time.get_ticks_usec()
+	acked = [0, 0]
 	in_match = true
 	var seed := randi() & 0x7fffffff
 	for key in roles: send(key, ["match", seed])
@@ -228,6 +237,8 @@ func _on_packet(key: Vector2i, bytes: PackedByteArray) -> void:
 				commands.append([role, str(message[1]), str(message[2])])
 		"hash":
 			if message.size() >= 3: check_hash(role, int(message[1]), int(message[2]))
+		"ack":
+			if message.size() >= 2: acked[role] = maxi(acked[role], int(message[1]))
 		"resend":
 			if message.size() >= 2: resend(key, int(message[1]))
 		"ping":
@@ -260,12 +271,18 @@ func check_hash(role: int, at: int, value: int) -> void:
 		log_line("第 %d 帧两端状态不一致。" % at)
 		for key in roles: send(key, ["desync", at])
 
-func _physics_process(delta: float) -> void:
+# 每 1/60 秒按单调微秒时钟准点发一帧；主循环偶有延迟时补齐，落后过多（暂停出帧后）从当前时刻重新计时，
+# 不一次补发一大串。旧版在物理帧里累加，Windows 上与游戏同机运行时物理帧成串挤在一起，帧就一阵一阵地发。
+func broadcast_due_frames() -> void:
 	if not in_match: return
-	clock += delta
-	# 物理帧本身固定 60 帧/秒；累加只为在卡顿后补齐，不多发也不少发。
-	while clock >= TICK - 0.0001:
-		clock -= TICK
+	var now := Time.get_ticks_usec()
+	var step := int(TICK * 1000000.0)
+	if now - next_send_usec > step * 6: next_send_usec = now
+	while now >= next_send_usec:
+		if frame - mini(acked[0], acked[1]) >= MAX_LEAD:
+			next_send_usec = now + step
+			return
+		next_send_usec += step
 		var a: Array = inputs[0]
 		var b: Array = inputs[1]
 		var packet := encode_frame(frame, a, b, a[2] or jump_latch[0], b[2] or jump_latch[1], commands)

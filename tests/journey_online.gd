@@ -54,7 +54,7 @@ func validate()->void:
 	games[0].run.journey_events[0].trigger=1.25
 	check(games[0].run.sync_hash()!=hash_before,"event phases included in network fingerprint")
 	# 联机流量（本层负载字节，不含 WebSocket/TCP 头）：每帧下行与整局上行，供带宽评估。
-	for game in games:print("JOURNEY ONLINE traffic role=",game.net.role," frames=",game.net.next_frame," down_bytes=",game.net.bytes_received," up_bytes=",game.net.bytes_sent," down_per_frame=",snappedf(float(game.net.bytes_received)/maxi(game.net.next_frame,1),0.01))
+	for game in games:print("JOURNEY ONLINE traffic role=",game.net.role," frames=",game.net.next_frame," down_bytes=",game.net.bytes_received," up_bytes=",game.net.bytes_sent," down_per_frame=",snappedf(float(game.net.bytes_received)/maxi(game.net.next_frame,1),0.01)," jitter_ms=",snappedf(game.net.jitter_ms(),0.1)," stalls=",game.net.stalls)
 	for game in games:game.net.disconnect_from();game.queue_free()
 	relay.queue_free();await process_frame
 	print("JOURNEY ONLINE common=",common," failures=",failures.size())

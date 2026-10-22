@@ -52,6 +52,11 @@ var rtt_ms := -1.0
 var gaps: Array[float] = []
 var last_arrival_usec := 0
 var starved := false
+# 变速节拍：每 WARP_PERIOD 个物理帧最多多走或少走一帧（约 ±1/4 速），用轻微变速代替停顿。
+const WARP_PERIOD := 4
+var warp_tick := 0
+var held_ticks := 0
+var doubled_ticks := 0
 var stalls := 0
 var stalls_window := 0
 var ping_clock := 0.0
@@ -284,6 +289,10 @@ func send_command(name: String, arg := "") -> void:
 func report(frame: int, state_hash: int) -> void:
 	if frame % HASH_INTERVAL == 0: send(["hash", frame, state_hash])
 
+# 每模拟 15 帧回报一次进度，服务器据此让快的一方等慢的一方。
+func acknowledge(frame: int) -> void:
+	if frame % 15 == 0: send(["ack", frame])
+
 func _on_packet(_id: int, bytes: PackedByteArray) -> void:
 	bytes_received += bytes.size()
 	if not bytes.is_empty() and bytes[0] == Relay.BUNDLE_TAG:
@@ -371,23 +380,30 @@ func jitter_ms() -> float:
 func playout_target() -> int:
 	return clampi(1 + ceili(jitter_ms() / FRAME_MS), 2, 6)
 
-# 本物理帧最多消化几帧。缓冲见底即记一次卡顿，并等攒回目标帧数再继续；
-# 只改变应用时机，不跳帧、不改帧内容，模拟结果与两端同步不变。
+# 本物理帧最多消化几帧。只改变应用时机，不跳帧、不改帧内容，模拟结果与两端同步不变。
+# 旧做法在缓冲见底后停住、直到攒满目标帧数（约 50–70 毫秒）才继续，日志里队友每 10 秒卡十几次。
+# 现在参照帧同步游戏的时间伸缩：见底时只等下一帧到达就继续；缓冲少于目标时每 4 帧少走一帧
+#（慢约 1/4）慢慢攒回，多于目标时每 4 帧多走一帧赶上；积压很多（例如载入后）才快速追帧。
 func playout_limit(catchup: int) -> int:
 	var queued := frames.size()
 	var target := playout_target()
+	warp_tick = (warp_tick + 1) % WARP_PERIOD
 	if queued == 0:
 		if not starved:
 			starved = true
 			stalls += 1
 			stalls_window += 1
 		return 0
-	if starved:
-		if queued < target: return 0
-		starved = false
-	if queued <= target: return 1
-	if queued <= target + 6: return 2
-	return mini(catchup, queued - target)
+	starved = false
+	if queued > target + 6: return mini(catchup, queued - target)
+	if warp_tick == 0:
+		if queued < target:
+			held_ticks += 1
+			return 0
+		if queued > target:
+			doubled_ticks += 1
+			return 2
+	return 1
 
 func _process(delta: float) -> void:
 	# UDP 握手没有失败回调时按超时换下一个地址。
