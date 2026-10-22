@@ -24,16 +24,18 @@ const MOVES := [2, 3, 3]
 const PATTERN := [["spikes","sweep","seeds","sweep","spikes","seeds"],
 	["summon","sweep","spikes","seeds","sweep","seeds","spikes"],
 	["sweep","spikes","seeds","sweep","seeds","spikes"]]
-# 入场动画（电影式）：拉高拉远 → 破土而出 → 张牙舞爪 → 仰天咆哮 → 镜头交还。期间两人不能操作、不受伤害，
-# Boss 不能被锁定；任一人按跳跃可跳过（剩 RETURN_TIME 秒的镜头交还）。各节点为距开战的秒数，画面与音效按同一时间轴取样。
-const INTRO := 8.4
-const INTRO_CRANE := 1.2
-const INTRO_RISE := 1.4
-const INTRO_RISEN := 3.2
-const INTRO_ROAR := 4.8
-const INTRO_ROARED := 7.0
+# 入场动画（电影式）：拉高拉远 → 破土泼土、蜷成一团钻出并在上升中逐渐舒展绽放 → 烟散 → 左右挥爪抓人 → 仰天咆哮 → 镜头交还。
+# 期间两人不能操作、不受伤害，Boss 不能被锁定；任一人按跳跃可跳过（剩 RETURN_TIME 秒的镜头交还）。
+# 各节点为距开战的秒数，画面与音效按同一时间轴取样。
+const INTRO := 13.2
+const INTRO_CRANE := 2.0
+const INTRO_RISE := 2.3
+const INTRO_RISEN := 5.6
+const INTRO_REVEAL := 6.4
+const INTRO_ROAR := 9.2
+const INTRO_ROARED := 11.8
 const INTRO_SKIP_AFTER := 0.8
-const RETURN_TIME := 1.0
+const RETURN_TIME := 1.4
 const ROAR := 2.2
 const GAP := 0.9
 const RECOVER := 0.8

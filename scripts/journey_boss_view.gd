@@ -172,6 +172,8 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	build_bar(root)
 	build_cinema(root)
 	boss.add_child(build_breath())
+	root.add_child(build_soil())
+	root.add_child(build_smoke())
 
 static func build_bar(root: Node3D) -> void:
 	var layer := CanvasLayer.new()
@@ -237,8 +239,8 @@ static func build_breath() -> GPUParticles3D:
 	process.damping_min = 4.0
 	process.damping_max = 6.0
 	process.gravity = Vector3(0, 0.3, 0)
-	process.scale_min = 4.5
-	process.scale_max = 7.5
+	process.scale_min = 0.8
+	process.scale_max = 1.4
 	var grow := Curve.new()
 	grow.add_point(Vector2(0, 0.35))
 	grow.add_point(Vector2(1, 2.2))
@@ -255,7 +257,7 @@ static func build_breath() -> GPUParticles3D:
 	process.color_ramp = fade_texture
 	particles.process_material = process
 	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE
+	quad.size = Vector2.ONE*5.0
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -266,6 +268,118 @@ static func build_breath() -> GPUParticles3D:
 	quad.material = mat
 	particles.draw_pass_1 = quad
 	return particles
+
+# 破土泼土：Boss 脚下一圈土块与碎屑向四周抛洒后落地。一次性爆发，破土与升起途中各重放一次。
+static func build_soil() -> GPUParticles3D:
+	var particles := GPUParticles3D.new()
+	particles.name = "Soil"
+	particles.amount = 260
+	particles.lifetime = 2.4
+	particles.one_shot = true
+	particles.explosiveness = 0.9
+	particles.local_coords = false
+	particles.emitting = false
+	particles.visibility_aabb = AABB(Vector3(-40, -5, -40), Vector3(80, 40, 80))
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	process.emission_ring_axis = Vector3.UP
+	process.emission_ring_radius = 6.5
+	process.emission_ring_inner_radius = 3.0
+	process.emission_ring_height = 0.6
+	process.direction = Vector3(0, 1, 0)
+	process.spread = 35.0
+	process.initial_velocity_min = 9.0
+	process.initial_velocity_max = 17.0
+	process.radial_velocity_min = 7.0
+	process.radial_velocity_max = 15.0
+	process.gravity = Vector3(0, -22, 0)
+	process.angular_velocity_min = -360.0
+	process.angular_velocity_max = 360.0
+	process.scale_min = 0.25
+	process.scale_max = 1.0
+	particles.process_material = process
+	# 低面数扁球当土块，比方块更像崩飞的泥土；颜色取根团的土褐色。
+	var clod := SphereMesh.new()
+	clod.radius = 0.38
+	clod.height = 0.5
+	clod.radial_segments = 5
+	clod.rings = 3
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color("7a5636")
+	mat.roughness = 1.0
+	mat.emission_enabled = true
+	mat.emission = Color("3a2618")
+	mat.emission_energy_multiplier = 0.4
+	clod.material = mat
+	particles.draw_pass_1 = clod
+	return particles
+
+# 破土烟雾：与 Boss 树皮同色的深褐烟团在脚下翻涌上升，升起时挡住大半身形，停止后逐渐散去露出 Boss。
+static func build_smoke() -> GPUParticles3D:
+	var particles := GPUParticles3D.new()
+	particles.name = "Smoke"
+	particles.amount = 60
+	particles.lifetime = 2.4
+	particles.local_coords = false
+	particles.emitting = false
+	particles.visibility_aabb = AABB(Vector3(-30, -5, -30), Vector3(60, 40, 60))
+	var process := ParticleProcessMaterial.new()
+	process.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	process.emission_box_extents = Vector3(11.0, 6.0, 7.0)
+	process.direction = Vector3(0, 1, 0)
+	process.spread = 60.0
+	process.initial_velocity_min = 1.5
+	process.initial_velocity_max = 3.5
+	process.radial_velocity_min = 1.0
+	process.radial_velocity_max = 3.0
+	process.damping_min = 0.5
+	process.damping_max = 1.0
+	process.gravity = Vector3(0, 0.6, 0)
+	process.scale_min = 0.8
+	process.scale_max = 1.35
+	var grow := Curve.new()
+	grow.add_point(Vector2(0, 0.6))
+	grow.add_point(Vector2(1, 1.3))
+	var grow_texture := CurveTexture.new()
+	grow_texture.curve = grow
+	process.scale_curve = grow_texture
+	var fade := Gradient.new()
+	fade.set_color(0, Color(0.42, 0.28, 0.16, 0.0))
+	fade.add_point(0.15, Color(0.3, 0.2, 0.12, 0.62))
+	fade.add_point(0.6, Color(0.26, 0.19, 0.13, 0.45))
+	fade.set_color(fade.get_point_count()-1, Color(0.28, 0.22, 0.17, 0.0))
+	var fade_texture := GradientTexture1D.new()
+	fade_texture.gradient = fade
+	process.color_ramp = fade_texture
+	particles.process_material = process
+	var quad := QuadMesh.new()
+	# 尺寸由网格决定（与旅程尘土特效相同做法），粒子缩放只做大小差异。
+	quad.size = Vector2.ONE*9.0
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_texture = smoke_texture()
+	mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	quad.material = mat
+	particles.draw_pass_1 = quad
+	return particles
+
+# 烟团贴图：中心大片实心、边缘柔和衰减，比通用光点贴图更有体积。
+static func smoke_texture() -> Texture2D:
+	var gradient := Gradient.new()
+	gradient.set_color(0, Color(1, 1, 1, 1))
+	gradient.add_point(0.45, Color(1, 1, 1, 0.85))
+	gradient.set_color(gradient.get_point_count()-1, Color(1, 1, 1, 0))
+	var texture := GradientTexture2D.new()
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_RADIAL
+	texture.fill_from = Vector2(0.5, 0.5)
+	texture.fill_to = Vector2(0.5, 0.0)
+	texture.width = 64
+	texture.height = 64
+	return texture
 
 # 头骨的世界位置（口部附近）；找不到骨骼时按模型比例估算。
 static func mouth(boss: Node3D) -> Vector3:
@@ -357,11 +471,12 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 	else:
 		match event.state:
 			"intro":
-				# 升起时保持下蹲蓄力姿势；站稳后张牙舞爪，再仰天咆哮，最后回到待机。
-				if age < Boss.INTRO_RISEN:
-					clip = "Roar"; t = 0.35
+				# 钻出时蜷成一团微微颤抖，上升途中逐渐舒展、张臂后仰（花苞绽放），升到顶正好张到最开；
+				# 停留片刻后左右挥爪抓人，再仰天咆哮，最后回到待机。
+				if age < Boss.INTRO_REVEAL:
+					clip = "Emerge"; t = emerge_time(age)
 				elif age < Boss.INTRO_ROAR:
-					clip = "Flail"; t = (age-Boss.INTRO_RISEN)/(Boss.INTRO_ROAR-Boss.INTRO_RISEN)*1.6
+					clip = "ClawSwipe"; t = (age-Boss.INTRO_REVEAL)/(Boss.INTRO_ROAR-Boss.INTRO_REVEAL)*CLAW_LENGTH
 				elif age < Boss.INTRO_ROARED:
 					clip = "RoarSky"; t = (age-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR)*2.2
 				else:
@@ -690,10 +805,21 @@ static func bar(game, view: Node3D, event: Dictionary, dead: bool, death_age: fl
 	if dead: title.text = "%s 已倒下"%Boss.NAME
 
 # —— 入场动画 ——
-# 时间轴见 journey_boss.gd 的 INTRO_*：0–1.2 秒镜头拉高拉远、地面开裂；1.4 秒破土，根刺环形钻出；
-# 1.4–3.2 秒低机位仰拍 Boss 从地下升起；3.2–4.8 秒侧前方中景张牙舞爪；4.8–7 秒正面仰拍仰天咆哮、口雾、
-# 冲击波与标题；7–8.4 秒镜头交还。全程按强度曲线震动画面。
+# 时间轴见 journey_boss.gd 的 INTRO_*：0–2 秒镜头拉高拉远、地面开裂；2.3 秒破土，泼土、根刺环与烟雾；
+# 2.3–5.6 秒低机位仰拍 Boss 蜷成一团从烟雾里钻出，上升途中逐渐舒展、张臂后仰（花苞绽放）；5.6–6.4 秒拉远、烟散；
+# 6.4–9.2 秒侧前方中景左右各挥一次大爪；9.2–11.8 秒正面仰拍仰天咆哮、口雾、冲击波与标题；11.8–13.2 秒镜头交还。
+# 全程按强度曲线震动画面。
 const INTRO_SPIKES := 14
+const CLAW_LENGTH := 2.6
+# Emerge 动作：0–3 秒蜷缩颤抖，3–4.6 秒舒展绽放。上升前 EMERGE_HOLD 秒保持蜷缩，其余上升时间用来绽放。
+const EMERGE_CURL := 3.0
+const EMERGE_LENGTH := 4.6
+const EMERGE_HOLD := 1.2
+
+static func emerge_time(age: float) -> float:
+	var curl_end: float = Boss.INTRO_RISE+EMERGE_HOLD
+	if age < curl_end: return clampf((age-Boss.INTRO_RISE)/EMERGE_HOLD, 0.0, 1.0)*EMERGE_CURL
+	return minf(EMERGE_LENGTH, EMERGE_CURL+(age-curl_end)/(Boss.INTRO_RISEN-curl_end)*(EMERGE_LENGTH-EMERGE_CURL))
 
 static func intro_age(run, event: Dictionary) -> float:
 	if event.phase == "dormant": return -1.0
@@ -715,8 +841,10 @@ static func intro_camera(game, event: Dictionary, home: Transform3D, game_shot: 
 	var crane := shot(Vector3(0, 30, players+16), Vector3(0, 0, core+10))
 	var rise_from := shot(Vector3(12, 1.8, core+27), Vector3(0, 7, core))
 	var rise_to := shot(Vector3(8.5, 2.4, core+22), Vector3(0, 9, core))
-	var flail_from := shot(Vector3(-11, 4.5, core+25), Vector3(0, HEIGHT*0.55, core))
-	var flail_to := shot(Vector3(-7.5, 5.0, core+21), Vector3(0, HEIGHT*0.58, core))
+	var reveal_from := shot(Vector3(0, 4.5, core+36), Vector3(0, HEIGHT*0.5, core))
+	var reveal_to := shot(Vector3(0, 5.0, core+31), Vector3(0, HEIGHT*0.52, core))
+	var claw_from := shot(Vector3(-9.5, 5.5, core+27), Vector3(0, HEIGHT*0.55, core))
+	var claw_to := shot(Vector3(-6.0, 5.0, core+23), Vector3(0, HEIGHT*0.57, core))
 	var roar_from := shot(Vector3(3.0, 5.0, core+27), Vector3(0, HEIGHT*0.56, core))
 	var roar_to := shot(Vector3(1.8, 4.5, core+22), Vector3(0, HEIGHT*0.6, core))
 	var result: Dictionary
@@ -727,8 +855,10 @@ static func intro_camera(game, event: Dictionary, home: Transform3D, game_shot: 
 		result = {"transform":crane, "fov":60.0}
 	elif t < Boss.INTRO_RISEN:
 		result = {"transform":rise_from.interpolate_with(rise_to, ease01((t-Boss.INTRO_RISE)/(Boss.INTRO_RISEN-Boss.INTRO_RISE))), "fov":50.0}
+	elif t < Boss.INTRO_REVEAL:
+		result = {"transform":reveal_from.interpolate_with(reveal_to, ease01((t-Boss.INTRO_RISEN)/(Boss.INTRO_REVEAL-Boss.INTRO_RISEN))), "fov":52.0}
 	elif t < Boss.INTRO_ROAR:
-		result = {"transform":flail_from.interpolate_with(flail_to, ease01((t-Boss.INTRO_RISEN)/(Boss.INTRO_ROAR-Boss.INTRO_RISEN))), "fov":50.0}
+		result = {"transform":claw_from.interpolate_with(claw_to, ease01((t-Boss.INTRO_REVEAL)/(Boss.INTRO_ROAR-Boss.INTRO_REVEAL))), "fov":52.0}
 	elif t < Boss.INTRO_ROARED:
 		result = {"transform":roar_from.interpolate_with(roar_to, ease01((t-Boss.INTRO_ROAR)/(Boss.INTRO_ROARED-Boss.INTRO_ROAR))), "fov":50.0}
 	else:
@@ -749,14 +879,24 @@ static func intro_camera(game, event: Dictionary, home: Transform3D, game_shot: 
 static func intro_shake(t: float) -> float:
 	if t < 0.0: return 0.0
 	var amount := 0.0
-	if t < Boss.INTRO_RISE: amount = lerpf(0.03, 0.14, t/Boss.INTRO_RISE)
-	if t >= Boss.INTRO_RISE: amount = maxf(amount, 0.7*exp(-(t-Boss.INTRO_RISE)*3.5))
-	if t >= Boss.INTRO_RISE and t < Boss.INTRO_RISEN: amount = maxf(amount, 0.14)
-	if t >= Boss.INTRO_RISEN and t < Boss.INTRO_ROAR:
-		amount = maxf(amount, 0.06+0.16*pow(maxf(0.0, sin((t-Boss.INTRO_RISEN)/1.6*TAU*2.0)), 4.0))
+	if t < Boss.INTRO_RISE: amount = lerpf(0.05, 0.28, t/Boss.INTRO_RISE)
+	if t >= Boss.INTRO_RISE: amount = maxf(amount, 1.3*exp(-(t-Boss.INTRO_RISE)*2.5))
+	if t >= Boss.INTRO_RISE and t < Boss.INTRO_RISEN: amount = maxf(amount, 0.3)
+	# 舒展绽放（上升后段）：随双臂张开震动涌起，张到最开时最强，之后回落。
+	var bloom_start: float = Boss.INTRO_RISE+EMERGE_HOLD
+	if t >= bloom_start and t < Boss.INTRO_REVEAL:
+		var open := (t-bloom_start)/(Boss.INTRO_RISEN-bloom_start)
+		amount = maxf(amount, 0.25+0.4*smoothstep(0.3, 0.9, open)*(1.0-smoothstep(1.0, 1.4, open)))
+	for strike in claw_strikes():
+		if t >= strike: amount = maxf(amount, 0.85*exp(-(t-strike)*5.0))
 	if t >= Boss.INTRO_ROAR+0.45 and t < Boss.INTRO_ROARED+0.6:
-		amount = maxf(amount, 0.42*ease01((t-Boss.INTRO_ROAR-0.45)/0.15)*(1.0-ease01((t-Boss.INTRO_ROARED+0.6)/1.2)))
+		amount = maxf(amount, 0.8*ease01((t-Boss.INTRO_ROAR-0.45)/0.15)*(1.0-ease01((t-Boss.INTRO_ROARED+0.6)/1.2)))
 	return amount
+
+# 两次挥爪落下的时刻（入场秒数）：ClawSwipe 动作里左爪 0.62、右爪 1.67 秒击中。
+static func claw_strikes() -> Array:
+	var scale: float = (Boss.INTRO_ROAR-Boss.INTRO_REVEAL)/CLAW_LENGTH
+	return [Boss.INTRO_REVEAL+0.62*scale, Boss.INTRO_REVEAL+1.67*scale]
 
 static func intro(game, view: Node3D, event: Dictionary) -> void:
 	var run = game.run
@@ -782,7 +922,8 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if event.phase == "dormant":
 		boss.visible = false
 		# 失败重打会恢复到开战前，开战时刻可能完全相同：沉睡时清掉入场一次性标记，下次开战重新播放。
-		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.55", "intro_wave0.95", "intro_wave1.35"]:
+		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.55", "intro_wave0.95", "intro_wave1.35",
+				"intro_soil0.0", "intro_soil1.1", "intro_soil2.2", "intro_claw0", "intro_claw1", "intro_claw_hit0", "intro_claw_hit1", "intro_bloom"]:
 			view.remove_meta("fx_" + tag)
 	elif event.phase == "intro":
 		# 破土前埋在地下；1.4–3.4 秒升起，升起途中轻微抖动。
@@ -820,6 +961,32 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if t >= 0.0 and t < Boss.INTRO_RISEN and fx != null and int(run.elapsed/run.FIXED_STEP)%14 == 0:
 		var spin: float = run.elapsed*7.3
 		fx.burst("dust", base+Vector3(cos(spin)*6.0, 0, sin(spin)*6.0))
+	# 烟雾在破土前一瞬开始翻涌，升起到一半后停止喷出，剩余烟团在露出前散尽。
+	var smoke: GPUParticles3D = view.get_node("Smoke")
+	var smoking: bool = event.phase == "intro" and t >= Boss.INTRO_RISE-0.15 and t < Boss.INTRO_RISEN-1.0 and not skipped and run.state == "running"
+	if smoking: smoke.global_position = base+Vector3(0, 5.5, 1.5)
+	if smoke.emitting != smoking: smoke.emitting = smoking
+	var soil: GPUParticles3D = view.get_node("Soil")
+	for burst in [0.0, 1.1, 2.2]:
+		if t >= Boss.INTRO_RISE+burst and t < Boss.INTRO_RISEN and once_tag(view, "intro_soil%.1f"%burst, key) and not skipped:
+			soil.global_position = base
+			soil.amount_ratio = 1.0 if burst == 0.0 else 0.55
+			soil.restart()
+			if burst > 0.0: game.sfx.play_at("rubble", base+Vector3(0, 1, 0), 2.0, 0.65)
+	var strikes := claw_strikes()
+	for n in range(strikes.size()):
+		var strike: float = strikes[n]
+		if t >= strike-0.25 and once_tag(view, "intro_claw%d"%n, key) and not skipped:
+			game.sfx.play_at("hammer_swing", base+Vector3(0, HEIGHT*0.6, 3), 6.0, 0.55)
+			game.sfx.play_at("wood_creak_heavy", base+Vector3(0, HEIGHT*0.6, 3), 2.0, 0.7)
+		if t >= strike and once_tag(view, "intro_claw_hit%d"%n, key) and not skipped:
+			game.sfx.play_at("punch_heavy", base+Vector3(0, 3, 4), 4.0, 0.5)
+			if hazard_fx != null: hazard_fx.slam(base+Vector3(-6.0 if n == 0 else 6.0, 0, 6.0), 7.0)
+	# 绽放：舒展开始时一声沉重的木头撕裂与低吼。
+	if t >= Boss.INTRO_RISE+EMERGE_HOLD and once_tag(view, "intro_bloom", key) and not skipped:
+		game.sfx.play_at("wood_creak_heavy", base+Vector3(0, HEIGHT*0.6, 2), 6.0, 0.45)
+		game.sfx.play_at("boss_rumble", base+Vector3(0, 2, 2), 0.0, 0.8)
+		game.sfx.play_at("boss_roar", base+Vector3(0, HEIGHT*0.7, 2), -4.0, 0.62)
 	if t >= Boss.INTRO_RISE and once_tag(view, "intro_burst", key) and not skipped:
 		game.sfx.play_at("boss_burst", base+Vector3(0, 1, 0), 3.0, 0.85)
 		game.sfx.play_at("tree_fall", base+Vector3(0, 3, 0), 0.0, 0.6)

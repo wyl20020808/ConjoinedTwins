@@ -4,7 +4,7 @@ extends SceneTree
 #   python build-tools/capture_hidden.py res://build-tools/boss/capture_intro.gd
 # 输出目录取环境变量 BOSS_CAPTURE_DIR（默认 user://boss-intro/），不写入工程。
 const Boss = preload("res://scripts/journey_boss.gd")
-const MOMENTS := [0.7, 1.3, 1.5, 2.4, 3.5, 4.1, 4.5, 5.3, 5.9, 6.6, 7.6, 8.6]
+const MOMENTS := [1.2, 2.45, 3.4, 4.4, 5.4, 6.2, 7.0, 7.9, 10.0, 12.4]
 var game
 var out := ""
 
@@ -28,9 +28,7 @@ func settle() -> void:
 
 func shot(name: String) -> void:
 	await settle()
-	for n in range(4):
-		game.sync_view()
-		await process_frame
+	game.sync_view()
 	await RenderingServer.frame_post_draw
 	var path := out.path_join(name + ".png")
 	var error := root.get_texture().get_image().save_png(path)
@@ -63,11 +61,14 @@ func capture() -> void:
 	place(boss.arena + 320)
 	run.step(run.FIXED_STEP)
 	var start: float = boss.state_at
+	# 每渲染一帧推进 1/60 秒模拟，粒子按真实帧时间运动，与正常游玩的节奏一致。
+	Engine.max_fps = 60
 	for moment in MOMENTS:
 		while run.elapsed - start < moment - 0.0001:
 			run.step(run.FIXED_STEP)
-			# 逐步推进时同步画面，一次性特效与镜头插值按真实帧触发。
-			if int(run.elapsed / run.FIXED_STEP) % 6 == 0: game.sync_view()
+			run.step(run.FIXED_STEP)
+			game.sync_view()
+			await process_frame
 		await shot("intro_%02d_t%.1f" % [MOMENTS.find(moment) + 1, moment])
 	game.queue_free()
 	for n in range(4): await process_frame
