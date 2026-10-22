@@ -435,14 +435,21 @@ key('Emerge', lag([(0, curled(0)), (0.5, curled(2)), (1.0, curled(-2)), (1.5, cu
 
 # 挥爪抓人（入场破土后，2.6 秒）：左爪先向外后方大幅蓄力，再以抓取的姿势横扫过身前、甩过头；
 # 右爪紧接着镜像一次。上身随挥爪大幅拧转前扑，头追着爪子看，爪尖收拢如抓物。
+# 掌心领路：挥动的手臂前臂和手腕外翻约 90°（掌心朝上的一半），侧举时掌心朝前、横扫时朝着扫过的方向，
+# 手腕向掌心一侧勾起抓取，而不是向下耷拉、用手背或手缘带着走。
+def palm_lead(s, amount=1.0):
+    sign = 1 if s == 'L' else -1
+    return {'roll.Forearm.' + s: SUPINATE * sign * 45 * amount, 'roll.Hand.' + s: SUPINATE * sign * 45 * amount}
+
+
 def claw_wind(s):
     sign = 1 if s == 'L' else -1
     o = 'R' if s == 'L' else 'L'
-    return pose(Spine=compose(twist(18 * sign), lean(-6)), Chest=compose(twist(30 * sign), lean(-12)), Neck=twist(-10 * sign),
+    return dict(pose(Spine=compose(twist(18 * sign), lean(-6)), Chest=compose(twist(30 * sign), lean(-12)), Neck=twist(-10 * sign),
                 Head=compose(twist(-16 * sign), lean(-8)),
                 **{'UpperArm_' + s: compose(raise_side(s, 72), swing_front(s, -50)), 'Forearm_' + s: compose(raise_side(s, 25), reach_forward(20)),
-                   'Hand_' + s: compose(raise_side(s, 30), reach_forward(30)),
-                   'UpperArm_' + o: compose(raise_side(o, 20), reach_forward(25)), 'Forearm_' + o: reach_forward(25)})
+                   'Hand_' + s: compose(raise_side(s, 20), swing_front(s, -10)),
+                   'UpperArm_' + o: compose(raise_side(o, 20), reach_forward(25)), 'Forearm_' + o: reach_forward(25)}), **palm_lead(s))
 
 
 def claw_strike(s, extra=0):
@@ -452,8 +459,8 @@ def claw_strike(s, extra=0):
                 Neck=compose(twist(12 * sign), lean(4)), Head=compose(twist(18 * sign), lean(8)),
                 **{'UpperArm_' + s: compose(raise_side(s, 30), swing_front(s, 95 + extra), reach_forward(28)),
                    'Forearm_' + s: compose(swing_front(s, 35), reach_forward(-10)),
-                   'Hand_' + s: compose(swing_front(s, 25), reach_forward(-40)),
-                   'UpperArm_' + o: compose(raise_side(o, 28), swing_front(o, -20)), 'Forearm_' + o: raise_side(o, 15)})
+                   'Hand_' + s: swing_front(s, 40 + extra),
+                   'UpperArm_' + o: compose(raise_side(o, 28), swing_front(o, -20)), 'Forearm_' + o: raise_side(o, 15)}) | palm_lead(s)
 
 
 crouch = roar_crouch
@@ -582,10 +589,18 @@ if PREVIEW:
     cam.rotation_euler = (Vector((0, 0, 0.5)) - cam.location).to_track_quat('-Z', 'Y').to_euler()
     shots = [('Emerge', 1.0), ('Emerge', 3.45), ('Emerge', 3.9), ('Emerge', 4.6), ('ClawSwipe', 0.62), ('ClawSwipe', 1.67), ('RoarSky', 1.0), ('Idle', 0), ('SweepL', 0.7),
              ('Throw', 0.7), ('Root', 1.0), ('Stagger', 1.0), ('Death', 2.5)]
+    # --claw：只渲染挥爪序列，正前偏侧与俯视两个角度，核对掌心是否朝着手臂运动的方向。
+    views = [('front', cam.location.copy())]
+    if '--claw' in args:
+        shots = [('ClawSwipe', t) for t in (0.2, 0.35, 0.48, 0.62, 0.72, 0.8, 0.95, 1.4, 1.55, 1.67, 1.85)]
+        views.append(('top', Vector((0.6, 0.0, 3.5))))
     for track in armature.animation_data.nla_tracks:
         track.mute = True
-    for name, seconds in shots:
-        armature.animation_data.action = bpy.data.actions[name]
-        scene.frame_set(1 + round(seconds * FPS))
-        scene.render.filepath = os.path.join(PREVIEW, f'pose_{name}_{seconds}.png')
-        bpy.ops.render.render(write_still=True)
+    for view, where in views:
+        cam.location = where
+        cam.rotation_euler = (Vector((0, 0, 0.5)) - cam.location).to_track_quat('-Z', 'Y').to_euler()
+        for name, seconds in shots:
+            armature.animation_data.action = bpy.data.actions[name]
+            scene.frame_set(1 + round(seconds * FPS))
+            scene.render.filepath = os.path.join(PREVIEW, f'pose_{name}_{seconds}' + ('' if view == 'front' else '_' + view) + '.png')
+            bpy.ops.render.render(write_still=True)

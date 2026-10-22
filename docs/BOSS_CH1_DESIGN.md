@@ -174,3 +174,20 @@
 - 音效 `boss_roar`、`boss_rumble`、`boss_burst` 由 `build-tools/boss/make_boss_sfx.py` 程序合成（固定种子，可重复生成），叠加项目已有的 CC0 木头、倒树和爆炸录音（降调）。
 
 自测：`journey_boss` 679 项（新增：入场期间输入不移动、不开火不锁定、不受伤、0.8 秒内不能跳过、跳过后进入交还段且不起跳）、实打通关及相关回归通过；`build-tools/boss/capture_intro.gd` 在真实场景按时间轴截 12 张图核对运镜、破土、咆哮与标题。`check_journey_performance.py` 27 组通过、测试期间源码未变，证据在工程外 `D:/ConjoinedTwins-task-temp/boss-intro-performance/`。合成音效只做了响度和频谱检查，实际听感待用户试玩确认。
+
+## 13. 入场特效修复与挥爪掌心朝向（2026-10-21，分支 `fix/boss-intro-polish`）
+
+用户看入场动画后的反馈：挥爪那两下手臂方向不对，大幅挥舞时掌心应朝着手臂运动的方向。播放时日志还暴露了一个特效缺陷。
+
+- **一次性特效标记**：三次泼土、三道咆哮冲击波的标记名原为 `intro_soil0.0`、`intro_wave0.55` 等，元数据名不能含小数点，写入失败（每次入场约 940 条 `Invalid metadata identifier` 错误），这六个特效因此每帧重复触发，而不是各放一次。改为按序号命名（`intro_soil0..2`、`intro_wave0..2`），沉睡时的清除列表同步改名。新增 `tests/journey_boss_intro_fx.gd` 在真实场景里放完入场，核对六个标记各记一次、回到沉睡后清除；旧代码 6 项失败，修复后 0 失败、0 条错误。
+- **挥爪掌心领路**（`build-tools/boss/rig_boss.py` 的 `ClawSwipe`）：原来绽放结束时掌心外翻朝天，进入蓄力和横扫后前臂、手腕的外翻回到 0，手腕又向下勾，横扫时是手背或手缘在前。现在挥动那只手在蓄力和横扫全程保持前臂、手腕各外翻 45°（`palm_lead`），手腕改为向掌心一侧勾起抓取（不再向下耷拉）。
+  - 量化核对：逐帧计算挥动那只手的掌心法线与手的运动方向夹角余弦（1 为掌心正对运动方向）。原版前向横扫段多在 0.0–0.3，只在末段到 0.6–0.9；现在左右两爪整段 0.95–1.0。对照：外翻 −45° 为 −1（手背领路）、90° 约为 0（手缘领路），说明方向判断与度量一致。静止姿势掌心朝身体内侧，用绽放结束“掌心朝前上方”的姿势核对过。
+  - `rig_boss.py --preview <目录> --claw` 只渲染挥爪序列（正前偏侧与俯视各 11 帧），便于以后再调。
+  - 重新导出 `assets/boss/rigged/root_colossus.glb`，贴图未变；其他动作的关键帧未改。
+- **实时预览入场**：`build-tools/boss/play_intro.gd` 在可见窗口里把两人放到开战线前、越线触发入场，播完可以直接接着打：
+
+  ```sh
+  /Applications/Godot.app/Contents/MacOS/Godot --path . --resolution 1600x900 --script res://build-tools/boss/play_intro.gd
+  ```
+
+自测：`journey_boss` 679 项、`journey_boss_intro_fx`、只用输入的实打 `journey_boss_playthrough`、`journey_combat`、`journey_monsters` 均 0 失败；`check_journey_performance.py` 唯一未通过项是 `journey_pursuit` 退出时 10 个对象 / 3 个资源泄漏告警，与未改动的 `origin/test` 基线相同（报告 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-polish-perf-20261021/summary.json`）。入场画面在 macOS 真实渲染下按时间轴截图核对（工程外 `/Users/apple/ConjoinedTwins-task-temp/boss-intro-palm-20261021/`）；Controller 独立测试未运行，挥爪观感待用户试玩确认。

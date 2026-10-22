@@ -922,8 +922,8 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if event.phase == "dormant":
 		boss.visible = false
 		# 失败重打会恢复到开战前，开战时刻可能完全相同：沉睡时清掉入场一次性标记，下次开战重新播放。
-		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0.55", "intro_wave0.95", "intro_wave1.35",
-				"intro_soil0.0", "intro_soil1.1", "intro_soil2.2", "intro_claw0", "intro_claw1", "intro_claw_hit0", "intro_claw_hit1", "intro_bloom"]:
+		for tag in ["intro_rumble", "intro_burst", "intro_roar", "intro_wave0", "intro_wave1", "intro_wave2",
+				"intro_soil0", "intro_soil1", "intro_soil2", "intro_claw0", "intro_claw1", "intro_claw_hit0", "intro_claw_hit1", "intro_bloom"]:
 			view.remove_meta("fx_" + tag)
 	elif event.phase == "intro":
 		# 破土前埋在地下；1.4–3.4 秒升起，升起途中轻微抖动。
@@ -967,8 +967,10 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 	if smoking: smoke.global_position = base+Vector3(0, 5.5, 1.5)
 	if smoke.emitting != smoking: smoke.emitting = smoking
 	var soil: GPUParticles3D = view.get_node("Soil")
-	for burst in [0.0, 1.1, 2.2]:
-		if t >= Boss.INTRO_RISE+burst and t < Boss.INTRO_RISEN and once_tag(view, "intro_soil%.1f"%burst, key) and not skipped:
+	# 标记名只能用字母、数字和下划线（元数据名里不能有小数点），按序号区分三次泼土。
+	for n in range(3):
+		var burst: float = [0.0, 1.1, 2.2][n]
+		if t >= Boss.INTRO_RISE+burst and t < Boss.INTRO_RISEN and once_tag(view, "intro_soil%d"%n, key) and not skipped:
 			soil.global_position = base
 			soil.amount_ratio = 1.0 if burst == 0.0 else 0.55
 			soil.restart()
@@ -1007,8 +1009,9 @@ static func intro(game, view: Node3D, event: Dictionary) -> void:
 		var e: float = run.elapsed
 		var spot := Vector2(sin(e*13.7)*260.0, lerpf(event.arena+Boss.TRIGGER, event.origin.y-120.0, 0.5+0.5*sin(e*7.9)))
 		fx.burst("dust", world(spot, 0.05))
-	for wave in [0.55, 0.95, 1.35]:
-		if t >= Boss.INTRO_ROAR+wave and once_tag(view, "intro_wave%.2f"%wave, key) and not skipped:
+	for n in range(3):
+		var wave: float = [0.55, 0.95, 1.35][n]
+		if t >= Boss.INTRO_ROAR+wave and once_tag(view, "intro_wave%d"%n, key) and not skipped:
 			if fx != null: fx.impact(base, AMBER.lerp(Color.WHITE, 0.3), 14.0+wave*10.0, 4.0)
 			if hazard_fx != null and wave < 0.6: hazard_fx.slam(base, 12.0)
 	# 黑边、标题与跳过提示。
