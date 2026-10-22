@@ -10,6 +10,11 @@ const GUN_CLIP := "Idle_Gun_Pointing"
 # 持枪层逐骨权重：右臂整链取持枪姿势，左臂与胸口只收一半，保留跑动的摆幅。
 const GUN_BONES := {"RightShoulder": 1.0, "RightUpperArm": 1.0, "RightLowerArm": 1.0, "RightHand": 1.0,
 	"LeftShoulder": 0.5, "LeftUpperArm": 0.5, "LeftLowerArm": 0.5, "LeftHand": 0.5, "UpperChest": 0.4, "Chest": 0.25}
+# 枪械动作层：Blender 制作的上半身片段（收取枪、捡枪、换弹等），按模拟时间采样，覆盖脊柱、头和肩膀；
+# 双手随后由战斗画面的手部 IK 精确贴到枪上。
+const ACTION_BONES := {"Spine": 0.6, "Chest": 1.0, "UpperChest": 1.0, "Neck": 1.0, "Head": 1.0,
+	"RightShoulder": 1.0, "RightUpperArm": 1.0, "RightLowerArm": 1.0, "RightHand": 1.0,
+	"LeftShoulder": 1.0, "LeftUpperArm": 1.0, "LeftLowerArm": 1.0, "LeftHand": 1.0}
 const ARM_PREFIXES := ["Right", "Left"]
 const LEGS := [["LeftUpperLeg", "LeftLowerLeg", "LeftFoot"], ["RightUpperLeg", "RightLowerLeg", "RightFoot"]]
 # 单脚最多抬升/下探的世界高度，超过即视为台阶边缘外，不再硬拉腿。
@@ -21,6 +26,9 @@ var run_phase := 0.0
 var gun_weight := 0.0
 var gun_arms := true
 var foot_weight := 0.0
+var action_clip := ""
+var action_time := 0.0
+var action_weight := 0.0
 var ground_ref := 0.0
 var ground := Callable()
 
@@ -38,8 +46,12 @@ func setup(player: AnimationPlayer) -> void:
 	if skeleton == null: return
 	hips = skeleton.find_bone("Hips")
 	for name in ["LeftHand", "RightHand", "LeftFoot", "RightFoot"]: recorded.append(skeleton.find_bone(name))
-	for clip in STRAFE_PHASE.keys() + [GUN_CLIP]:
-		var name: String = "CharacterArmature|" + clip
+	var names := {}
+	for clip in STRAFE_PHASE.keys() + [GUN_CLIP]: names[clip] = "CharacterArmature|" + clip
+	for clip in player.get_animation_list():
+		if String(clip).begins_with("Gun"): names[String(clip)] = String(clip)
+	for clip in names:
+		var name: String = names[clip]
 		if not player.has_animation(name): continue
 		var animation := player.get_animation(name)
 		var rotations := {}
@@ -77,6 +89,12 @@ func _process_modification_with_delta(_delta: float) -> void:
 			var bone := skeleton.find_bone(name)
 			if bone >= 0: weights[bone] = GUN_BONES[name] * gun_weight
 		blend_clip(skeleton, GUN_CLIP, 0.0, 1.0, weights)
+	if action_weight > 0.001 and clips.has(action_clip):
+		var weights := {}
+		for name in ACTION_BONES:
+			var bone := skeleton.find_bone(name)
+			if bone >= 0: weights[bone] = ACTION_BONES[name] * action_weight
+		blend_clip(skeleton, action_clip, action_time, 1.0, weights)
 	if foot_weight > 0.001 and ground.is_valid(): plant_feet(skeleton)
 	else: last_foot_shift = [0.0, 0.0]
 	for bone in recorded:
