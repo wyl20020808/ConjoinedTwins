@@ -78,6 +78,8 @@ Mac 可双击本目录的 `试玩连续旅程.command`，或在 Godot 中导入�
 
 **Windows 启动：双击 `启动归航Demo.cmd`。** 或用 Godot 4.7.1 打开 `project.godot`，运行 `scenes/journey_boot.tscn`。Agent 不自动打开游戏。
 
+发给朋友的 Windows 版支持单文件安装器：中文安装向导、桌面和开始菜单快捷方式、卸载入口，保留游戏内云更新。构建入口与验收边界见 [Windows 安装与打包](docs/WINDOWS_RELEASE.md#打包)。
+
 Windows 救援闪退仍在原生复核中；此前单独切换驱动、串行剔除或资源加载都未能消除故障。当前候选配置和实测结果见 [救援闪退调查](docs/RESCUE_CRASH_FIX.md)，以该记录的最终状态为准，不能用 headless 通过代替原生稳定性验收。
 
 > 2026-10-14 联机与触屏：新增远程双人联机（电脑运行 `启动联机服务器.cmd`，两人各自在开始页填地址点“联机”，帧同步，各控制一个角色）和触屏操作（左半屏浮动摇杆移动，右半屏点击跳跃），并新增 iOS 导出预设。本地同屏双人保持不变。说明见 [iPhone / iPad 联机试玩说明](docs/IOS_ONLINE.md)。

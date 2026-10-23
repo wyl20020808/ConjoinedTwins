@@ -4,6 +4,42 @@
 
 ## 打包
 
+### Windows 安装向导（2026-10-23）
+
+发给朋友时使用 `builds/windows/installer/ConjoinedTwins-Setup-<版本>.exe`。朋友双击安装，按中文向导选择目录，默认创建桌面快捷方式；安装结束可立即启动。以后双击桌面或开始菜单中的“共生连线”即可游玩。Windows 设置的应用列表和开始菜单提供卸载入口。
+
+构建电脑需要 Inno Setup 6.7 或更新版本。安装器编译器来自 [Inno Setup 官方下载页](https://jrsoftware.org/isdl.php)，通过 `--iscc` 指定路径，不要求加入 PATH。朋友电脑不需要 Python、Godot 或 Inno Setup。
+
+```powershell
+python build-tools/package_windows_installer.py --iscc "你的 Inno Setup 目录/ISCC.exe"
+```
+
+该命令复用 `prepare_windows.py` 完成导出、资源拆包，再生成单文件安装器。已有完整导出时可避免重复导出：
+
+```powershell
+python build-tools/package_windows_installer.py --skip-export --iscc "你的 Inno Setup 目录/ISCC.exe"
+```
+
+- 安装仅针对当前用户，默认路径为 `%LOCALAPPDATA%\Programs\ConjoinedTwins`，无需管理员权限；可在向导中更换目录。支持 Windows 10/11 x64；其他平台仍走各自打包流程。
+- 安装器包含主程序、主包、数据包清单和全部校验过的数据包，首次安装不需要下载游戏资源。联网更新继续使用既有云更新，更新文件写入玩家用户数据目录。
+- 固定 AppId 让后续安装复用原安装位置和卸载项。重复安装覆盖本安装器提供的文件；卸载只处理安装文件和快捷方式，保留玩家设置及已下载的云更新。
+- 不会自动关闭正在运行的游戏，也不会重启系统。安装前请先退出游戏。
+- 构建前逐个检查数据包大小与 SHA-256；编译日志与输入文件哈希存入安装器目录下的 `evidence-*/build.json`。同版本安装器已存在时停止，保留原件。
+- 这是未签名的测试安装器，Windows 可能显示未知发布者或 SmartScreen 提示。安装器外观与代码签名信誉是不同事项；本流程没有配置证书。
+- 此命令只构建本地产物，不发布更新、不修改线上清单、不重启联机服务。现有 `publish_update.py` 的完整下载链接仍发布 ZIP，安装器可单独发给朋友。
+
+安装向导使用 Inno Setup 自带机制。简体中文翻译保留在 `build-tools/installer/ChineseSimplified.isl`，来源为官方源码库 `is-6_7_3` 标签的 `Files/Languages/Unofficial/ChineseSimplified.isl`，保留原作者说明；原文件 SHA-256 为 `7d544b9bb1d142cfa11f2e5d3cc8abe2e55f8e066c5124e3772675aa236e1278`。
+
+本轮本地验证（2026-10-23）：对当前线上同版本 `20261023T010711Z-5608906` 的完整资源目录封装，安装器约 227 MB。`verify_windows_installer.py` 实际执行中文带空格目录安装、重复安装、逐文件哈希校验、真实桌面与开始菜单快捷方式检查、卸载项检查和卸载；这些步骤通过，测试安装与快捷方式已清理，额外的用户文件保留验证通过。数据包篡改、越界路径与非法版本号拒绝检查通过。综合验证脚本仍退出 1：已安装游戏在 headless `--quit-after 120` 退出时报告 2 个 ObjectDB 实例泄漏、1 个资源仍在使用；原便携包在独立用户数据目录以相同参数复现同样日志，因此游戏启动/退出检查列为失败，不能以安装生命周期通过代替。日志在工程外 `D:/ConjoinedTwins-task-temp/windows-installer-acceptance-final-20261023`，原包对照日志在 `D:/ConjoinedTwins-task-temp/windows-installer-acceptance-20261023/baseline-startup.log`。可见向导、真实玩家输入和朋友电脑兼容性未验收；Controller 独立测试未运行。
+
+本机复验入口如下（仅 `idle` 允许，会短暂创建真实快捷方式；检测到已有安装或同名快捷方式时停止，不覆盖用户现有安装）：
+
+```powershell
+python build-tools/verify_windows_installer.py "安装器.exe" --source "已导出的完整资源目录" --evidence "新的工程外证据目录"
+```
+
+### 原有便携 ZIP
+
 ```
 python build-tools/prepare_windows.py
 ```
