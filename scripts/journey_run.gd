@@ -288,6 +288,13 @@ func build_journey() -> void:
 	preload("res://scripts/journey_encounters.gd").build(self)
 
 func fixed_step(input_a: Vector2,input_b: Vector2) -> void:
+	if preload("res://scripts/journey_boss_finale.gd").active(self):
+		elapsed += FIXED_STEP
+		Combat.clear_input(self)
+		jump_buffer = [0, 0]
+		move_directions = [Vector2.ZERO, Vector2.ZERO]
+		invulnerable_until = maxf(invulnerable_until, elapsed+0.2)
+		return
 	if solo_control and not external_companion: input_b=companion_input(input_a)
 	last_floor=[a.position.y,b.position.y]
 	var previous := [a.position,b.position]

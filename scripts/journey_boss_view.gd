@@ -4,13 +4,14 @@ extends RefCounted
 # 一次性特效按“状态 + 技能序号”去重，只在状态切换的那一帧触发。
 
 const Boss = preload("res://scripts/journey_boss.gd")
+const Finale = preload("res://scripts/journey_boss_finale.gd")
 const TELEGRAPH = preload("res://scripts/boss_telegraph.gdshader")
 const BODY := "res://assets/boss/rigged/root_colossus.glb"
 const SPIKE := "res://assets/boss/root_spike.glb"
 const POD := "res://assets/boss/seed_pod.glb"
 const KNOT := "res://assets/boss/binding_root.glb"
 const WALL := "res://assets/boss/root_wall.glb"
-const PATHS := [BODY, SPIKE, POD, KNOT, WALL]
+const PATHS := [BODY, SPIKE, POD, KNOT, WALL, Finale.FRACTURED]
 # 第二章「烬翼魔龙」的画面在 journey_dragon_view.gd；按需加载（它反过来复用本文件的血条、黑边与特效构件，避免循环预载）。
 # 第三章「海神波塞冬」的画面在 journey_poseidon_view.gd，同样按需加载。
 const DRAGON_VIEW := "res://scripts/journey_dragon_view.gd"
@@ -106,6 +107,7 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 		special_view(event).build(game, root, event)
 		return
 	var body := Node3D.new()
+	Finale.build(root)
 	body.name = "Body"
 	root.add_child(body)
 	var boss := Node3D.new()
@@ -498,6 +500,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	moments(game, view, event, age, dead)
 	bar(game, view, event, dead, death_age)
 	intro(game, view, event)
+	Finale.sync(game, view, event)
 
 # 动作按模拟时间直接取样：前摇映射到动作的蓄力段，出手映射到挥击段。
 static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool, death_age: float) -> void:
@@ -507,7 +510,7 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 	var clip := "Idle"
 	var t: float = fposmod(run.elapsed, IDLE_LOOP)
 	if dead:
-		clip = "Death"; t = minf(death_age, 3.0)
+		clip = "RoarSky"; t = minf(death_age, 2.2)
 	elif event.phase == "dormant":
 		clip = "Idle"; t = fposmod(run.elapsed*0.5, IDLE_LOOP)
 	else:
@@ -566,6 +569,14 @@ static func animate(run, boss: Node3D, event: Dictionary, age: float, dead: bool
 			boss.set_meta("blend_at", run.elapsed)
 		player.play(name)
 	player.seek(clampf(t, 0.0, player.current_animation_length), true)
+	# 放大相对静止骨架的动作幅度，脚下根部不动；直接取样后处理，不逐帧累加。
+	if skeleton != null and not dead and event.phase != "intro" and event.phase != "dormant":
+		for bone in range(skeleton.get_bone_count()):
+			if skeleton.get_bone_name(bone) == "Root": continue
+			var rest := skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+			var pose := skeleton.get_bone_pose_rotation(bone)
+			var gain := 1.45 if clip in ["Slam", "SweepL", "SweepR", "Throw", "Roar", "RoarSky"] else 1.18
+			skeleton.set_bone_pose_rotation(bone, rest.slerp(pose, gain).normalized())
 	var blend: float = (run.elapsed-float(boss.get_meta("blend_at", -10.0)))/CROSSFADE
 	if skeleton != null and blend < 1.0 and boss.has_meta("blend_from"):
 		var from: Array = boss.get_meta("blend_from")
@@ -788,14 +799,22 @@ static func moments(game, view: Node3D, event: Dictionary, age: float, dead: boo
 	var base := world(event.origin, 0.1)
 	var key := "%s:%d:%d"%[event.state, event.skill_seq, event.stage]
 	if dead:
-		if once(view, "dead"):
-			game.sfx.play_at("tree_fall", base+Vector3(0, 4, 0), 2.0, 0.6)
-			if fx != null: fx.impact(base, AMBER, 9.0, 6.0)
-			if hazard_fx != null: hazard_fx.slam(base, 7.0)
 		return
 	if event.phase == "dormant": return
 	var pace: float = Boss.PACE[event.stage]
+	# 蓄力、出手分别发声，按技能序号去重；暂停和重复展示不会重播。
+	if event.state in ["spikes", "sweep", "seeds", "summon", "root", "roar"]:
+		if once_tag(view, "combat_voice", key):
+			game.sfx.play_at("colossus_attack" if event.state in ["roar", "summon"] else "colossus_charge", base+Vector3.UP*8, 0.0, 1.0)
+		var release: float = {"spikes":Boss.SPIKE_WINDUP, "sweep":Boss.SWEEP_WINDUP, "seeds":Boss.SEED_WINDUP, "summon":Boss.SUMMON_WINDUP, "root":Boss.ROOT_WINDUP, "roar":0.5}[event.state]*pace
+		if age >= release and once_tag(view, "combat_release", key):
+			var sound: String = {"spikes":"boss_burst", "sweep":"hammer_swing", "seeds":"rocket_whoosh", "summon":"boss_burst", "root":"tree_fall", "roar":"wood_creak_heavy"}[event.state]
+			game.sfx.play_at(sound, base+Vector3.UP*6, 2.0, 0.75)
+		if event.state == "sweep" and Boss.sweep_arms(event) == 2 and age >= release+Boss.SWEEP_SECOND and once_tag(view, "combat_second", key):
+			game.sfx.play_at("hammer_swing", base+Vector3.UP*6, 2.0, 0.85)
 	match event.state:
+		"stagger":
+			if once(view, key): game.sfx.play_at("colossus_hurt", base+Vector3.UP*8, 1.0, 1.0)
 		"roar":
 			if once(view, key):
 				game.sfx.play_at("wood_creak_heavy", base+Vector3(0, 6, 0), 2.0, 0.6)
