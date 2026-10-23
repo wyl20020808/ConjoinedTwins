@@ -16,7 +16,7 @@ const MANIFEST := "manifest.json"
 const FORMAT := 1
 const RELEASE_FILE := "res://ct_release.txt"
 # 玩家没填链接时使用；主机换了隧道后，玩家在“检查更新”里粘贴新链接即可，不必重新安装。
-const DEFAULT_URLS: Array[String] = ["https://www.u4139693.nyat.app:57412/update/"]
+const DEFAULT_URLS: Array[String] = ["https://www.u4139693.nyat.app:53569/update/"]
 const MANIFEST_TIMEOUT := 8.0
 
 var http: HTTPRequest
