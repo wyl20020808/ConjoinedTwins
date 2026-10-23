@@ -6,6 +6,8 @@ signal chapter_chosen(chapter: int)
 const Catalog = preload("res://scripts/chapter_catalog.gd")
 const Shade = preload("res://scripts/menu_shade.gdshader")
 const LoadingScreen = preload("res://scripts/loading_screen.gd")
+const CloudUpdate = preload("res://scripts/cloud_update.gd")
+const UpdatePanel = preload("res://scripts/update_panel.gd")
 const GOLD := Color("e8bd7d")
 
 var selected := 0
@@ -23,6 +25,9 @@ var enter_button: Button
 var footer: Label
 var notice: Label
 var reload_button: Button
+var update_button: Button
+# 启动时云更新检查的结果提示（例如没连上更新服务器），显示在页脚。
+var update_note := ""
 var cards: Array = []
 var clock := 0.0
 
@@ -139,6 +144,10 @@ func _ready() -> void:
 	add_child(reload_button)
 	footer = label(13, Color(0.8, 0.84, 0.8, 0.6))
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	update_button = LoadingScreen.make_button("检查更新", false)
+	update_button.visible = CloudUpdate.supported()
+	update_button.pressed.connect(open_update)
+	add_child(update_button)
 	for chapter in range(Catalog.ENTRIES.size()):
 		var card := ChapterCard.new()
 		var data := Catalog.entry(chapter)
@@ -198,7 +207,16 @@ func refresh() -> void:
 	reload_button.visible = blocked and OS.has_feature("web")
 	enter_button.disabled = blocked or ChapterPacks.manifest_state == "loading"
 	footer.text = "章节数据按需下载，下载过的章节会缓存在本机，刷新页面无需重新下载" if ChapterPacks.enabled else ""
+	if CloudUpdate.supported():
+		footer.text = "　·　".join(["版本 " + CloudUpdate.current_release(), update_note].filter(func(t): return not t.is_empty()))
 	layout()
+
+func open_update() -> void:
+	var panel := UpdatePanel.new()
+	add_child(panel)
+	panel.closed.connect(func():
+		panel.queue_free()
+		enter_button.grab_focus())
 
 func choose(chapter: int) -> void:
 	if enter_button.disabled: return
@@ -233,6 +251,8 @@ func layout() -> void:
 	var margin := 22.0 if narrow else 56.0
 	var width := view.x - margin * 2.0
 	logo.position = Vector2(margin, margin * 0.7)
+	update_button.size = update_button.get_combined_minimum_size()
+	update_button.position = Vector2(view.x - margin - update_button.size.x, margin * 0.7)
 	logo_sub.position = Vector2(margin + 2, margin * 0.7 + 52)
 	# 章节卡片：宽屏一行四张，窄屏两行两张。
 	var columns := 2 if narrow else 4

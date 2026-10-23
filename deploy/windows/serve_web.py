@@ -2,11 +2,14 @@
 
 - 监听 127.0.0.1:8080（SakuraFrp TCP 隧道 + 自动 HTTPS 把公网 https/wss 解密后转到这里）；
 - /ws 开头的请求原样转给本机联机中继的 WebSocket 端口（默认 24681），双向透传；
+- /update/ 开头的请求由 --update-root 目录提供（桌面版云更新，见 build-tools/publish_update.py），
+  与网页站点分开存放，网页重新发布（robocopy /MIR）不会删掉更新文件；
 - 其他请求按网页根目录提供静态文件：浏览器接受 br/gzip 时优先发 prepare_web.py 预压缩的 .br/.gz，
   .wasm 带 application/wasm 类型；Cache-Control: no-cache + ETag，版本更新后浏览器能拿到新文件，
   未变化的文件只回 304。本机缓存由网页里的 Service Worker 负责（见 web/sw.js）。
 
-用法：python deploy/windows/serve_web.py --root D:/ConjoinedTwins-web/site [--port 8080] [--relay-port 24681]
+用法：python deploy/windows/serve_web.py --root D:/ConjoinedTwins-web/site [--update-root D:/ConjoinedTwins-web/update]
+      [--port 8080] [--relay-port 24681]
 """
 import argparse
 import asyncio
@@ -81,8 +84,10 @@ def respond(writer, status, headers, body=b""):
     writer.write(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + body)
 
 
-async def serve_file(request, writer, root):
+async def serve_file(request, writer, root, update_root=None):
     path = unquote(urlsplit(request["target"]).path)
+    if update_root is not None and path.startswith("/update/"):
+        root, path = update_root, path[len("/update"):]
     if path.endswith("/"):
         path += "index.html"
     target = (root / path.lstrip("/")).resolve()
@@ -118,7 +123,7 @@ async def serve_file(request, writer, root):
             await writer.drain()
 
 
-async def handle(reader, writer, root, relay_port):
+async def handle(reader, writer, root, relay_port, update_root=None):
     try:
         while True:
             request = await read_head(reader)
@@ -130,7 +135,7 @@ async def handle(reader, writer, root, relay_port):
             if request["method"] not in ("GET", "HEAD"):
                 respond(writer, "405 Method Not Allowed", {"Content-Length": "0"})
             else:
-                await serve_file(request, writer, root)
+                await serve_file(request, writer, root, update_root)
             await writer.drain()
             if request["headers"].get("connection", "").lower() == "close":
                 break
@@ -148,14 +153,16 @@ async def main():
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--relay-port", type=int, default=24681)
+    parser.add_argument("--update-root", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
     if not (root / "index.html").is_file():
         print(f"网页根目录里没有 index.html：{root}", file=sys.stderr)
         return 1
-    server = await asyncio.start_server(lambda r, w: handle(r, w, root, args.relay_port), "127.0.0.1", args.port,
+    update_root = args.update_root.resolve() if args.update_root else None
+    server = await asyncio.start_server(lambda r, w: handle(r, w, root, args.relay_port, update_root), "127.0.0.1", args.port,
                                         limit=1 << 16)
-    log(f"serving {root} on http://127.0.0.1:{args.port}/ , /ws -> 127.0.0.1:{args.relay_port}")
+    log(f"serving {root} on http://127.0.0.1:{args.port}/ , /ws -> 127.0.0.1:{args.relay_port}, /update/ -> {update_root}")
     async with server:
         await server.serve_forever()
 

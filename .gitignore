@@ -34,3 +34,6 @@ build-tools/rope-terrain-evidence/
 
 # 连续旅程的本地验证日志和资源预览不入库。
 build-tools/journey/evidence/
+
+# Windows 导出时生成的版本号（云更新用）。
+ct_release.txt
