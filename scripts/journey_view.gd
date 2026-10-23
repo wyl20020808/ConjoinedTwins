@@ -2245,6 +2245,9 @@ func sync_journey_character(i:int)->void:
 		var phase:float=(Run.JUMP_SPEED-rising)/(Run.JUMP_SPEED*0.4) if action=="Jump_Start" else (Run.JUMP_SPEED*0.6-rising)/(Run.JUMP_SPEED*1.6)
 		play_action(player,action)
 		player.seek(clampf(phase,0,1)*player.current_animation_length,true)
+		# 腾空帧由物理速度选定，禁止渲染更新再推进一次动画时间。
+		player.speed_scale=0.0
+		if rig!=null:rig.strafe={"Run_Back":0.0,"Run_Left":0.0,"Run_Right":0.0}
 		return
 	if landing_left[i]>0.0 and visual_state=="running":
 		# 轻落地 0.25–0.4 秒，重落地约 0.7 秒；轻缓冲越轻播得越快。
