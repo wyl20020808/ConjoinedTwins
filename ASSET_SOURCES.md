@@ -361,3 +361,22 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 ## 2026-10-22 Boss 入场音效（程序合成）
 
 `assets/audio/recorded/boss_roar_0.wav`、`boss_rumble_0.wav`、`boss_burst_0.wav` 由 `build-tools/boss/make_boss_sfx.py` 用 numpy 合成（固定随机种子）：咆哮为带滑音与喉部颤动的谐波低吼加元音共振峰塑形的气声，并叠加降调的 `wood_creak_heavy_0.wav`；轰鸣为低通布朗噪声与次低频，叠加降调的 `tree_fall_0.wav`；破土冲击叠加降调的 `explosion_0.wav`。所叠加录音均为项目已登记的 CC0 素材（见 `build-tools/journey/recorded-audio-sources.json`），合成部分为本项目原创。
+
+## 2026-10-22 Tripo 文生 3D：第二章 Boss「烬翼魔龙」
+
+用户在自己的 Tripo Studio 账号中登录后，Agent 在应用内置浏览器填写提示词、提交并导出 GLB（本体经浏览器下载；三个道具因内置浏览器拦截 blob 下载，改为在页面内读出导出数据后写到本机，内容与导出文件一致，哈希见记录）。参数：H3.1、超清几何、开启纹理、2K、去光处理、PBR、三角面；本体面数上限 30000，道具 6000。提示词见 `build-tools/dragon/tripo-dragon-prompts.json`，文件、哈希、面数与 Tripo 任务链接见 `build-tools/dragon/tripo-dragon-assets.json`。
+
+| 资产 | 入库文件 | 面数 | 用途 |
+| --- | --- | ---: | --- |
+| 魔龙本体 | `assets/boss/rigged/fire_dragon.glb`（原件 5.1 MB 未入库，见下） | 28679 | `build-tools/dragon/rig_dragon.py` 自动绑骨（含双翼三指、下颌、6 节尾巴）并写 13 个动作 |
+| 锁龙绞盘 | `assets/boss/chain_winch.glb` | 5682 | 场地两侧的锁链绞盘（破甲时射出锁链） |
+| 火球 | `assets/boss/meteor.glb` | 5633 | 火雨、蓄焰时吐向踏板的火球 |
+| 龙巢 | `assets/boss/dragon_nest.glb` | 5513 | 魔龙落点下的焦黑巢穴 |
+
+道具贴图用 `build-tools/shrink_glb.py` 缩到 1024；魔龙本体保留 2048。Tripo 原件 `fire dragon 3d model.glb`（5,114,208 字节，sha256 `b6ae8509…baf9be3`）超过 5 MB 入库阈值，放在被忽略的 `build-tools/dragon/source/` 下；重新绑骨前需从记录中的 Tripo 任务重新导出到该路径。
+
+**许可待确认**：同上文，Tripo 生成内容的授权取决于账号套餐，正式发布前须由用户确认并按需补充署名。
+
+## 2026-10-22 魔龙音效（程序合成）
+
+`assets/audio/recorded/dragon_roar_0.wav`、`wing_flap_0.wav` 由 `build-tools/dragon/make_dragon_sfx.py` 用 numpy 合成（固定随机种子）：龙吼为低沉胸腔吼声与撕裂尖啸两层谐波加口型共振峰塑形的气声，尾段叠加降调的 `flame_loop.wav`，起声叠加降调的 `explosion_1.wav`；振翅为低通噪声风压加皮膜颤音与低频冲击。所叠加录音均为项目已登记的 CC0 素材（见 `build-tools/journey/recorded-audio-sources.json`），合成部分为本项目原创。

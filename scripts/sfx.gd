@@ -49,6 +49,8 @@ const RECORDED_GROUPS := {
 	"rocket_whoosh": 2, "stone_slide_door": 0,
 	# Boss 入场：程序合成（build-tools/boss/make_boss_sfx.py），叠加降调的 CC0 木头与爆炸录音。
 	"boss_roar": 1, "boss_rumble": 1, "boss_burst": 1,
+	# 第二章魔龙：程序合成（build-tools/dragon/make_dragon_sfx.py），叠加降调的 CC0 火焰与爆炸录音。
+	"dragon_roar": 1, "wing_flap": 1,
 	"flame_loop": 0, "fire_crackle_loop": 0, "machine_loop": 0, "stone_roll": 0, "cart_roll": 0,
 }
 var variants := {}

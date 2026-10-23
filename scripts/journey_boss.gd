@@ -2,8 +2,11 @@ extends RefCounted
 # 第一章终点 Boss「枯根巨像」。Boss 是 journey_events 中 kind=="boss" 的事件，
 # 全部状态为可深拷贝的数据，按固定步与模拟时间推进：随存档恢复、联机两端一致。
 # 设计依据见 docs/BOSS_CH1_DESIGN.md。坐标为道路单位（20 = 1 米），+y 为前进方向。
+# 本文件同时是各章 Boss 的统一入口：第二章「烬翼魔龙」（species=="dragon"）的技能与入场在 journey_dragon.gd，
+# 由这里按事件分派；场地尺寸、站位上限、护甲减伤与锁定规则两章共用。
 
-const CHAPTERS := [0]
+const Dragon = preload("res://scripts/journey_dragon.gd")
+const CHAPTERS := [0, 1]
 # 场地长度、树心与玩家前进上限都相对场地入口（章节终点之前 ARENA）。
 const ARENA := 1800.0
 const TRIGGER := 300.0
@@ -118,6 +121,9 @@ static func hold_y(run) -> float:
 
 static func add(run) -> void:
 	if not enabled(run): return
+	if Dragon.enabled(run):
+		Dragon.add(run)
+		return
 	var arena:=start_y(run)
 	var core:=Vector2(0,arena+CORE)
 	var body:=Rect2(-180,core.y-40,360,220)
@@ -144,8 +150,17 @@ static func cinematic(run) -> bool:
 	return alive(event) and event.phase=="intro"
 
 # 跳过入场：直接进入最后的镜头交还段，模拟时间轴整体前移，各端结果一致。
+static func dragon(event: Dictionary) -> bool:
+	return event.get("species","")==Dragon.SPECIES
+
+static func title(event: Dictionary) -> String:
+	return Dragon.NAME if dragon(event) else NAME
+
 static func skip_intro(run) -> void:
 	var event:=boss(run)
+	if cinematic(run) and dragon(event):
+		Dragon.skip_intro(run,event)
+		return
 	if not cinematic(run) or run.elapsed-event.state_at<INTRO_SKIP_AFTER or run.elapsed-event.state_at>=INTRO-RETURN_TIME: return
 	event.state_at=run.elapsed-(INTRO-RETURN_TIME)
 	event.intro_skipped=true
@@ -169,6 +184,9 @@ static func exposed(event: Dictionary) -> bool:
 	return event.get("state","")=="stagger"
 
 static func advance(run, event: Dictionary) -> void:
+	if dragon(event):
+		Dragon.advance(run,event)
+		return
 	if event.hp<=0: return
 	if event.phase=="dormant":
 		if minf(run.a.position.y,run.b.position.y)<event.arena+TRIGGER: return
@@ -471,6 +489,7 @@ static func drop_ammo(run, event: Dictionary) -> void:
 static func hint(run) -> String:
 	var event:=boss(run)
 	if event.is_empty() or event.phase=="dormant": return ""
+	if dragon(event): return Dragon.hint(run,event)
 	if event.hp<=0: return "%s倒下了，继续前进"%NAME if run.elapsed-event.get("defeated_at",run.elapsed)<6.0 else ""
 	match event.state:
 		"intro": return ""

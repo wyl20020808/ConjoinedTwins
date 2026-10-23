@@ -37,3 +37,6 @@ build-tools/journey/evidence/
 
 # Windows 导出时生成的版本号（云更新用）。
 ct_release.txt
+
+# 第二章魔龙 Tripo 原件（5.1 MB，超过入库阈值；哈希与重新下载地址见 build-tools/dragon/tripo-dragon-assets.json）
+build-tools/dragon/source/

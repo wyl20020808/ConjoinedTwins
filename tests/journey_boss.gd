@@ -39,10 +39,13 @@ func _initialize()->void:call_deferred("verify")
 
 func verify()->void:
 	# —— 布局 ——
-	for index in [1,2]:
-		var other=chapter(index)
-		check(Boss.boss(other).is_empty(),"第 %d 章没有 Boss"%(index+1))
-		other.dispose()
+	# 第二章是烬翼魔龙（tests/journey_dragon.gd），第三章暂无 Boss。
+	var third=chapter(2)
+	check(Boss.boss(third).is_empty(),"第 3 章没有 Boss")
+	third.dispose()
+	var second=chapter(1)
+	check(Boss.dragon(Boss.boss(second)),"第 2 章的 Boss 是魔龙")
+	second.dispose()
 	var run=chapter(0)
 	var boss:Dictionary=Boss.boss(run)
 	check(not boss.is_empty() and boss.arena==run.finish_distance()-Boss.ARENA,"第一章末尾登记 Boss 场地")

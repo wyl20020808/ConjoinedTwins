@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-22",
+  "settings": "Tripo Studio 文生 3D；H3.1；开启超清几何、纹理生成 2K、去光处理、PBR；三角面；导出 GLB；不使用 Tripo 自带骨骼。",
+  "assets": [
+    {
+      "file": "assets/boss/rigged/fire_dragon.glb",
+      "face_limit": 30000,
+      "prompt": "A fearsome evil fire dragon boss monster for a stylized fantasy adventure game: a huge western dragon standing on four powerful clawed legs, two enormous bat-like membrane wings fully spread out wide and flat to the left and right sides, long muscular neck raised forward, horned head with jaws slightly open showing sharp teeth, long thick tail stretched straight back with a spiked tip, a row of sharp dorsal spikes along the spine. Dark charcoal black armored scales, deep crimson red belly and wing membranes, glowing molten orange lava cracks on the chest and throat, glowing orange eyes. Hand-painted PBR textures, menacing readable silhouette, symmetrical pose, single creature, no rider, no base platform, no ground, no background, no text."
+    },
+    {
+      "file": "assets/boss/chain_winch.glb",
+      "face_limit": 6000,
+      "prompt": "A heavy medieval iron chain winch anchor post for a stylized fantasy game: a thick wooden and iron drum winch bolted onto a squat stone block, a big coil of heavy dark iron chain wound around the drum, a large barbed iron grappling hook hanging from the chain end, rivets and rust, glowing orange rune on the stone, hand-painted PBR textures, game-ready prop, single object, flat bottom, no background, no text."
+    },
+    {
+      "file": "assets/boss/meteor.glb",
+      "face_limit": 6000,
+      "prompt": "A flaming meteor fireball rock falling from the sky for a stylized fantasy game: a jagged chunk of black volcanic rock with deep glowing molten orange and yellow lava cracks all over, small licks of fire and embers bursting from the cracks, roughly round, hand-painted PBR textures, game-ready prop, single object, no base, no background, no text."
+    },
+    {
+      "file": "assets/boss/dragon_nest.glb",
+      "face_limit": 6000,
+      "prompt": "A huge scorched dragon nest for a stylized fantasy game: a wide shallow ring of charred black boulders, burnt broken tree trunks and scattered large bones and horned skulls, a few cracked giant eggs, glowing orange embers and lava cracks between the stones, ash on the ground inside, much wider than tall, flat bottom, hand-painted PBR textures, game-ready prop, single object, no background, no text."
+    }
+  ]
+}

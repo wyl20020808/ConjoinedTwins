@@ -11,6 +11,16 @@ const POD := "res://assets/boss/seed_pod.glb"
 const KNOT := "res://assets/boss/binding_root.glb"
 const WALL := "res://assets/boss/root_wall.glb"
 const PATHS := [BODY, SPIKE, POD, KNOT, WALL]
+# 第二章「烬翼魔龙」的画面在 journey_dragon_view.gd；按需加载（它反过来复用本文件的血条、黑边与特效构件，避免循环预载）。
+const DRAGON_VIEW := "res://scripts/journey_dragon_view.gd"
+
+static func dragon_view():
+	return load(DRAGON_VIEW)
+
+# 该 Boss 需要预载的资源。缺失的道具模型不列入，避免载入队列一直等待。
+static func paths(event: Dictionary) -> Array:
+	if not Boss.dragon(event): return PATHS
+	return dragon_view().PATHS.filter(func(path): return ResourceLoader.exists(path))
 const SCALE := 20.0
 # 模型原生高 1、正前方 +X；放大到约 16 米并转向镜头（+Z）。
 const HEIGHT := 16.5
@@ -83,6 +93,9 @@ static func spike_field(parent: Node3D, name: String, count: int) -> MultiMeshIn
 	return node
 
 static func build(game, root: Node3D, event: Dictionary) -> void:
+	if Boss.dragon(event):
+		dragon_view().build(game, root, event)
+		return
 	var body := Node3D.new()
 	body.name = "Body"
 	root.add_child(body)
@@ -452,6 +465,9 @@ static func local_z(event: Dictionary, y: float) -> float:
 	return -(y-event.y)/SCALE
 
 static func sync(game, view: Node3D, event: Dictionary) -> void:
+	if Boss.dragon(event):
+		dragon_view().sync(game, view, event)
+		return
 	var run = game.run
 	var boss: Node3D = view.get_node("Body/Colossus")
 	var age: float = run.elapsed-event.state_at
@@ -855,6 +871,7 @@ static func ease01(x: float) -> float:
 
 # 返回 {transform, fov}。home 为旅程镜头，game_shot 为 Boss 战镜头；运镜从前者出发、在后者落地。
 static func intro_camera(game, event: Dictionary, home: Transform3D, game_shot: Transform3D) -> Dictionary:
+	if Boss.dragon(event): return dragon_view().intro_camera(game, event, home, game_shot)
 	var run = game.run
 	var t: float = run.elapsed-event.state_at
 	var core: float = -event.y/SCALE
