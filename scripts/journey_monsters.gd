@@ -50,7 +50,11 @@ static func hover_height(event:Dictionary)->float:
 	return FLYERS.get(event.get("archetype",""),0.0)
 
 static func profile(event:Dictionary)->Dictionary:
-	return PROFILES.get(event.archetype,MELEE)
+	var data:Dictionary=PROFILES.get(event.archetype,MELEE)
+	if event.archetype=="ember_bat" and event.get("boss_add",false):
+		data=data.duplicate()
+		data.speed*=1.25
+	return data
 
 static func safe_spawn(run, point: Vector2) -> bool:
 	if absf(point.x)>run.EDGE-50 or not run.has_ground_support(point): return false
@@ -356,6 +360,7 @@ static func move(run, event:Dictionary, target:Vector2) -> void:
 	event.route=path
 	if path.is_empty(): return
 	var speed:float=SPEEDS[event.archetype] if event.alert else 80.0
+	if event.archetype=="ember_bat" and event.get("boss_add",false): speed*=1.25
 	var next:=from.move_toward(path[0],speed*run.FIXED_STEP)
 	if not clear_path(run,from,next,solids):
 		event.repath_at=minf(event.repath_at,run.elapsed+.1)
