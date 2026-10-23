@@ -90,7 +90,7 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	for n in range(8): telegraph(marks, "Circle%d"%n, 1, TOXIC)
 	telegraph(marks, "Spit", 1, DANGER)
 	telegraph(marks, "Warn", 1, DANGER)
-	for name in ["Ring0", "Ring1", "Nova"]: root.add_child(ring(game, name))
+	for name in ["Ring0", "Ring1", "Ring2", "Ring3", "Ring4", "Nova"]: root.add_child(ring(game, name))
 	root.add_child(flame("Flame", 260, 1.1))
 	root.add_child(scorch("Scorch"))
 	root.add_child(scorch("Trail"))
@@ -717,7 +717,7 @@ static func rings(game, view: Node3D, event: Dictionary) -> void:
 	var run = game.run
 	var center := world(event.perch, 0.0)
 	var reach: float = Dragon.tail_reach(run, event)
-	for n in range(2):
+	for n in range(5):
 		var node: MeshInstance3D = view.get_node("Ring%d"%n)
 		var radius := -1.0
 		if event.hp > 0 and event.phase == "fight" and event.state == "tail" and n < Dragon.tail_rings(event):

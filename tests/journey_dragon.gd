@@ -118,11 +118,12 @@ func verify()->void:
 	# —— 甩尾：不跳被冲击环击中，算好时机跳起躲开 ——
 	place(run,boss.arena+900);fresh(run)
 	start(run,boss,"tail")
+	run.combat.health=[200,200]
 	until(run,boss,"recover")
-	check(run.combat.health==[100-Dragon.TAIL_DAMAGE,100-Dragon.TAIL_DAMAGE],"不跳被冲击环击中")
+	check(run.combat.health==[200-Dragon.TAIL_DAMAGE*4,200-Dragon.TAIL_DAMAGE*4],"不跳被冲击环击中")
 	place(run,boss.arena+900);fresh(run)
 	start(run,boss,"tail")
-	jump_before(run,boss,0,0.2)
+	for ring in range(Dragon.tail_rings(boss)): jump_before(run,boss,ring,0.2)
 	until(run,boss,"recover")
 	check(run.combat.health==[100,100],"冲击环到脚下时跳起躲开")
 	# —— 火雨：留在落点被砸，出手后离开躲开；熔岩池灼烧 ——
@@ -208,7 +209,7 @@ func verify()->void:
 	start(run,boss,"bats")
 	until(run,boss,"recover")
 	var bats:Array=run.journey_events.filter(func(e):return e.kind=="monster" and e.archetype=="ember_bat" and e.hp>0)
-	check(bats.size()==Dragon.BATS_COUNT[0] and bats.all(func(e):return e.alert and e.get("boss_add",false)),"召唤出两只警觉的火蝠")
+	check(bats.size()==Dragon.BATS_COUNT[0] and bats.all(func(e):return e.alert and e.get("boss_add",false)),"召唤出四只警觉的火蝠")
 	check(Dragon.living_adds(run,boss)==Dragon.BATS_COUNT[0] and run.Monsters.hover_height(bats[0])>0.0,"火蝠记为魔龙召唤物并悬空飞行")
 	ticks(run,roundi(3.0/run.FIXED_STEP))
 	check(bats.any(func(e):return e.origin.y<boss.perch.y-200.0),"火蝠飞向两人")
@@ -230,7 +231,7 @@ func verify()->void:
 		if crossed and run.a.position.x<0: place(run,boss.arena+900,120,190)
 		ticks(run,1)
 	check(run.combat.health==[100,100],"二阶段第一道扫过后换边躲过两道吐息")
-	check(Dragon.tail_rings(boss)==2,"二阶段连续两道冲击环")
+	check(Dragon.tail_rings(boss)==5,"二阶段连续五道冲击环")
 	place(run,boss.arena+700);fresh(run)
 	boss.skill_seq+=1;boss.lane_y=Dragon.lane_target(run,boss);Dragon.enter(run,boss,"strafe")
 	ticks(run,roundi(1.5/run.FIXED_STEP))

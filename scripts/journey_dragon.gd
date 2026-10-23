@@ -68,7 +68,7 @@ const TAIL_WINDUP := 1.0
 const TAIL_SPEED := 760.0
 const TAIL_HALF := 26.0
 const TAIL_TOP := 14.0
-const TAIL_SECOND := 0.7
+const TAIL_SECOND := 0.9
 const TAIL_DAMAGE := 30
 
 # —— 火雨：仰天喷火，火球从天而降砸在两人周围，落点留下熔岩池 ——
@@ -102,7 +102,9 @@ const HOVER_AIM := 2.8
 const HOVER_BACK := 1.0
 const HOVER_POINT := 1530.0
 const HOVER_ALT := 230.0
-const BEAM_TIME := [3.0, 3.6, 4.2]
+const BEAM_TIME := [6.0, 6.6, 7.2]
+const ORBIT_RADII := Vector2(580.0, 700.0)
+const ORBIT_CENTER_Y := 900.0
 const BEAM_SPEED := [115.0, 130.0, 145.0]
 const BEAM_RADIUS := 46.0
 const BEAM_DAMAGE := 18
@@ -114,9 +116,9 @@ const BEAM_POOL_RADIUS := 40.0
 # —— 召唤火蝠：仰头长啸，火蝠从龙巢两侧飞出扑向两人；场上火蝠太多时跳过 ——
 const BATS_WINDUP := 1.1
 const BATS_RECOVER := 0.6
-const BATS_COUNT := [2, 3, 4]
-const BATS_X := [-200.0, 200.0, -90.0, 90.0, 0.0]
-const BATS_CAP := 5
+const BATS_COUNT := [4, 5, 6]
+const BATS_X := [-240.0, 240.0, -150.0, 150.0, -60.0, 60.0]
+const BATS_CAP := 8
 
 # —— 蓄焰 / 锁龙链（破甲机会）——
 # 龙伏地蓄焰，场地中段两块绞盘踏板亮起（间距小于绳长，两人可同时站上）；两人同时站稳累计 HOLD_TIME 秒，
@@ -315,32 +317,29 @@ static func hermite(p0: Vector2, m0: Vector2, p1: Vector2, m1: Vector2, k: float
 	return {"pos":pos,"alt":lerpf(alt0,alt1,smoothstep(0.0,1.0,k)),"heading":vel.normalized() if vel.length()>0.001 else Vector2(0,-1)}
 
 # 悬停时身体半直立（pitch 小于平飞），朝两人方向，略微上下起伏并把头转向火柱落点。
+# 沿整个战斗场地外围椭圆盘旋一周，位置直接由时间采样，不追赶移动目标点。
 static func hover_pose(run, event: Dictionary, time: float) -> Dictionary:
-	var perch: Vector2=event.perch
-	var t: float=time-event.state_at
-	var spot:=Vector2(0,event.arena+HOVER_POINT)
-	var beam_end:=hover_beam_end(event)
+	var perch:Vector2=event.perch
+	var t:float=time-event.state_at
+	var center:Vector2=event.get("orbit_center",Vector2(0,event.arena+ORBIT_CENTER_Y))
+	var entry:=center+Vector2(0,ORBIT_RADII.y)
+	var duration:=hover_beam_end(event)-HOVER_ARRIVE
 	if t<HOVER_TAKEOFF:
 		var k:=smoothstep(0.0,1.0,t/HOVER_TAKEOFF)
 		return {"pos":perch+Vector2(0,40*k),"alt":lerpf(0.0,160.0,k*k),"heading":Vector2(0,-1)}
 	if t<HOVER_ARRIVE:
 		var k:=(t-HOVER_TAKEOFF)/(HOVER_ARRIVE-HOVER_TAKEOFF)
-		var pose:=hermite(perch+Vector2(0,40),Vector2(0,-200),spot,Vector2(0,-60),k,160.0,HOVER_ALT,HOVER_ARRIVE-HOVER_TAKEOFF)
-		pose.heading=Vector2(0,-1)
-		pose.pitch=lerpf(0.85,0.35,smoothstep(0.0,1.0,k))
-		return pose
-	if t<beam_end:
-		var bob:=sin((t-HOVER_ARRIVE)*2.6)*14.0
-		var look:Vector2=(event.beam as Vector2)-spot
-		var heading:=Vector2(0,-1) if look.length()<1.0 else Vector2(0,-1).lerp(look.normalized(),0.35).normalized()
-		return {"pos":spot,"alt":HOVER_ALT+bob,"heading":heading,"pitch":0.35}
-	if t<beam_end+HOVER_BACK:
-		var k:=(t-beam_end)/HOVER_BACK
-		var pose:=hermite(spot,Vector2(0,100),perch+Vector2(0,260),Vector2(0,200),k,HOVER_ALT,200.0,HOVER_BACK)
-		pose.heading=Vector2(0,-1)
-		pose.pitch=0.35
-		return pose
-	var k:=clampf((t-beam_end-HOVER_BACK)/LAND_TOUCH,0.0,1.0)
+		return hermite(perch+Vector2(0,40),Vector2(0,-200),entry,Vector2(ORBIT_RADII.x*TAU/duration,0),k,160.0,HOVER_ALT,HOVER_ARRIVE-HOVER_TAKEOFF)
+	if t<hover_beam_end(event):
+		var angle:float=(t-HOVER_ARRIVE)/duration*TAU
+		var radial:=Vector2(sin(angle),cos(angle))
+		var tangent:=(Vector2(cos(angle),-sin(angle))*ORBIT_RADII).normalized()
+		# 沿圆周前进并朝内侧侧身吐息，火柱继续独立瞄准玩家。
+		return {"pos":center+radial*ORBIT_RADII,"alt":HOVER_ALT+sin(angle*2.0)*14.0,"heading":(tangent-radial*0.75).normalized(),"pitch":0.55}
+	if t<hover_beam_end(event)+HOVER_BACK:
+		var k:=(t-hover_beam_end(event))/HOVER_BACK
+		return hermite(entry,Vector2(ORBIT_RADII.x*TAU/duration,0),perch+Vector2(0,260),Vector2(0,-200),k,HOVER_ALT,200.0,HOVER_BACK)
+	var k:=clampf((t-hover_beam_end(event)-HOVER_BACK)/LAND_TOUCH,0.0,1.0)
 	return {"pos":(perch+Vector2(0,260)).lerp(perch,smoothstep(0.0,1.0,k)),"alt":200.0*(1.0-smoothstep(0.0,1.0,k)),"heading":Vector2(0,-1)}
 
 static func intro_pose(event: Dictionary, t: float) -> Dictionary:
@@ -411,7 +410,7 @@ static func breath(run, event: Dictionary) -> void:
 # —— 甩尾震地 ——
 
 static func tail_rings(event: Dictionary) -> int:
-	return 2 if event.stage>=1 else 1
+	return 4 if event.stage==0 else 5
 
 static func tail_radius(event: Dictionary, time: float, ring: int) -> float:
 	var start: float=event.state_at+TAIL_WINDUP*PACE[event.stage]+ring*TAIL_SECOND
@@ -518,6 +517,7 @@ static func start_hover(run, event: Dictionary) -> void:
 	event.beam_target=int(event.hover_count)%2
 	event.beam=beam_start(run,event)
 	event.beam_drops=0
+	event.orbit_center=Vector2(0,event.arena+ORBIT_CENTER_Y)
 	enter(run,event,"hover")
 
 static func beam_start(run, event: Dictionary) -> Vector2:
@@ -695,7 +695,7 @@ static func hint(run, event: Dictionary) -> String:
 		"breath":
 			if breath_sweeps(event)==2: return "烈焰吐息：先躲到另一半场地，火焰扫过后立刻换边！"
 			return "烈焰吐息：躲到亮起区域的另一半场地"
-		"tail": return "甩尾震地：冲击环到脚下时跳起" if tail_rings(event)==1 else "甩尾震地：连续两道冲击环，跳两次"
+		"tail": return "甩尾震地：冲击环到脚下时跳起" if tail_rings(event)==1 else "甩尾震地：连续四至五道冲击环，连续跳跃躲避"
 		"meteors": return "火雨：离开落点圆圈，避开熔岩池"
 		"strafe":
 			if age(run,event)<STRAFE_LOCK: return "魔龙起飞：它要横掠喷火，留意地上的火线横带"
