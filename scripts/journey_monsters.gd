@@ -8,6 +8,7 @@ const CYCLE := 2.8
 const ATTACK_RANGE := 300.0
 const NOTICE_RANGE := 900.0
 const BODY_RADIUS := 16.0
+const FOOT_OFFSETS := [Vector2.ZERO,Vector2(BODY_RADIUS,0),Vector2(-BODY_RADIUS,0),Vector2(0,BODY_RADIUS),Vector2(0,-BODY_RADIUS)]
 const GRID := 40.0
 # 未警觉时在出生点附近巡逻：直线走向随机航点，到达后停顿再选下一个；
 # 远处（展示窗口内）也巡逻，只做一次航点直线检查，不建寻路网格。
@@ -18,7 +19,7 @@ const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"d
 	"root_spider":290.0,"goblin_bomber":200.0,"river_crab_knight":150.0,"ember_bat":300.0,"tide_jelly":150.0}
 const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼",
 	"root_spider":"根须蛛", "goblin_bomber":"矿灯地精", "river_crab_knight":"河岸钳甲兵", "ember_bat":"火翼妖", "tide_jelly":"潮汐水母"}
-const HP := {"briar":30,"raider":40,"sentinel":50,"archer":40,"dasher":60,"wolf":40,"root_spider":30,"goblin_bomber":35,"river_crab_knight":90,"ember_bat":20,"tide_jelly":45}
+const HP := {"briar":45,"raider":60,"sentinel":75,"archer":60,"dasher":90,"wolf":60,"root_spider":45,"goblin_bomber":53,"river_crab_knight":135,"ember_bat":30,"tide_jelly":68}
 # 攻击方式：远程（直线飞行物）、冲锋（沿锁定方向扑咬）、近战（向落点砸下）。新怪物按方式复用既有攻击逻辑。
 const RANGED := ["archer","goblin_bomber","tide_jelly"]
 const CHARGERS := ["dasher","wolf","root_spider","ember_bat"]
@@ -72,8 +73,8 @@ static func safe_supply(run,point:Vector2)->bool:
 		if run.kinds[i] in ["cargo","pillar","rail","sweeper"] and run.obstacles[i].grow(run.Motion.RADIUS).has_point(point):return false
 	return true
 
-# 机关段只在组间换侧空地放 1~3 只的零星小队，横排对齐；成规模的敌群集中到怪物潮专区。
-const PACK_LANES := {1:[0.0],2:[-90.0,90.0],3:[-150.0,0.0,150.0]}
+# 机关段只在组间换侧空地放 4~5 只的零星小队，横排对齐；成规模的敌群集中到怪物潮专区。
+const PACK_LANES := {4:[-180.0,-60.0,60.0,180.0],5:[-200.0,-100.0,0.0,100.0,200.0]}
 # 专区内三波：前中后三行等距排开，波间留出补给与喘息距离。
 const WAVES := [900.0,1500.0,2100.0]
 const WAVE_ROW := 440.0
@@ -98,7 +99,7 @@ static func populate(run) -> void:
 			arena_wave(run,group.y,group.last_wave,layout,rotation,group.arena)
 			continue
 		var slot:float=group.y
-		var count:int=layout.draw("pack_size",[2,2,3,3])
+		var count:int=layout.draw("pack_size",[4,4,5,5])
 		var pair:=draw_pair(layout,rotation)
 		var placed:=0
 		for x in PACK_LANES[count]:
@@ -145,7 +146,8 @@ static func arena_supply(run,arena:Dictionary,layout)->void:
 	run.Combat.add_pickup(run,"gun",Vector2(0,start+200),{},layout.draw("arena_weapon",run.ZONE_WEAPONS))
 
 static func arena_wave(run,front:float,last_wave:bool,layout,rotation:Dictionary,arena_start:float)->void:
-	var count:int=layout.draw("wave_size",[10,11,11,12])
+	# 三波合计减少十只：前两波各减三只，末波减四只。
+	var count:int=layout.draw("wave_size",[10,11,11,12])-(4 if last_wave else 3)
 	var rows:Array=[]
 	for row in range(WAVE_ROWS):rows.append(ceili(float(count-rows.reduce(func(a,b):return a+b,0))/(WAVE_ROWS-row)))
 	var pair:=draw_pair(layout,rotation)
@@ -288,14 +290,21 @@ static func blockers(run, from:Vector2, to:Vector2) -> Array[Rect2]:
 
 static func clear_path(run, from:Vector2, to:Vector2, solids:Array[Rect2]) -> bool:
 	if absf(to.x)>run.EDGE-BODY_RADIUS: return false
+	# 寻路网格只查询静止格心。点与矩形按原线段判定的闭区间处理，省去逐轴裁线及插值。
+	if from==to:
+		for rect in solids:
+			if from.x>=rect.position.x and from.x<=rect.end.x and from.y>=rect.position.y and from.y<=rect.end.y:return false
+		for offset in FOOT_OFFSETS:
+			if not run.has_ground_support(from+offset):return false
+		return true
 	for rect in solids:
 		if run.segment_hits(from,to,rect): return false
 	# 间距小于身体半径，覆盖整条行走路径，避免跨过细缺口。
 	var steps:=maxi(1,ceili(from.distance_to(to)/12.0))
 	# 网格格心的起终点相同时，只检查一次同样的五个脚底采样。
-	for n in range(1 if from==to else steps+1):
+	for n in range(steps+1):
 		var point:=from.lerp(to,float(n)/steps)
-		for offset in [Vector2.ZERO,Vector2(BODY_RADIUS,0),Vector2(-BODY_RADIUS,0),Vector2(0,BODY_RADIUS),Vector2(0,-BODY_RADIUS)]:
+		for offset in FOOT_OFFSETS:
 			if not run.has_ground_support(point+offset): return false
 	return true
 

@@ -24,12 +24,13 @@ const FALL_REACH := 30.0
 const BODY_GAP := 24.0
 # 坠落救援（试玩初值）：一人踩空而队友稳稳站在地面时，坠落者挂在绳上，世界冻结。
 # 救援者连按自己的跳跃键拉人，坠落者连按效果减半；进度持续回落，限时内拉满即救起，否则共同坠落。
-# RESCUE_RATES 是恰好在限时内拉满所需的救援者按键频率（次/秒）；同关每多救一次提高 RESCUE_ESCALATION 倍。
-const RESCUE_TIME := 3.0
-const RESCUE_DECAY := 0.4
+# RESCUE_RATES 是限时内拉满所需的救援者按键频率（次/秒）；普通难度每秒约按两次即可，留出反应余量。
+const RESCUE_TIME := 5.0
+const RESCUE_DECAY := 0.15
 const RESCUE_CLIMB := 0.5
-const RESCUE_RATES := {"简单": 4.0, "普通": 5.5, "困难": 7.0}
-const RESCUE_ESCALATION := 1.15
+const RESCUE_RATES := {"简单": 1.25, "普通": 1.5, "困难": 2.0}
+# 同关反复救援不再提高连按门槛，避免越玩越难救起。
+const RESCUE_ESCALATION := 1.0
 const RESCUE_INVULNERABLE := 1.0
 const RESCUE_CLIMB_TIME := 0.6
 # 窄桥上横向速度倍率，以及松手后回正桥中线的最大横向输入。

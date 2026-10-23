@@ -27,7 +27,8 @@ func verify()->void:
 		for route:Dictionary in routes.values():
 			for y in range(int(route.narrow_start+20),int(route.narrow_end-20),20):
 				for x in range(-int(run.EDGE)+1,int(run.EDGE),4):
-					var expected:bool=route.lanes.any(func(lane):return x>=lane-22 and x<lane+22)
+					var half_width:float=54.0 if route.lanes.size()==1 else 22.0
+					var expected:bool=route.lanes.any(func(lane):return x>=lane-half_width and x<lane+half_width)
 					check(run.surface_at(Vector2(x,y),0).supported==expected,"only marked lanes have ground")
 		print("NARROW CHAPTER ",chapter," routes=",routes.size()," small=",small)
 		run.dispose()

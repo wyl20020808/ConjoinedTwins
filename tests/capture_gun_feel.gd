@@ -20,11 +20,17 @@ func shot(sheet:String,label:String)->void:
 	run.state="running"
 	for layer in game.find_children("*","CanvasLayer",true,false):layer.visible=false
 	for k in range(1 if close else 2):
+		game.sync_view()
+		await process_frame
+		game.sync_view()
+		await process_frame
 		aim_camera(k==1,close)
-		game.sync_view()
-		await process_frame
-		game.sync_view()
-		await process_frame
+		camera.make_current()
+		game.rope_view.visible=false
+		game.fx.visible=false
+		game.coop_fx.visible=false
+		game.robots[1].visible=false
+		for layer in game.find_children("*","CanvasLayer",true,false):layer.visible=false
 		await RenderingServer.frame_post_draw
 		var image:=root.get_texture().get_image()
 		if close:image=image.get_region(Rect2i(160,90,640,480))
@@ -62,6 +68,7 @@ func capture()->void:
 	game=load("res://scenes/journey.tscn").instantiate()
 	root.add_child(game)
 	game.set_physics_process(false)
+	game.set_process(false)
 	game.frame_delta=1.0/60
 	run=game.run
 	for n in range(30):await process_frame
@@ -84,6 +91,7 @@ func capture()->void:
 	await shot("hold","瞄准 冲锋枪")
 	run.combat.fire[0]=false
 	for type in ["shotgun","flamer","launcher"]:
+		game.combat_view.aim_level[0]=0.0
 		run.combat.weapons[0]=run.Combat.gun(type)
 		await shot("hold","抱枪 "+type)
 	run.combat.weapons[0]=run.Combat.gun("smg")
@@ -105,6 +113,16 @@ func capture()->void:
 		sg.reload=60-done
 		await shot("reload_shotgun","first shell %d/60"%done)
 	sg.reload=0;sg.ammo=6
+	for type in ["flamer","launcher"]:
+		run.combat.weapons[0]=run.Combat.gun(type)
+		run.combat.weapons[0].ammo=0
+		run.Combat.start_reload(run,0)
+		var weapon:Dictionary=run.combat.weapons[0]
+		for progress in [0.05,0.25,0.5,0.75,0.95]:
+			weapon.reload=maxi(1,int(weapon.reload_total*(1.0-progress)))
+			await shot("reload_"+type,"%.2f"%progress)
+		run.combat.weapons[0].reload=0
+	run.combat.weapons[0]=run.Combat.gun("shotgun")
 	var start:float=run.elapsed
 	run.combat.shots[0]={"id":777,"type":"shotgun","from":run.a.position,"to":run.a.position+Vector2(0,200),"height":36.0,"target_height":36.0,"time":start,"hit":false}
 	for t in [0.02,0.18,0.24,0.3,0.36,0.45]:
@@ -120,6 +138,10 @@ func capture()->void:
 	game.sync_view()
 	await phase("pickup",[0.03,0.08,0.13,0.2,0.27,0.34],func():run.Combat.add_pickup(run,"gun",run.a.position+Vector2(14,4),{},"smg");tick())
 	await phase("stow",[0.04,0.1,0.18,0.26,0.34,0.44],func():run.Combat.add_pickup(run,"gun",run.a.position+Vector2(-14,4),{},"flamer");tick())
+	run.combat.motion[0]={}
+	for stage in [[20.0,0.9],[run.JUMP_APEX,0.0],[20.0,-0.8],[0.0,0.0]]:
+		run.heights[0]=stage[0];run.vertical_speed[0]=run.JUMP_SPEED*stage[1]
+		await shot("jump","height %.1f velocity %.1f"%[stage[0],stage[1]])
 	for sheet in sheets:
 		var frames:Array=sheets[sheet]
 		var columns:=2

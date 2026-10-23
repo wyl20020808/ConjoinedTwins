@@ -16,6 +16,7 @@ const DEFAULT_SERVER := "wss://www.u4139693.nyat.app:53569/ws"
 # 丢包时靠冗余帧补齐，不像 TCP 那样整体卡住；UDP 连不上会自动退回上面的 wss。留空则只用 wss。
 # 游戏专用节点要求用节点 IP 连接（域名在开代理的电脑上会被解析成代理内部地址，UDP 走不通）。
 const DEFAULT_UDP_SERVER := "103.91.208.133:54145"
+const LEGACY_SERVERS := ["wss://www.u4139693.nyat.app:57412/ws"]
 # UDP 握手没有明确的失败信号，超过这个时间仍未连上就换下一个地址。
 const CONNECT_TIMEOUT_MSEC := 6000
 const ADDRESS_FILE := "user://online.cfg"
@@ -170,8 +171,13 @@ static func default_address() -> String:
 	var config := ConfigFile.new()
 	if config.load(ADDRESS_FILE) == OK:
 		var saved := str(config.get_value("online", "address", ""))
-		if not saved.is_empty(): return saved
+		if not saved.is_empty(): return migrate_address(saved)
 	return preferred_default()
+
+# 仅迁移本项目明确停用的旧默认入口，保留玩家自定义服务器。
+static func migrate_address(address: String) -> String:
+	var text := address.strip_edges()
+	return preferred_default() if text in LEGACY_SERVERS else text
 
 static func remember_address(address: String) -> void:
 	# 无界面自动化测试连本机测试端口，不能把测试地址写进玩家的默认地址。
@@ -183,7 +189,7 @@ static func remember_address(address: String) -> void:
 
 static func is_default(address: String) -> bool:
 	var text := address.strip_edges()
-	return not text.is_empty() and text in [DEFAULT_SERVER, DEFAULT_UDP_SERVER, ws_server(), udp_server()]
+	return not text.is_empty() and (text in LEGACY_SERVERS or text in [DEFAULT_SERVER, DEFAULT_UDP_SERVER, ws_server(), udp_server()])
 
 # 实际使用的默认地址：云更新清单下发的优先（主机换隧道或节点后不必重新打包），没有时用内置常量。
 static func udp_server() -> String:
@@ -200,6 +206,7 @@ static func preferred_default() -> String:
 # 开始页“连接队友”：用默认地址时依次尝试本机联机服务（主机自己玩，免绕隧道）→ UDP 隧道 → wss；
 # 玩家自己填的地址只连这一个。
 func connect_auto(address: String) -> void:
+	address = migrate_address(address)
 	var list: Array[String] = [address.strip_edges()]
 	if is_default(address) and not OS.has_feature("web"):
 		var udp := udp_server()
@@ -476,8 +483,8 @@ func playout_limit(catchup: int) -> int:
 	return 1
 
 func _process(delta: float) -> void:
-	# UDP 握手没有失败回调时按超时换下一个地址。
-	if peer is ENetMultiplayerPeer and not connected and connect_started_msec > 0 and Time.get_ticks_msec() - connect_started_msec > CONNECT_TIMEOUT_MSEC:
+	# 所有传输都受握手期限约束，WebSocket 无响应时也能回退或重新连接。
+	if peer != null and not connected and connect_started_msec > 0 and Time.get_ticks_msec() - connect_started_msec > CONNECT_TIMEOUT_MSEC:
 		connect_started_msec = 0
 		_on_connection_failed()
 		return
