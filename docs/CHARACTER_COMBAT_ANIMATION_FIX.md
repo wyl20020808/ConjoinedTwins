@@ -24,4 +24,12 @@
 
 双击任务工作区内 `play-animation-review.cmd` 进入战斗训练。该入口明确加载本任务工作区，不更新已安装版本或共享 test。
 
-真实键鼠输入、动作连续观感和用户试玩尚待验收；Controller 独立测试未运行（`tests=[]`）。现有动作的风格、武器与大手模型的比例仍需用户审美确认，自动接触检查不能替代观感验收。未提交、未合并、未推送。
+真实键鼠输入、动作连续观感和用户试玩尚待验收；Controller 独立测试未运行（`tests=[]`）。现有动作的风格、武器与大手模型的比例仍需用户审美确认，自动接触检查不能替代观感验收。初次交付时未提交、未合并、未推送。
+
+## 本地 test 集成
+
+用户随后明确授权合并到 `test`。动作修复提交为 `a04a580`，任务分支在 `8fa0378` 合入最新 `test@c460d47`，保留怪物密度、窄桥、Boss 阶段存档、暂停音频与镜头恢复更新，无冲突。
+
+合并后的 `hero_combat_pose`、`hero_locomotion`、`journey_gun_feel`、`journey_dual_weapon`、`journey_playtest_balance` 五组检查通过，日志保存在上述证据目录的 `merge-test/`。统一回归结果与源码哈希见 `merge-performance/summary.json`。本次授权仅用于本地 `test` 集成，不推送远端，不同步 `dev` 或 `main`；原生稳定性与用户试玩仍保留上述验收边界。
+
+合并版统一回归实际为 26/27 组通过，`journey_runtime_budget` 未通过。随后串行对照当前 `test@c460d47` 和合并版，两者均出现同样三类失败：追击 CPU 预算、180 帧内物理回调次数、双固定步平均 CPU。基线追击 p95 为 9.356 ms，合并版为 9.505 ms。日志分别为 `test-baseline.log` 和 `merge-runtime-repeat.log`；未修改门槛，也不将基线存在问题等同于通过。本次集成保留该性能未通过状态，不声称最新集成版本已全绿。
