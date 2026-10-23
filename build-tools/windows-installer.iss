@@ -16,6 +16,8 @@ AppVersion={#Release}
 AppVerName=共生连线
 AppPublisher=共生连线
 DefaultDirName={localappdata}\Programs\ConjoinedTwins
+; 显示“新建文件夹”；用户选择的目录就是最终安装位置，不再自动追加目录名。
+AppendDefaultDirName=no
 DefaultGroupName=共生连线
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
@@ -23,7 +25,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDir}
-OutputBaseFilename=ConjoinedTwins-Setup-{#Release}
+OutputBaseFilename=共生连线_Setup
 Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
@@ -37,6 +39,7 @@ SetupLogging=yes
 Name: "chinesesimp"; MessagesFile: "installer\ChineseSimplified.isl"
 
 [Messages]
+SelectDirBrowseLabel=点击“浏览”选择游戏的安装文件夹，也可以在浏览窗口中新建文件夹。所选文件夹就是最终安装位置。
 WelcomeLabel2=欢迎安装共生连线。%n%n安装后，双击桌面的“共生连线”即可开始游戏。游戏启动时会自动检查更新。%n%n联机游玩需要主机的联机服务在线。
 FinishedLabel=共生连线已安装完成。%n%n以后可以从桌面或开始菜单启动游戏。
 
