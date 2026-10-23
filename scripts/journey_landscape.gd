@@ -31,7 +31,8 @@ static func profile(meters:float,chapter:int=0)->Vector3:
 static func height_at(x:float,meters:float,chapter:int)->float:
 	var p:=profile(meters,chapter)
 	var shoulder:=maxf(0,absf(x)-HALF)
-	var cliff:=-minf(46.0,pow(shoulder,0.72)*4.2)
+	# 保留近岸落差，远侧回升为林坡；树冠与地标不再全部埋在视线下。
+	var cliff:=-minf(13.0,pow(shoulder,0.72)*2.8)+smoothstep(12.0,65.0,shoulder)*(19.0+sin(meters*.024+x*.032)*6.0)
 	var hill:=(sin(x*.12+meters*.023)*1.4+sin(x*.051-meters*.045)*1.8+2.2)*smoothstep(0.0,35.0,shoulder)
 	return lerpf(hill,cliff,p.x)
 
@@ -124,7 +125,7 @@ static func surface_plan(pieces:Array,number:int,chapter:int,theme:String,gaps:A
 			var x:=side*16.6
 			add_instance(batches,border,Vector3(x,height_at(x,meters,chapter) if chapter==0 else 0.0,-meters),1,PI/2 if border=="tripo_stone_road_curb" else 0.0)
 			# 路缘草簇：打碎 16 米的几何直边，也遮住铺装与泥土的硬接缝。
-			if border=="tripo_grass_soil_border":
+			if chapter==0 or border=="tripo_grass_soil_border":
 				var edge_seed:=meters*3.7+side*9.1
 				var edge_roll:=fposmod(sin(edge_seed)*17343.21,1.0)
 				if edge_roll>0.42:
@@ -376,7 +377,7 @@ static func plan(number:int,chapter:int)->Array:
 		for n in range(85):
 			var meters:=start+rng.randf()*WIDTH
 			var p:=profile(meters,chapter)
-			var forest_density:=p.y+p.z*.10
+			var forest_density:=p.y+p.z*.10+p.x*.32
 			if rng.randf()>forest_density:continue
 			var x:=side*(lerpf(24.0,49.0,p.z)+pow(rng.randf(),1.65)*88)
 			var kind:="natural_birch" if n%5==0 else ("natural_oak_7" if n%2==0 else "natural_oak_17")
@@ -384,7 +385,7 @@ static func plan(number:int,chapter:int)->Array:
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),scale,rng.randf()*TAU)
 		for n in range(420):
 			var meters:=start+rng.randf()*WIDTH;var p:=profile(meters,chapter)
-			if rng.randf()>p.y+p.z*.12:continue
+			if rng.randf()>p.y+p.z*.12+p.x*.28:continue
 			var x:=side*rng.randf_range(16.2,55)
 			var kind:="fern" if n%4==0 else ("shrub" if n%5==0 else "grass")
 			add_instance(batches,kind,Vector3(x,height_at(x,meters,chapter),-meters),rng.randf_range(.7,1.6),rng.randf()*TAU)
@@ -394,7 +395,7 @@ static func plan(number:int,chapter:int)->Array:
 			var p:=profile(meters,chapter)
 			if p.x>.02:
 				items.append(["landscape_rock",Vector3(side*17,-24*p.x,-meters),p.x,false,side*.13])
-				if n%3==0:items.append(["landscape_rock",Vector3(side*rng.randf_range(45,105),-64*p.x,-meters),p.x,true,rng.randf()*TAU])
+				if n%4==0:items.append(["landscape_rock",Vector3(side*rng.randf_range(55,110),-64*p.x,-meters),p.x*(.65+.15*sin(meters)),true,rng.randf()*TAU])
 		for n in range(6):
 			var meters:=start+n*13.2+6;var p:=profile(meters,chapter)
 			var x:=side*rng.randf_range(17.2,29)
@@ -412,6 +413,19 @@ static func plan(number:int,chapter:int)->Array:
 			for k in range(4):
 				var plantx:=side*(19+k*.7)
 				add_instance(batches,"shrub",Vector3(plantx,height_at(plantx,meters+6,chapter),-meters-6),.8,0)
+	# 原野的驿路遗迹与疏林：独立随机源，不改变玩法或既有抽签。
+	var dressing_rng:=RandomNumberGenerator.new();dressing_rng.seed=number*631+chapter*101+52
+	if chapter==0:
+		for side:float in [-1.0,1.0]:
+			for n in range(14):
+				var meters:=start+n*5.7+dressing_rng.randf_range(0,2)
+				if profile(meters,chapter).x<.3:continue
+				var x:=side*dressing_rng.randf_range(17.2,23.5)
+				add_instance(batches,"detail_moss_rocks" if n%4==0 else "shrub",Vector3(x,height_at(x,meters,chapter),-meters),dressing_rng.randf_range(.8,1.7),dressing_rng.randf()*TAU)
+		if profile(start+40,chapter).x>.5:
+			var landmark_x:=-29.0 if posmod(number,2)==0 else 34.0
+			add_instance(batches,"landmark_watchtower",Vector3(landmark_x,height_at(landmark_x,start+58,chapter),-start-58),18.0,.3)
+			add_instance(batches,"landmark_shrine",Vector3(-landmark_x*.64,height_at(-landmark_x*.64,start+20,chapter),-start-20),3.2,-PI/2)
 	decorate(batches,number,chapter)
 	for kind in batches:items.append(["landscape_batch",kind,batches[kind]])
 	return items

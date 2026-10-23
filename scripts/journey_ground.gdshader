@@ -46,7 +46,7 @@ void fragment(){
  float fine=macro.g;
  float wet=smoothstep(.12,.82,macro.b);
  // 镜像重复使每个接边采到相同边缘；法线分量随镜像同步翻转。
- vec2 tile=world.xz/vec2(2.8,5.6)+vec2(.371,.197);
+ vec2 tile=world.xz/vec2(4.2,8.4)+vec2(.371,.197);
  float variation=smoothstep(.3,.7,noise2(world.xz*.9));
  vec3 flag=surface_color(paving_color,tile,variation)*vec3(.88,.9,.93);
  vec3 cobble=surface_color(cobbles_color,tile,variation)*vec3(.9,.93,.95);
@@ -61,6 +61,12 @@ void fragment(){
  // 路缘不再是一条直线：用中尺度噪声把草地/泥土的侵入边界推拉一到两米。
  float verge=smoothstep(12.4+mottled*.5+fine*2.2,16.0+fine*.3,abs(world.x));
  vec3 base=mix(road,mix(dirt,litter,natural*.5),verge*.85);
+ // 铺装边缘被苔土侵入，中央保留清晰通行带；不改变真实地形。
+ float shoulder=smoothstep(8.5,15.7,abs(world.x));
+ float moss=shoulder*smoothstep(.38,.72,fine*.65+mottled*.35);
+ base=mix(base,base*vec3(.60,.78,.46),moss*.65);
+ float worn=(1.0-smoothstep(3.0,10.0,abs(world.x)))*smoothstep(.25,.8,broad);
+ base=mix(base,base*1.12,worn*.35);
  float outside=smoothstep(15.8,16.4,abs(world.x));
  float tracks=exp(-pow((abs(world.x)-2.4)*2.0,2.0))*natural;
  // 车辙与通行磨亮：主车道略暗、略光滑，和路肩区分开。
@@ -70,7 +76,10 @@ void fragment(){
  base*=.9+broad*.2;
  base*=.92+mottled*.14;
  base*=canopy*(1.0-tracks*.18-damp*.1-lane*.06);
- vec3 outside_color=mix(texture(rock,world.xz*.12,1.0).rgb*.6,litter,land);
+ vec3 outside_color=mix(texture(rock,world.xz*.12,1.0).rgb*vec3(.48,.53,.43),litter,max(land,smoothstep(.3,.72,broad)*.65));
+ // 原野坡地保留岩斑，林草覆盖形成大块色差，避免整片金褐色裸土。
+ float meadow=smoothstep(.22,.66,broad*.6+mottled*.4);
+ outside_color=mix(outside_color,texture(soil,world.xz*.19).rgb*vec3(.25,.42,.20),meadow*.72);
  ALBEDO=mix(base,outside_color,outside);
  ROUGHNESS=mix(clamp(detail.b*.92+fine*.14,.7,.98),.94,outside);
  ROUGHNESS=mix(ROUGHNESS,.72,lane*.35);

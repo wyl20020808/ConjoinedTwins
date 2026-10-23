@@ -24,7 +24,7 @@ var sky_material: ShaderMaterial
 # energy 已包含 AgX 的亮度补偿；pitch/yaw 是主光朝向，yaw≈180 为正对镜头逆光。
 # lamp 是路灯/火把与角色随身灯的亮度系数，stars 为夜空星点。
 var palettes := [
-	{"sun":Color("ffd39c"),"energy":2.3,"pitch":-24.0,"yaw":152.0,"fill":Color("6f9ec6"),"fill_energy":0.30,"fog":Color("b4ae95"),"fog_scale":0.85,"vol_scale":1.45,"anisotropy":0.72,"contrast":1.18,"saturation":1.14,"ambient":0.50,"ambient_color":Color("7c9092"),
+	{"sun":Color("ffe2b9"),"energy":2.1,"pitch":-24.0,"yaw":152.0,"fill":Color("91b4ca"),"fill_energy":0.58,"fog":Color("b4ae95"),"fog_scale":0.85,"vol_scale":1.45,"anisotropy":0.72,"contrast":1.10,"saturation":1.06,"ambient":0.65,"ambient_color":Color("98a9a6"),
 		"sky_zenith":Color("2f5c78"),"sky_low":Color("6f93a6"),"sky_horizon":Color("efd6a6"),"cloud_lit":Color("fff2dc"),"cloud_shadow":Color("6a7378"),"cloud":0.40,"haze":0.45,"sky_saturation":1.0,"cloud_scale":1.1,
 		"lamp":0.0,"stars":0.0,"disk":0.99972,"sky_sun":0.85,"hero_light":0.0,"land_tint":Color(1,1,1)},
 	{"sun":Color("ffa262"),"energy":2.15,"pitch":-17.0,"yaw":-38.0,"fill":Color("6c7fb8"),"fill_energy":0.38,"fog":Color("c99f84"),"fog_scale":0.85,"vol_scale":1.2,"anisotropy":0.65,"contrast":1.16,"saturation":1.16,"ambient":0.50,"ambient_color":Color("9a8080"),
@@ -127,8 +127,9 @@ func build_horizon(parent:Node3D) -> void:
 	horizon.add_child(ground)
 	near_ridge=ridge_material()
 	far_ridge=ridge_material()
-	horizon.add_child(ridge("NearRidge",640.0,34.0,near_ridge,3))
-	horizon.add_child(ridge("FarRidge",1150.0,78.0,far_ridge,7))
+	horizon.add_child(ridge("NearRidge",640.0,90.0,near_ridge,3))
+	horizon.add_child(ridge("FarRidge",1150.0,170.0,far_ridge,7))
+	horizon.add_child(ridge("Foothills",370.0,38.0,near_ridge,11))
 
 func ring_mesh() -> ArrayMesh:
 	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -151,16 +152,20 @@ func ridge_material() -> StandardMaterial3D:
 
 func ridge(node_name:String,radius:float,peak:float,mat:Material,seed:int) -> MeshInstance3D:
 	var tool:=SurfaceTool.new();tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var steps:=180
+	var steps:=360
 	for i in range(steps):
 		var a:=TAU*i/steps;var b:=TAU*(i+1)/steps
 		var ha:=ridge_height(a,peak,seed);var hb:=ridge_height(b,peak,seed)
 		var pa:=Vector3(cos(a),0,sin(a))*radius;var pb:=Vector3(cos(b),0,sin(b))*radius
-		# 山脚贴近地平线更亮（雾更厚），山脊略深，形成剪影。
-		var base:=Color.WHITE;var top:=Color(0.86,0.86,0.86)
-		for item in [[pa,base,-20.0],[pb,base,-20.0],[pb,top,hb],[pa,base,-20.0],[pb,top,hb],[pa,top,ha]]:
-			tool.set_color(item[1])
-			tool.add_vertex(item[0]+Vector3(0,item[2],0))
+		# 分成山脚、山腰与峰顶三层，用斜坡和冷暖明暗表现体积，避免纸片地平线。
+		var foot_a:=pa*.78+Vector3(0,-20,0);var foot_b:=pb*.78+Vector3(0,-20,0)
+		var mid_a:=pa*.90+Vector3(0,ha*.35,0);var mid_b:=pb*.90+Vector3(0,hb*.35,0)
+		var top_a:=pa+Vector3(0,ha,0);var top_b:=pb+Vector3(0,hb,0)
+		var shade:=.82+.06*sin(a*5.0+seed)+.025*cos(a*13.0)
+		for band in [[foot_a,foot_b,mid_b,mid_a,Color(1.08,1.08,1.04),Color(.9,.94,.92)], [mid_a,mid_b,top_b,top_a,Color(.9,.94,.92),Color(shade,shade*1.04,shade*1.08)]]:
+			for index in [0,1,2,0,2,3]:
+				tool.set_color(band[4] if index<2 else band[5])
+				tool.add_vertex(band[index])
 	var view:=MeshInstance3D.new();view.name=node_name
 	view.mesh=tool.commit();view.material_override=mat
 	view.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -168,7 +173,7 @@ func ridge(node_name:String,radius:float,peak:float,mat:Material,seed:int) -> Me
 
 static func ridge_height(a:float,peak:float,seed:int) -> float:
 	var s:=float(seed)
-	var h:=sin(a*3.0+s)*0.45+sin(a*7.0+s*1.7)*0.3+sin(a*17.0+s*2.3)*0.15+sin(a*41.0+s)*0.06
+	var h:=sin(a*3.0+s)*0.45+sin(a*7.0+s*1.7)*0.3+absf(sin(a*17.0+s*2.3))*.28+sin(a*41.0+s)*0.10
 	return peak*(0.55+h*0.5)
 
 # 每帧随镜头平移（不旋转），高度与色调跟随当前地貌：悬崖段是云海，林地/村庄是远方原野。
@@ -180,8 +185,8 @@ func sync(camera:Camera3D,meters:float,chapter:int,forest_weight:float) -> void:
 	ground_material.albedo_color=field.lerp(Color("d9d2dc"),cliff)
 	# 林中雾浓，远山同步淡入雾色，不在雾墙上方露出清晰剪影。
 	var haze:=Color("c8bfb8")
-	near_ridge.albedo_color=Color("6f6f82").lerp(Color("8a8299"),cliff).lerp(haze,forest_weight*0.8)
-	far_ridge.albedo_color=Color("9b95ad").lerp(Color("b3a9bb"),cliff).lerp(haze,forest_weight*0.9)
+	near_ridge.albedo_color=Color("667e7b").lerp(Color("70898c"),cliff).lerp(haze,forest_weight*0.8)
+	far_ridge.albedo_color=Color("a0b0b9").lerp(Color("aab9c2"),cliff).lerp(haze,forest_weight*0.9)
 	if not enabled:return
 	var palette:Dictionary=palettes[clampi(chapter,0,palettes.size()-1)]
 	# 远景环带与山脊是不受光的展示层，需要按时段直接压色，否则夜里会像一圈雪地。

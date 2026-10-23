@@ -1136,8 +1136,21 @@ func build_gate(gate: Dictionary) -> Node3D:
 	asset(door,"gate",Vector3.ZERO,5.5)
 	# 碰撞是全宽门，外观栅栏同样封住完整道路。
 	for side in [-1,1]:
-		var barrier:=box(door,Vector3(side*10,2.4,0),Vector3(12,4.8,0.4),material("gatewood",Color("6d5033")))
+		var barrier:=box(door,Vector3(side*10,2.4,0),Vector3(12,4.8,0.5),landscape.palette.Wood)
 		barrier.name="SideBarrier%d"%side
+		# 加固门叶的所有装饰跟随原门板下沉，通行范围与动画保持一致。
+		for plank in range(12):
+			box(barrier,Vector3(-5.5+plank,0,.32),Vector3(.88,4.5,.18),landscape.palette.Wood)
+		for y:float in [-1.65,1.65]:
+			box(barrier,Vector3(0,y,.47),Vector3(12,.24,.18),landscape.palette.Iron)
+		var brace:=box(barrier,Vector3(0,0,.48),Vector3(10.8,.28,.2),landscape.palette.Iron)
+		brace.rotation.z=side*.32
+		for x:float in [4.0,15.65]:
+			box(door,Vector3(side*x,2.8,0),Vector3(.8,5.6,1.15),landscape.palette.Stone)
+			box(door,Vector3(side*x,5.65,0),Vector3(1.2,.35,1.5),landscape.palette.Stone)
+			box(door,Vector3(side*x,.3,0),Vector3(1.2,.6,1.5),landscape.palette.Stone)
+		box(door,Vector3(side*4,4.4,.63),Vector3(.28,.85,.08),material("gate_inlay_%d"%side,Color("69b7ae") if side<0 else Color("d6a05b"),.35))
+	box(door,Vector3(0,5.7,0),Vector3(8.7,.55,1.25),landscape.palette.Stone)
 	if gate.get("kind","")=="relay":
 		# 接力门：门前、门后各一块石踏板；有人踩住时符文发光。
 		for side in ["near","far"]:
