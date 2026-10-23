@@ -163,8 +163,8 @@ func verify()->void:
 	start(run,boss,"summon")
 	until(run,boss,"recover")
 	var adds:Array=run.journey_events.filter(func(e):return e.kind=="monster" and e.get("boss_add",false) and e.hp>0)
-	check(adds.size()==Poseidon.summon_count(boss) and adds.all(func(e):return e.archetype=="tide_jelly" and e.alert),"一阶段召唤两只潮汐水母")
-	check(Poseidon.living_adds(run,boss)==2 and run.Monsters.ranged(adds[0]) and run.Monsters.hover_height(adds[0])>0.0,"水母会飞、远程攻击")
+	check(adds.size()==3 and adds.all(func(e):return e.archetype=="tide_jelly" and e.alert),"一阶段召唤三只潮汐水母")
+	check(Poseidon.living_adds(run,boss)==3 and run.Monsters.ranged(adds[0]) and run.Monsters.hover_height(adds[0])>0.0,"水母会飞、远程攻击")
 	fresh(run)
 	# —— 潮汐之心：分站两侧让绳子横穿水球，站稳足够时间海神被震落；硬直满伤害 ——
 	boss.skill_seq+=1;Poseidon.start_channel(run,boss)
