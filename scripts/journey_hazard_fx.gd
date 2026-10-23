@@ -233,7 +233,7 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 			"hammer":
 				if stage == "swing":
 					fx.burst("dust", base + Vector3(0, 0.1, 0))
-					cue("hammer_swing", base, 1.0, 0.85)
+					cue("hammer_swing", base, -9.0, 0.85)
 			"steam":
 				if stage == "pressure":
 					fx.burst("dust", base + Vector3(0, 0.1, 0))
@@ -297,7 +297,7 @@ func track(index: int, kind: String, sample: Dictionary, view: Node3D) -> void:
 		if machine < 0:
 			machine = machine_owner.find(-1)
 			if machine >= 0: machine_owner[machine] = index
-		if machine >= 0: loop("machine:%d" % machine, "machine_loop", true, base + Vector3(0, 1.0, 0), -8.0, 1.0)
+		if machine >= 0: loop("machine:%d" % machine, "machine_loop", true, base + Vector3(0, 1.0, 0), -18.0 if kind == "hammer" else -8.0, 1.0)
 	# 持续：滚动/飞行拖尾。
 	var moving: bool = kind == "rocket" or kind == "barrel" or kind.begins_with("fly_") or game.run.Threats.is_ball(kind)
 	if moving:

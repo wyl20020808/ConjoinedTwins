@@ -3,6 +3,8 @@ extends RefCounted
 # 只产生普通方向和跳跃输入。没有瞬移、无敌、额外速度或故意漏跳。
 const REPLAN := 0.08
 const HORIZON := 0.38
+const FORECAST := 0.65
+const FORECAST_STEPS := 8
 var feedback := "跟随"
 var clock := 0.0
 var pulse := 0.0
@@ -98,7 +100,9 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 		target=Vector2(follow_lane,human.y+((56.0 if narrow_leading else -56.0) if follow_lane==lane else 0.0))
 		if human_move.y!=0:target.y+=human_move.y*human_speed*HORIZON*pace
 		feedback="前后通过窄路" if follow_lane==lane else "沿相邻窄路配合"
-	else:target=dodge_target(run,me,human,target)
+	else:
+		target=dodge_target(run,me,human,target)
+		target=bypass_target(run,me,human,target)
 	target.x=clampf(target.x,-run.EDGE+run.Motion.RADIUS,run.EDGE-run.Motion.RADIUS)
 	if me.distance_to(target)<30:clock=0
 	var desired:=axis(target-me)
@@ -116,8 +120,8 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 		if run.hazard_specs[i].get("front",false) or run.kinds[i]=="drone":rect=run.hazard_sample(i,run.elapsed).rect
 		if rect.end.y>=me.y-150 and rect.position.y<=me.y+500:
 			var samples:Array=[]
-			for n in range(4):
-				var offset:float=HORIZON*pace*n/3.0
+			for n in range(FORECAST_STEPS+1):
+				var offset:float=FORECAST*n/FORECAST_STEPS
 				var spec:Dictionary=run.hazard_sample(i,run.elapsed+offset)
 				if run.hazard_specs[i].get("front",false):spec.rect.position+=run.hazard_specs[i].velocity*offset
 				samples.append(spec)
@@ -128,7 +132,7 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 		if event.y>=me.y-900 and event.y<=me.y+700:
 			attack_jump=attack_jump or jump_for_attack(run,event,me)
 			var samples:Array=[]
-			for n in range(4):samples.append(predict_event(run,event,HORIZON*pace*n/3.0))
+			for n in range(FORECAST_STEPS+1):samples.append(predict_event(run,event,FORECAST*n/FORECAST_STEPS))
 			near_events.append({"event":event,"samples":samples})
 	for direction:Vector2 in candidates:
 		# 没有推进意图时不主动超越真人；门前允许走到相邻操作位。
@@ -166,6 +170,26 @@ static func wanted_pickup(run,me:Vector2,human:Vector2)->Dictionary:
 		if distance<best_distance:best=pickup;best_distance=distance
 	return best
 
+# 固定高障碍需要先横移到边缘；只按目标距离打分会永远原地等待。
+static func bypass_target(run,me:Vector2,human:Vector2,target:Vector2)->Vector2:
+	var nearest:=INF
+	var result:=target
+	for index in run.indexed_kinds(["pillar","cargo"]):
+		# 颜色门的墙体由专用对门逻辑处理，不能另选一侧绕回错误门洞。
+		if run.hazard_specs[index].get("color_wall",false):continue
+		var rect:Rect2=run.obstacles[index].grow(run.Motion.RADIUS+8)
+		if rect.end.y<me.y or rect.position.y>me.y+120 or rect.position.y>nearest:continue
+		if target.y<=me.y or not run.segment_hits(me,target,rect):continue
+		var best:=INF
+		for x in [rect.position.x-4,rect.end.x+4]:
+			var point:=Vector2(x,rect.end.y+8 if absf(me.x-x)<3 else me.y)
+			if Vector2(x,rect.end.y+8).distance_to(human)<run.BODY_GAP+4:continue
+			if absf(x)>run.EDGE-run.Motion.RADIUS or point.distance_to(human)>run.LINK_LIMIT-2:continue
+			if not run.ground_sweep_supported(me,point,run.elapsed):continue
+			var score:float=(x-me.x)*(x-me.x)
+			if score<best:best=score;result=point;nearest=rect.position.y
+	return result
+
 static func axis(error:Vector2)->Vector2:
 	return Vector2(signf(error.x) if absf(error.x)>3 else 0.0,signf(error.y) if absf(error.y)>2 else 0.0)
 
@@ -173,13 +197,15 @@ func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2
 	if jump and not run.has_ground_support(me+direction.limit_length()*run.WALK_SPEED*0.6,run.elapsed+0.6):return INF
 	var previous:=me
 	var cost:=0.0
+	var move_speed:float=run.WALK_SPEED*(run.Combat.MOVE_SCALE if not run.combat.weapons[1].is_empty() else 1.0)
 	var previous_height:float=run.foot_height(1)
-	for sample in range(1,4):
-		var time:float=HORIZON*(160.0/run.WALK_SPEED)*sample/3.0
-		var point:Vector2=project(me,direction,run.WALK_SPEED*time,target)
+	for sample in range(1,FORECAST_STEPS+1):
+		var time:float=FORECAST*sample/FORECAST_STEPS
+		var point:Vector2=project(me,direction,move_speed*time,target)
 		if absf(point.x)>run.EDGE-run.Motion.RADIUS:return INF
 		var human_speed:float=run.WALK_SPEED*(run.Combat.MOVE_SCALE if not run.combat.weapons[0].is_empty() else 1.0)
-		var other:Vector2=human+human_move.limit_length()*human_speed*time
+		# 真人可能在门前停住；只短期外推其意图，危险体仍预测完整窗口。
+		var other:Vector2=human+human_move.limit_length()*human_speed*minf(time,HORIZON*160.0/run.WALK_SPEED)
 		# 自己和队友的预期相对运动受同一条绳约束，超长时选择停步等候。
 		if point.distance_to(other)>run.LINK_LIMIT-1:cost+=6000
 		var height:float=run.foot_height(1)
@@ -193,10 +219,29 @@ func path_cost(run,me:Vector2,human:Vector2,direction:Vector2,human_move:Vector2
 			if kind in run.Terrain.KINDS or kind in ["road_gap","collapse"]:continue
 			# 自己颜色的门洞是通路，不是危险体；只有对方的门会挡住搭档。
 			if kind=="color_gate" and int(run.hazard_specs[i].get("role",-1))==1:continue
+			if kind in ["sweeper","active_spikes","scanner","jump_bar"]:
+				if run.timed_hazard_hits(i,run.elapsed+FORECAST*(sample-1)/FORECAST_STEPS,run.elapsed+time,previous,point,previous_height,height):return INF
+				continue
 			var spec:Dictionary=forecast.samples[sample]
 			if not spec.active:continue
-			var old:Rect2=forecast.samples[sample-1].rect
-			if run.swept_body_hits(previous,point-(spec.rect.position-old.position),previous_height,height,old.grow(run.Motion.RADIUS),spec.bottom,spec.top):return INF
+			var before:Dictionary=forecast.samples[sample-1]
+			# 轨道、梁和抬起的锤头不能合并成从地面到顶的整块墙。
+			var parts:Array=spec.get("parts",[spec])
+			var old_parts:Array=before.get("parts",[before])
+			for part_index in range(parts.size()):
+				var part:Dictionary=parts[part_index]
+				if not part.get("active",true):continue
+				var old_part:Dictionary=old_parts[part_index]
+				var old:Rect2=old_part.rect
+				# 相对高度随压板和摆锤一起变化，避免把空中的部件压到地面。
+				var bottom:float=minf(old_part.bottom,part.bottom)
+				var top:float=maxf(old_part.top,part.top)
+				var bounds:Rect2=Rect2(old.position,Vector2(maxf(old.size.x,part.rect.size.x),maxf(old.size.y,part.rect.size.y)))
+				if kind=="hammer":
+					var omega:float=TAU/run.Industrial.HAMMER_PERIOD
+					var arc:float=run.Industrial.HAMMER_LENGTH*(run.Industrial.HAMMER_RATE*run.Industrial.HAMMER_RATE+run.Industrial.HAMMER_ANGLE*omega*omega)*pow(FORECAST/FORECAST_STEPS,2)/8.0
+					bounds=bounds.grow(arc);bottom-=arc;top+=arc
+				if run.swept_body_hits(previous,point-(part.rect.position-old.position),previous_height,height,bounds.grow(run.Motion.RADIUS),bottom,top):return INF
 		for forecast:Dictionary in events:
 			var event:Dictionary=forecast.event
 			var spec:Dictionary=forecast.samples[sample]
