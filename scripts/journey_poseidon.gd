@@ -80,9 +80,9 @@ const PUDDLE_DAMAGE := 8
 # 曾在三阶段加一只河岸钳甲兵（135 血、近战 32），与海神招式叠加压力过大，已去掉，保留接口。
 const SUMMON_WINDUP := 1.2
 const SUMMON_RECOVER := 0.5
-const SUMMON_JELLY := [2, 3, 4]
+const SUMMON_JELLY := [3, 4, 5]
 const SUMMON_CRAB := [0, 0, 0]
-const SUMMON_X := [-180.0, 180.0, 0.0, -90.0]
+const SUMMON_X := [-180.0, 180.0, 0.0, -90.0, 90.0]
 const SUMMON_CAP := 5
 
 # —— 怒涛震环（二阶段起）：神矛顿向水面，水环向外扩散，跳起躲开；三阶段连续两道 ——
@@ -582,8 +582,8 @@ static func hint(run, event: Dictionary) -> String:
 			if lance_count(event)==1: return "三叉激流：水柱沿亮起的直线射来，横向让开"
 			return "三叉激流：%d 道水柱分别瞄准两人，各自横向让开"%lance_count(event)
 		"wave":
-			if wave_count(event)==2: return "巨浪：两道水墙接连推来，缺口换边，跟着亮起的通道走"
-			return "巨浪：水墙推过来，两人一起钻进亮起的缺口"
+			if wave_count(event)==2: return "巨浪：亮起区域是危险区，避开预警进入空白缺口；第二道浪会换边"
+			return "巨浪：亮起区域是危险区，两人一起进入未标记的缺口"
 		"geysers": return "涌泉：离开地上的圆圈，避开旋涡水洼"
 		"summon": return "海神召唤潮汐水母：它们会吐水弹，先把它们打下来"
 		"ring": return "怒涛震环：水环到脚下时跳起" if ring_count(event)==1 else "怒涛震环：连续两道水环，跳两次"

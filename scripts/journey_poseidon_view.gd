@@ -180,6 +180,30 @@ static func prop(game, parent: Node3D, path: String, size: Vector3) -> Node3D:
 	if has_asset(path): game.tripo_model(holder, path, size, Vector3(0, size.y*0.5, 0))
 	return holder
 
+# 开放的渐细螺旋水面：沿高度上升，宽度与半径不均匀，避免闭合圆环的硬边。
+static func spiral_mesh(phase: float) -> ArrayMesh:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	const STEPS := 160
+	const ACROSS := 6
+	for i in range(STEPS+1):
+		var t := float(i)/STEPS
+		var angle := t*TAU*1.65+phase
+		var radius := 3.1+0.55*sin(t*PI)+0.2*sin(t*13.0+phase)
+		var width := pow(sin(t*PI), 0.65)*(1.1+0.35*sin(t*17.0+phase))
+		for j in range(ACROSS+1):
+			var v := float(j)/ACROSS
+			var r := radius+(v-0.5)*0.35
+			surface.set_uv(Vector2(v, t))
+			surface.set_normal(Vector3(cos(angle), 0.15, sin(angle)).normalized())
+			surface.add_vertex(Vector3(cos(angle)*r, 0.7+t*8.2+(v-0.5)*width, sin(angle)*r))
+	for i in range(STEPS):
+		for j in range(ACROSS):
+			var a := i*(ACROSS+1)+j
+			var b := a+ACROSS+1
+			for index in [a, b, a+1, a+1, b, b+1]: surface.add_index(index)
+	return surface.commit()
+
 # —— 构建 ——
 
 static func build(game, root: Node3D, event: Dictionary) -> void:
@@ -190,6 +214,20 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	var god := Node3D.new()
 	god.name = "God"
 	body.add_child(god)
+	# 固定数量的水带与水花复用，随本体移动，不逐帧创建资源。
+	for n in range(2):
+		var ribbon := MeshInstance3D.new()
+		ribbon.mesh = spiral_mesh(n*PI)
+		var material := ShaderMaterial.new()
+		material.shader = load("res://scripts/poseidon_spiral.gdshader")
+		material.set_shader_parameter("foam_texture", load("res://assets/boss/poseidon_water/foam_mask.png"))
+		material.set_shader_parameter("phase", n*PI)
+		ribbon.material_override = material
+		ribbon.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		ribbon.name = "WaterRibbon%d"%n
+		god.add_child(ribbon)
+	var casting := spray("CastingSpray", 48, 0.7, 0.45)
+	root.add_child(casting)
 	var pivot := Node3D.new()
 	pivot.name = "Pivot"
 	pivot.position = Vector3(0, SIZE*0.47, 0)
@@ -264,7 +302,8 @@ static func build(game, root: Node3D, event: Dictionary) -> void:
 	marks.name = "Telegraphs"
 	root.add_child(marks)
 	for n in range(3): BossView.telegraph(marks, "Lane%d"%n, 0, DANGER)
-	for n in range(2): BossView.telegraph(marks, "Gap%d"%n, 0, SAFE)
+	for n in range(2):
+		for side in range(2): BossView.telegraph(marks, "WaveDanger%d_%d"%[n, side], 0, DANGER)
 	for n in range(7): BossView.telegraph(marks, "Circle%d"%n, 1, DANGER)
 	BossView.telegraph(marks, "Bolt", 1, DANGER)
 	BossView.telegraph(marks, "Warn", 1, DANGER)
@@ -396,6 +435,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var death_age: float = run.elapsed-event.get("defeated_at", run.elapsed)
 	place(run, view, god, event, dead, death_age)
 	animate(run, god, event, age, dead, death_age)
+	water_aura(game, view, god, event, age, dead)
 	core(run, view, god, event, age, dead)
 	flash(game, god, event)
 	telegraphs(game, view, event, age)
@@ -410,6 +450,26 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	moments(game, view, god, event, age, dead)
 	bar(game, view, event, dead, death_age)
 	intro(game, view, god, event)
+
+static func water_aura(game, view: Node3D, god: Node3D, event: Dictionary, age: float, dead: bool) -> void:
+	var run = game.run
+	var casting: bool = not dead and event.phase == "fight" and event.state in ["lance", "wave", "geysers", "summon", "ring", "channel", "tsunami"]
+	for n in range(2):
+		var ribbon: MeshInstance3D = god.get_node("WaterRibbon%d"%n)
+		ribbon.visible = not dead and event.phase == "fight"
+		ribbon.rotation.y = -run.elapsed*0.55
+		ribbon.scale = Vector3(1.12 if casting else 1.0, 1.0, 1.12 if casting else 1.0)
+		(ribbon.material_override as ShaderMaterial).set_shader_parameter("strength", 1.0 if casting else 0.0)
+	var spray_node: GPUParticles3D = view.get_node("CastingSpray")
+	spray_node.global_position = trident_tip(god)
+	spray_node.emitting = casting and run.state == "running"
+	if casting:
+		var pivot: Node3D = god.get_node("Pivot")
+		pivot.rotation.x += sin(minf(age, 1.2)/1.2*PI)*0.16
+		pivot.rotation.z += sin(age*3.0)*0.08
+	game.sfx.loop_at("poseidon_cast_water", "water_jet_loop", casting and run.state == "running", trident_tip(god), -8.0, 0.85)
+	if casting and once_tag(view, "water_cast", "%s:%d"%[event.state, event.skill_seq]):
+		game.sfx.play_at("water_splash", left_hand(god), 3.0, 1.2)
 
 static func place(run, view: Node3D, god: Node3D, event: Dictionary, dead: bool, death_age: float) -> void:
 	var pose: Dictionary = Poseidon.body_pose(run, event, run.elapsed)
@@ -566,14 +626,19 @@ static func telegraphs(game, view: Node3D, event: Dictionary, age: float) -> voi
 			for n in range(event.lances.size()):
 				lane(marks.get_node("Lane%d"%n), event, event.lance_from, event.lances[n], Poseidon.LANCE_LENGTH, Poseidon.LANCE_HALF, age/(windup+Poseidon.LANCE_DELAY), -1.0)
 		"wave":
-			# 缺口通道：从浪头一直铺到场地入口，浪推过后熄灭。
+			# 只显示最近一道浪的危险区，避免交错缺口的预警互相覆盖。
 			for n in range(event.gaps.size()):
 				var front: float = Poseidon.wave_y(event, run.elapsed, n)
 				if front == -INF: continue
 				var top: float = float(event.perch.y)-Poseidon.WAVE_START if front == INF else front
 				var bottom: float = event.arena+Poseidon.FLOOR
 				var length := maxf(10.0, top-bottom)
-				lane(marks.get_node("Gap%d"%n), event, Vector2(float(event.gaps[n]), bottom), Vector2(0, 1), length, Poseidon.WAVE_GAP, clampf(age/(Poseidon.WAVE_WINDUP*pace), 0.3, 0.8), 1.0)
+				var gap: float = event.gaps[n]
+				for side in range(2):
+					var inner: float = gap-Poseidon.WAVE_GAP if side == 0 else gap+Poseidon.WAVE_GAP
+					var outer: float = -run.EDGE if side == 0 else run.EDGE
+					lane(marks.get_node("WaveDanger%d_%d"%[n, side]), event, Vector2((inner+outer)*0.5, bottom), Vector2(0, 1), length, absf(outer-inner)*0.5, clampf(age/(Poseidon.WAVE_WINDUP*pace), 0.3, 0.8), -1.0)
+				break
 		"geysers":
 			var erupt: float = Poseidon.geyser_age(event)
 			if age > erupt: return
@@ -837,6 +902,7 @@ static func moments(game, view: Node3D, god: Node3D, event: Dictionary, age: flo
 			for n in range(Poseidon.wave_count(event)):
 				if age >= Poseidon.WAVE_WINDUP*pace+n*Poseidon.WAVE_SECOND and once_tag(view, "wave%d"%n, key):
 					game.sfx.play_at("tide_crash", base, 8.0, 0.85)
+					game.sfx.play_at("water_splash", base, 4.0, 0.7)
 					if hazard_fx != null: hazard_fx.slam(base, 8.0)
 		"summon":
 			if once(view, key): game.sfx.play_at("boss_roar", head, 0.0, 1.1)
