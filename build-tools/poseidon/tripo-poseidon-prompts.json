@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-23",
+  "generator": "Tripo Studio 文生 3D，H3.1、超清几何、纹理 2K、去光、PBR、三角面",
+  "assets": [
+    {
+      "file": "assets/boss/rigged/poseidon.glb",
+      "face_limit": 30000,
+      "prompt": "A colossal floating sea god Poseidon boss for a stylized fantasy game: tall muscular old god with a long flowing white beard and long wavy sea-foam white hair, stern glowing cyan eyes, golden crown with coral spikes, bare muscular chest with golden shoulder armor, golden belt and teal cape. Both arms raised out to the left and right sides, the right hand gripping a huge golden trident held upright, the left hand open with fingers spread. The lower body is a long flowing deep teal and turquoise robe that ends in tattered wave-shaped edges with no feet, like he is hovering. Teal, turquoise and gold color palette with glowing aqua runes, hand-painted PBR textures, majestic readable silhouette, symmetrical front-facing pose, single character, no base, no ground, no water, no background, no text."
+    },
+    {
+      "file": "assets/monsters/rigged/tide_jelly.glb",
+      "face_limit": 6000,
+      "prompt": "A glowing tide jellyfish spirit monster for a stylized fantasy game: a floating translucent-looking turquoise jellyfish with a big round dome bell covered in glowing aqua rune patterns, a small angry face with glowing white eyes on the front of the bell, a ring of short thick curling tentacles hanging below, a few longer frilly arms, coral and pearl decorations on top. Teal, turquoise and deep blue colors with glowing cyan highlights, hand-painted PBR textures, readable silhouette, symmetrical pose, single creature, no base, no ground, no water, no background, no text."
+    },
+    {
+      "file": "assets/boss/sunken_temple.glb",
+      "face_limit": 6000,
+      "prompt": "Ruins of a sunken ancient greek sea temple for a stylized fantasy game: a wide round cracked white marble platform with steps, six broken marble columns of different heights standing around the edge, a tall carved stone archway at the back with a trident emblem, fallen column pieces, covered with coral, seashells, barnacles and dangling green seaweed, glowing aqua rune lines carved into the floor. Much wider than tall, flat bottom, hand-painted PBR textures, game-ready prop, single object, no water, no background, no text."
+    }
+  ]
+}
