@@ -136,7 +136,7 @@ static func build(run)->void:
 		var rect:=Rect2(Vector2(blocked*120-100,y),Vector2(200,24))
 		match kind:
 			"sweeper":rect=Rect2(blocked*120-5,y,10,10)
-			"hammer":rect=Rect2(blocked*75-26,y,52,44)
+			"hammer":rect=Rect2(-26,y,52,44)
 			"press","steam","piston":rect=Rect2(blocked*120-70,y,140,60)
 			"shuttle":rect=Rect2(-SHUTTLE_WIDTH/2,y,SHUTTLE_WIDTH,45)
 			"lift","slope","steps","tilt":rect=Rect2(blocked*140-65,y,130,160)
