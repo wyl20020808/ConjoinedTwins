@@ -51,11 +51,13 @@ python build-tools/prepare_windows.py
 
 目的：发一次安装包后，以后更新不再重新发包；换隧道、换节点也不必重新打包。
 
-- **发布**（主机电脑）：`python build-tools/publish_update.py`。导出 Windows 版，按章节用量拆成主包（脚本、场景、界面，约 6 MB）和数据包（贴图、模型、音频，文件名带内容哈希），写到 `D:\ConjoinedTwins-web\update`，最后原子替换 `manifest.json`。只改了玩法时，玩家通常只需下载新主包；保留上一版文件，正在下载的玩家不会断。`--skip-export` 复用已导出的版本，`--no-installer` 不附带完整安装包。
+- **安装包结构**：`prepare_windows.py` 导出后按章节用量拆包，`ConjoinedTwins.pck` 只留主包（脚本、场景、界面，约 6 MB），贴图、模型、音频放在 `packs/` 下的数据包里（文件名带内容哈希，`packs.json` 记录大小与 SHA-256），启动时由 `ChapterPacks` 一次挂载。安装包总大小不变。
+- **发布**（主机电脑）：`python build-tools/publish_update.py`。导出后把主包和安装包里同一批数据包写到 `D:\ConjoinedTwins-web\update`，最后原子替换 `manifest.json`。只改了玩法时，玩家通常只需下载新主包；保留上一版文件，正在下载的玩家不会断。`--skip-export` 复用已导出的版本，`--no-installer` 不附带完整安装包。
 - **联机地址与备用更新链接**：存放在 `D:\ConjoinedTwins-web\update-config.json`（主机本地，不入库，首次发布按 `net_client.gd` 内置地址生成）。换隧道或节点后改这个文件，再运行 `publish_update.py --servers-only`，不用重新打包；玩家下次检查更新时自动换用（`net_client.gd` 的 `udp_server()` / `ws_server()` 优先用清单下发的地址）。
 - **提供下载**：`serve_web.py --update-root` 以 `/update/` 提供更新目录，与网页站点分开存放，`start_server.ps1 -Publish` 的 robocopy /MIR 不会删掉它。`start_server.ps1` 检测到更新目录时自动加上该参数，并让联机中继运行清单里的主包，保证与玩家更新到的版本一致。发布新版本后需重新运行 `启动网页服务器.cmd` 重启中继。
-- **玩家端**（`scripts/cloud_update.gd`、`scripts/update_panel.gd`）：导出的桌面程序每次启动先读取 `<更新链接>/manifest.json`，依次尝试玩家填写的链接、清单给的备用链接、内置默认链接。有新版本则把缺少的文件下载到 `user://ct-update/files/`，逐个校验 SHA-256，再用 `--main-pack` 重启自身进入新版本；`ChapterPacks` 在新进程启动时挂载该版本的全部数据包。已是最新或连不上时直接进入主界面；连不上但本机有更新过的版本时进入该版本。主界面右上角“检查更新”可修改链接（每行一个）并立即检查。
+- **玩家端**（`scripts/cloud_update.gd`、`scripts/update_panel.gd`）：导出的桌面程序每次启动先读取 `<更新链接>/manifest.json`，依次尝试玩家填写的链接、清单给的备用链接、内置默认链接。有新版本时先在本机找同名、同 SHA-256 的文件（已下载的，或安装目录 `packs/` 里自带的），只把缺少的下载到 `user://ct-update/files/`，逐个校验 SHA-256，再用 `--main-pack` 重启自身进入新版本；`ChapterPacks` 在新进程启动时挂载该版本的全部数据包。已是最新或连不上时直接进入主界面；连不上但本机有更新过的版本时进入该版本。主界面右上角“检查更新”可修改链接（每行一个）并立即检查。
 - **版本号**：`prepare_windows.py` 导出时把“UTC 时间-提交号”写入 `ct_release.txt` 并打进包内，字符串比较即新旧；工作区有未提交改动时带 `-dirty`。
 - **边界**：exe 本身不更新；引擎版本变化时清单的 `engine` 不匹配，界面提示下载完整安装包（`/update/installer/`）。更新文件只按清单里的 SHA-256 校验，没有签名，链接必须来自主机本人。主机关机时玩家检查不到更新，但仍能用已有版本启动。
 - **联机指纹修复**：导出包的脚本目录只列出 `.gdc` / `.remap`，原来的指纹计算读不到任何源码，所有导出包都得到同一个空内容哈希，版本不同也能进同一房间。现在读不到源码时改用打包时生成的清单。
 - **验证**（2026-10-23，临时目录与隔离的用户数据目录，未动正式服务）：发布 A、B 两版，B 只新增 5.6 MB 主包、14 个数据包全部复用；A 版客户端经本机测试服务器下载 202 MB、校验后重启进入 B，B 进程挂载数据包后能完整加载 `journey.tscn`，清单下发的联机地址生效；已是最新时直接进入；更新服务器不可达时退回已下载的 B。可见界面、经公网隧道下载与朋友电脑上的实际更新未验证。
+- **安装包资源复用验证**（2026-10-23，同样在临时目录）：新格式安装包 A 启动时挂载自带数据包并完整加载 `journey.tscn`；发布 B 后 A 更新只下载 5.4 MB 主包，14 个数据包直接引用安装目录里的文件，重启进入 B 后完整加载。好友装完后第一次更新不再重新下载全部资源。
