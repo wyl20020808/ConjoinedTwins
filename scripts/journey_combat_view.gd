@@ -24,6 +24,7 @@ const SHOT_SOUNDS := {"smg":"smg_shot","shotgun":"shotgun_shot","launcher":"laun
 var back_guns: Array[Node3D] = []
 # 瞄准权重：开火或刚开过火时 0.08 秒抬枪瞄准，停火 0.35 秒后放回抱枪姿势。
 var aim_level := [0.0,0.0]
+var hand_targets := [{},{}]
 const AIM_IN := 0.08
 const AIM_OUT := 0.35
 const AIM_HOLD := 0.45
@@ -315,6 +316,7 @@ func pillar_material(kind:String)->Material:
 	return mat
 
 func reset() -> void:
+	hand_targets=[{},{}]
 	for view in pickup_views.values(): view.queue_free()
 	pickup_views.clear()
 	last_shots=[0,0]
@@ -382,6 +384,7 @@ func sync() -> void:
 		if tossing.has(id):pickup_views[id].visible=false
 	for role in range(2):
 		game.robots[role].get_node("CombatShield").visible=run.shield
+		hand_targets[role]={}
 		var weapon: Dictionary=run.combat.weapons[role]
 		var showing:bool=visual_state not in ["rescue","failed","complete","settlement"]
 		var running:bool=visual_state=="running"
@@ -411,7 +414,7 @@ func sync() -> void:
 		if anchor.has("origin"):
 			var shooting:bool=run.combat.fire[role] or (not shot.is_empty() and run.elapsed-float(shot.time)<AIM_HOLD)
 			var rate:float=1.0/(AIM_IN if shooting else AIM_OUT)
-			if running: aim_level[role]=move_toward(aim_level[role],1.0 if shooting else 0.0,game.frame_delta*rate)
+			if run.state=="running": aim_level[role]=move_toward(aim_level[role],1.0 if shooting else 0.0,game.frame_delta*rate)
 			hold=gun_pose(anchor,aim_level[role],target if has_target or shooting else Vector3.INF)
 		elif hand.distance_to(target)>0.01: hold=Transform3D(Basis.looking_at(target-hand,Vector3.UP),hand)
 		# 收枪上背、从背上取枪、捡枪、丢枪：按模拟记录的开始时间播放，优先于换弹与后坐。
@@ -448,7 +451,7 @@ func sync() -> void:
 		if new_shot and running:
 			heat[role]=minf(1.0,heat[role]+float(HEAT.get(shot_type,0.0)))
 			jitter[role]=randf_range(-1.0,1.0)
-		if running:heat[role]=move_toward(heat[role],0.0,game.frame_delta*HEAT_FALL)
+		if run.state=="running":heat[role]=move_toward(heat[role],0.0,game.frame_delta*HEAT_FALL)
 		# 后坐按枪种区分：[时长, 后移, 上扬]，时长可长于枪口焰；双手随后由 IK 跟着枪一起后坐。
 		var kick:Array=RECOIL.get(shot_type,RECOIL.smg)
 		var steady:bool=act.is_empty()
@@ -469,6 +472,7 @@ func sync() -> void:
 		# 主角上半身动作层：动作期间按片段时间覆盖脊柱、头和肩。
 		var rig=game.hero_rigs[role] if role<game.hero_rigs.size() else null
 		if rig!=null and is_instance_valid(rig):
+			rig.finish_combat_pose=finish_hand_pose.bind(role)
 			rig.action_clip=act.get("clip","")
 			rig.action_time=act.get("clip_time",0.0)
 			rig.action_weight=act.get("weight",0.0) if showing else 0.0
@@ -504,10 +508,15 @@ func sync() -> void:
 			var loose:Vector3=act.get("left_reach",rest_left)
 			if weight<0.999 and loose!=Vector3.INF:left=loose.lerp(left,smoothstep(0.0,1.0,weight))
 			if weight>0.001 or loose!=rest_left:reach_hand(skeleton,"L",left)
+			hand_targets[role]={"anchor":anchor.origin,"right":act.get("right",guns[role].to_global(GRIP_RIGHT)),
+				"left":left,"right_free":act.get("right_free",false),"left_active":weight>0.001 or loose!=rest_left,
+				"right_grip":not act.has("right"),"left_grip":weight,"basis":guns[role].global_basis}
 		elif act.has("right") and is_instance_valid(skeleton) and anchor.has("origin"):
 			# 空手伸向背后或地面（取枪、捡枪的前半段）。
 			reach_hand(skeleton,"R",act.right)
+			if showing:hand_targets[role]={"anchor":anchor.origin,"right":act.right,"right_free":false,"left_active":false,"right_grip":false,"basis":guns[role].global_basis}
 		if run.combat.health[role]<previous_health[role]: game.sfx.play_at("punch_heavy",game.robots[role].global_position+Vector3(0,1.5,0),-2.0,0.95)
+		if rig!=null:rig.combat_active=not hand_targets[role].is_empty()
 		previous_health[role]=run.combat.health[role]
 	if run.shield_uses>previous_shield_uses: game.sfx.play("shield_break",-6.0)
 	previous_shield_uses=run.shield_uses
@@ -581,7 +590,7 @@ func sync_grenade(role:int,shot:Dictionary,visual_state:String)->void:
 
 # 仅覆盖双臂：双腿继续使用走跑/跳跃动画，不增设动画状态机。
 # 两段骨骼解析到达枪握把与弹匣；每次先清除覆盖，避免累计旋转。
-func reach_hand(skeleton:Skeleton3D,side:String,target_world:Vector3)->void:
+func reach_hand(skeleton:Skeleton3D,side:String,target_world:Vector3,final_pass:bool=false,grip_basis:Basis=Basis.IDENTITY,grip_weight:float=0.0)->void:
 	var prefix:="Left" if side=="L" else "Right"
 	var upper:int=game.find_bone(skeleton,prefix+"UpperArm","UpperArm."+side)
 	var lower:int=game.find_bone(skeleton,prefix+"LowerArm","LowerArm."+side)
@@ -592,20 +601,67 @@ func reach_hand(skeleton:Skeleton3D,side:String,target_world:Vector3)->void:
 	var b:=skeleton.get_bone_global_pose(lower)
 	var c:=skeleton.get_bone_global_pose(wrist)
 	var target:=skeleton.to_local(target_world)
+	var desired:=c.basis.orthonormalized()
+	if final_pass and grip_weight>0.0:
+		var palm:=Basis(Vector3(0,1,0),Vector3(0,0,-1),Vector3(-1,0,0)) if side=="R" else Basis(Vector3(0,0,-1),Vector3(1,0,0),Vector3(0,-1,0))
+		desired=skeleton.global_basis.orthonormalized().inverse()*grip_basis.orthonormalized()*palm
+		# 握点落在掌心而非腕关节，避免手掌越过握把或穿过护木。
+		target-=desired*Vector3(0,0.045,0)*grip_weight
 	var first:=a.origin.distance_to(b.origin);var second:=b.origin.distance_to(c.origin)
 	var direction:Vector3=(target-a.origin).normalized()
 	var distance:=clampf(target.distance_to(a.origin),absf(first-second)+.001,first+second-.001)
 	var along:float=(first*first-second*second+distance*distance)/(2*distance)
-	var pole:=skeleton.global_basis.inverse()*Vector3(1 if side=="R" else -1,0,.4)
+	# 肘部向身体外侧、略向下和后方；随身体转向，不能固定在世界 X 轴。
+	var role:int=0 if game.hand_skeletons.get(0)==skeleton else 1
+	var body:Basis=game.robots[role].global_basis.orthonormalized()
+	var pole:=skeleton.global_basis.inverse()*(body*Vector3(0.65 if side=="R" else -0.65,-0.65,0.25))
 	pole=(pole-direction*pole.dot(direction)).normalized()
 	var elbow:=a.origin+direction*along+pole*sqrt(maxf(0,first*first-along*along))
 	target=a.origin+direction*distance
 	var arm:=a;arm.basis=Basis(Quaternion((b.origin-a.origin).normalized(),(elbow-a.origin).normalized()))*a.basis
 	var forearm:=b;forearm.origin=elbow;forearm.basis=Basis(Quaternion((c.origin-b.origin).normalized(),(target-elbow).normalized()))*b.basis
 	var hand:=c;hand.origin=target
+	if final_pass:
+		set_arm_pose(skeleton,upper,arm.basis)
+		set_arm_pose(skeleton,lower,forearm.basis)
+		if grip_weight>0.0:
+			hand.basis=Basis(hand.basis.orthonormalized().get_rotation_quaternion().slerp(desired.get_rotation_quaternion(),grip_weight))
+		set_arm_pose(skeleton,wrist,hand.basis)
+		curl_fingers(skeleton,prefix,grip_weight)
+		return
 	skeleton.set_bone_global_pose_override(upper,arm,1.0,true)
 	skeleton.set_bone_global_pose_override(lower,forearm,1.0,true)
 	skeleton.set_bone_global_pose_override(wrist,hand,1.0,true)
+
+func set_arm_pose(skeleton:Skeleton3D,bone:int,basis:Basis)->void:
+	var parent:=skeleton.get_bone_parent(bone)
+	var parent_basis:=skeleton.get_bone_global_pose(parent).basis if parent>=0 else Basis.IDENTITY
+	skeleton.set_bone_pose_rotation(bone,(parent_basis.inverse()*basis).orthonormalized().get_rotation_quaternion())
+
+func curl_fingers(skeleton:Skeleton3D,prefix:String,weight:float)->void:
+	for finger in ["Index","Middle","Ring","Pinky"]:
+		for segment in range(1,4):
+			var bone:=skeleton.find_bone("mixamorig_"+prefix+"Hand"+finger+str(segment))
+			if bone<0:continue
+			var angle:=0.5 if segment==1 else 0.85
+			if prefix=="Right" and finger=="Index":angle*=0.5
+			var rest:=skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+			skeleton.set_bone_pose_rotation(bone,rest*Quaternion(Vector3.RIGHT,-angle*weight))
+
+func finish_hand_pose(role:int)->void:
+	var state:Dictionary=hand_targets[role]
+	if state.is_empty():return
+	var skeleton:Skeleton3D=game.hand_skeletons.get(role)
+	var shift:Vector3=chest_anchor(role,skeleton).origin-state.anchor
+	# 将同一帧躯干混合产生的位移同时应用到枪、弹匣与手部目标。
+	guns[role].global_position+=shift
+	back_guns[role].global_position+=shift
+	if reload_items[role].visible:reload_items[role].global_position+=shift
+	state.anchor+=shift
+	state.right+=shift
+	if state.has("left"):state.left+=shift
+	if not state.right_free:reach_hand(skeleton,"R",state.right,true,state.basis,1.0 if state.right_grip else 0.0)
+	if state.left_active:reach_hand(skeleton,"L",state.left,true,state.basis,state.left_grip)
 
 # ---- 收枪、取枪、捡枪、丢枪、换弹：Blender 动作片段 ----
 # 动作在 tools/blender/make_gun_anims.py 里按关键帧制作：主角上半身片段（脊柱、头、肩）由 hero_locomotion 的动作层混合，
