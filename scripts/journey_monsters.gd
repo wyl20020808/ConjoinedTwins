@@ -19,7 +19,7 @@ const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"d
 	"root_spider":290.0,"goblin_bomber":200.0,"river_crab_knight":150.0,"ember_bat":300.0,"tide_jelly":150.0}
 const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼",
 	"root_spider":"根须蛛", "goblin_bomber":"矿灯地精", "river_crab_knight":"河岸钳甲兵", "ember_bat":"火翼妖", "tide_jelly":"潮汐水母"}
-const HP := {"briar":45,"raider":60,"sentinel":75,"archer":60,"dasher":90,"wolf":60,"root_spider":45,"goblin_bomber":53,"river_crab_knight":135,"ember_bat":30,"tide_jelly":68}
+const HP := {"briar":45,"raider":60,"sentinel":75,"archer":60,"dasher":90,"wolf":60,"root_spider":45,"goblin_bomber":53,"river_crab_knight":135,"ember_bat":30,"tide_jelly":50}
 # 攻击方式：远程（直线飞行物）、冲锋（沿锁定方向扑咬）、近战（向落点砸下）。新怪物按方式复用既有攻击逻辑。
 const RANGED := ["archer","goblin_bomber","tide_jelly"]
 const CHARGERS := ["dasher","wolf","root_spider","ember_bat"]

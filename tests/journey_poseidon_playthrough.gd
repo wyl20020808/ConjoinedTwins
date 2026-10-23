@@ -6,7 +6,7 @@ const Journey=preload("res://scripts/journey_run.gd")
 const Boss=preload("res://scripts/journey_boss.gd")
 const Poseidon=preload("res://scripts/journey_poseidon.gd")
 const LIMIT := 120*420
-const STAND := 1150.0
+const STAND := 1250.0
 var failures:Array=[]
 
 func check(ok:bool,label:String)->void:
@@ -53,17 +53,21 @@ func verify()->void:
 	var staggers:=0
 	var waves:=0
 	var x:=-60.0
+	var dealt:={}
+	var last_boss_hp:int=boss.hp
 	while frames<LIMIT and run.state=="running":
 		var targets:=[Vector2(x-35,arena+STAND),Vector2(x+35,arena+STAND)]
 		var jump:=false
 		if run.combat.weapons[0].is_empty():targets=[Vector2(-60,arena+160),Vector2(60,arena+160)]
-		if boss.state in ["idle","recover","stagger","roar","intro","summon"] or boss.phase!="fight":
+		# 硬直是输出窗口：只有血量很低时才去捡补给，否则留在射击站位。
+		var low:bool=run.combat.health[0]<40 or run.combat.health[1]<40
+		if boss.state in ["idle","recover","roar","intro","summon"] or boss.phase!="fight" or (boss.state=="stagger" and low):
 			var weapon:Dictionary=run.combat.weapons[0]
 			for pickup in run.combat.pickups:
 				if pickup.position.y<arena+Poseidon.FLOOR:continue
 				if pickup.kind=="ammo" and not weapon.is_empty() and weapon.reserve+weapon.ammo<40 and boss.state!="stagger":
 					targets=[pickup.position,pickup.position+Vector2(110 if pickup.position.x<0 else -110,0)];break
-				if pickup.kind=="medkit" and (run.combat.health[0]<60 or run.combat.health[1]<60):
+				if pickup.kind=="medkit" and (run.combat.health[0]<75 or run.combat.health[1]<75):
 					var role:=0 if run.combat.health[0]<=run.combat.health[1] else 1
 					targets[role]=pickup.position;targets[1-role]=pickup.position+Vector2(100 if pickup.position.x<0 else -100,0);break
 		var age:float=run.elapsed-float(boss.state_at)
@@ -122,6 +126,23 @@ func verify()->void:
 		if boss.state in ["ring","tsunami"]:jump=ring_jump(run,boss)
 		if boss.hp>0 and boss.state not in ["channel","wave"]:
 			for role in range(2):targets[role]=dodge_puddles(boss,targets[role])
+		# 已经站在水洼里时先横向走出来（离开水洼中心），再去目标。
+		if boss.hp>0 and boss.state not in ["wave","lance"]:
+			var mid:Vector2=(run.a.position+run.b.position)*0.5
+			for puddle in boss.puddles:
+				for point in [run.a.position,run.b.position]:
+					if point.distance_to(puddle.position)<Poseidon.PUDDLE_RADIUS+run.Motion.RADIUS+6:
+						var away:=Vector2(signf(mid.x-puddle.position.x+0.01)*90.0,0)
+						targets=[run.a.position+away,run.b.position+away]
+		# 小怪近战预警（落点亮起）时离开落点。
+		for e in run.journey_events:
+			if e.kind!="monster" or e.hp<=0 or e.get("phase","")!="warning" or run.Monsters.ranged(e) or run.Monsters.charges(e):continue
+			var land:Vector2=e.get("landing",e.origin)
+			for role in range(2):
+				var point:Vector2=[run.a.position,run.b.position][role]
+				if point.distance_to(land)<110.0:
+					var away:Vector2=(point-land).normalized() if point.distance_to(land)>1.0 else Vector2(1,0)
+					targets=[run.a.position+away*130.0,run.b.position+away*130.0]
 		if boss.stage==2:
 			for role in range(2):targets[role].x=clampf(targets[role].x,-run.EDGE+Poseidon.FLOOD_WIDTH+30,run.EDGE-Poseidon.FLOOD_WIDTH-30)
 		if boss.hp<=0:targets=[Vector2(-42,run.finish_distance()+80),Vector2(42,run.finish_distance()+80)]
@@ -132,6 +153,9 @@ func verify()->void:
 				hits+=1
 				print("HIT role=",role," -",last_health[role]-run.combat.health[role]," state=",boss.state," stage=",boss.stage," age=",snappedf(run.elapsed-float(boss.state_at),0.01)," a=",run.a.position," b=",run.b.position)
 		last_health=run.combat.health.duplicate()
+		if boss.hp!=last_boss_hp:
+			dealt[boss.state]=dealt.get(boss.state,0)+last_boss_hp-boss.hp
+			last_boss_hp=boss.hp
 		if boss.state=="stagger" and run.elapsed-boss.state_at<run.FIXED_STEP*1.5:staggers+=1
 		if boss.state=="wave" and run.elapsed-boss.state_at<run.FIXED_STEP*1.5:waves+=1
 		frames+=1
@@ -140,6 +164,7 @@ func verify()->void:
 	for key in run.combat.hits.keys():
 		if str(key).begins_with("boss:"):by_skill[str(key).split(":")[1]]=by_skill.get(str(key).split(":")[1],0)+1
 	print("HITS BY SKILL ",by_skill)
+	print("BOSS DAMAGE BY STATE ",dealt," kills=",run.combat.kills)
 	print("POSEIDON PLAYTHROUGH state=",run.state," reason=",run.reason," boss_hp=",boss.hp," stage=",boss.stage," seconds=",snappedf(seconds,0.1)," staggers=",staggers," waves=",waves," hits_taken=",hits," health=",run.combat.health)
 	check(boss.hp==0,"只用输入击败海神")
 	check(run.state=="settlement","击败后走到终点结算")

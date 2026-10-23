@@ -21,11 +21,11 @@ const HOVER := 70.0
 const DRIFT := 110.0
 const DRIFT_RATE := 0.33
 const CHEST_HEIGHT := 220.0
-const MAX_HP := 2400
+const MAX_HP := 2000
 const STAGES := [0.65, 0.30]
 const PACE := [1.0, 0.88, 0.75]
 const MOVES := [2, 3, 3]
-# 二阶段起加入怒涛震环；三阶段道路两侧海水漫上来。每轮都可能召唤水母与钳甲兵。
+# 二阶段起加入怒涛震环；三阶段道路两侧海水漫上来。每轮都可能召唤潮汐水母。
 const PATTERN := [["lance","geysers","wave","summon","lance","geysers"],
 	["wave","lance","summon","geysers","ring","wave","lance","summon","geysers"],
 	["wave","ring","lance","summon","geysers","wave","lance","ring","summon"]]
@@ -76,11 +76,12 @@ const PUDDLE_RADIUS := 52.0
 const PUDDLE_TIME := 3.0
 const PUDDLE_DAMAGE := 8
 
-# —— 召唤：潮汐水母（远程水弹）从深潭浮起，三阶段再加一只河岸钳甲兵；场上召唤物太多时跳过 ——
+# —— 召唤：潮汐水母（远程水弹）从深潭浮起，2/3/4 只；场上召唤物太多时跳过。
+# 曾在三阶段加一只河岸钳甲兵（135 血、近战 32），与海神招式叠加压力过大，已去掉，保留接口。
 const SUMMON_WINDUP := 1.2
 const SUMMON_RECOVER := 0.5
-const SUMMON_JELLY := [2, 2, 3]
-const SUMMON_CRAB := [0, 0, 1]
+const SUMMON_JELLY := [2, 3, 4]
+const SUMMON_CRAB := [0, 0, 0]
 const SUMMON_X := [-180.0, 180.0, 0.0, -90.0]
 const SUMMON_CAP := 5
 
@@ -140,7 +141,8 @@ static func add(run) -> void:
 	run.event_serial+=1
 	# 入口两侧各一把枪（间距小于绳长，两人可同时拾取），另有弹药与医疗包；硬直结束与换阶段时再刷新。
 	run.Combat.add_pickup(run,"gun",Vector2(-60,arena+160),{},"smg")
-	run.Combat.add_pickup(run,"gun",Vector2(60,arena+160),{},"shotgun")
+	# 海神悬浮在 20 米开外，霰弹枪弹丸散得太开；与魔龙一样给榴弹发射器。
+	run.Combat.add_pickup(run,"gun",Vector2(60,arena+160),{},"launcher")
 	for x in [-150.0,150.0]: run.Combat.add_pickup(run,"ammo",Vector2(x,arena+220))
 	for x in [-50.0,50.0]: run.Combat.add_pickup(run,"medkit",Vector2(x,arena+220))
 
@@ -215,6 +217,8 @@ static func choose(run, event: Dictionary) -> void:
 		run.Combat.add_pickup(run,"medkit",Vector2(0,event.arena+SUPPLY-60))
 		run.combat.notice="%s进入第 %d 阶段"%[NAME,event.stage+1]
 		enter(run,event,"roar")
+		# 与前两章相同：换阶段时存档，失败从本阶段继续。
+		run.capture_checkpoint()
 		return
 	event.skill_seq+=1
 	if event.cycle_moves>=MOVES[event.stage]:
@@ -581,7 +585,7 @@ static func hint(run, event: Dictionary) -> String:
 			if wave_count(event)==2: return "巨浪：两道水墙接连推来，缺口换边，跟着亮起的通道走"
 			return "巨浪：水墙推过来，两人一起钻进亮起的缺口"
 		"geysers": return "涌泉：离开地上的圆圈，避开旋涡水洼"
-		"summon": return "海神召唤水族：先把水母和钳甲兵打下来"
+		"summon": return "海神召唤潮汐水母：它们会吐水弹，先把它们打下来"
 		"ring": return "怒涛震环：水环到脚下时跳起" if ring_count(event)==1 else "怒涛震环：连续两道水环，跳两次"
 		"channel":
 			if tsunami_warning(run,event): return "海啸将至：跳起躲避水环！潮汐之心 %d%%"%int(hold_ratio(event)*100)

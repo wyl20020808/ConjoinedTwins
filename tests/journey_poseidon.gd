@@ -74,7 +74,6 @@ func verify()->void:
 	check(boss.phase=="dormant","入口前海神不出现")
 	place(run,boss.arena+320);ticks(run,1)
 	check(boss.phase=="intro" and not run.checkpoint.is_empty(),"越过开战线进入入场并存档")
-	var saved_progress:float=run.checkpoint.progress
 	check(run.bounded(Vector2(0,boss.arena+1700)).y==boss.arena+Poseidon.HOLD,"海神存活时前进受限")
 	# —— 入场：破水升起，不能移动、开火、受伤；0.8 秒后可跳过 ——
 	check(Boss.cinematic(run) and Boss.hint(run).is_empty(),"入场期间不显示招式提示")
@@ -242,6 +241,8 @@ func verify()->void:
 	boss.hp=int(boss.max_hp*0.25);Poseidon.enter(run,boss,"idle")
 	until(run,boss,"roar")
 	check(boss.stage==2,"血量 30% 以下进入第三阶段")
+	var saved_boss:Dictionary=run.checkpoint.run.journey_events[run.boss_index].duplicate(true)
+	check(saved_boss.stage==2,"第三阶段自动存档")
 	check(Poseidon.ring_count(boss)==2 and Poseidon.geyser_count(boss)==7,"三阶段两道震环、七处涌泉")
 	place(run,boss.arena+900,-run.EDGE+20,-run.EDGE+110);fresh(run);ticks(run,2)
 	check(run.combat.health[0]==100-Poseidon.FLOOD_DAMAGE,"三阶段贴边被海水冲刷")
@@ -250,11 +251,11 @@ func verify()->void:
 	place(run,boss.arena+900);fresh(run)
 	until(run,boss,"channel",roundi(3.0/run.FIXED_STEP))
 	check(boss.state=="channel","每轮招式后凝聚潮汐之心（破甲机会）")
-	# —— 失败后从场地入口重打 ——
+	# —— 失败后恢复最近阶段（与前两章相同），不重播入场 ——
 	fresh(run);run.fail_threat("测试失败")
 	run.state="failed";check(run.restore_checkpoint(),"失败后恢复存档")
 	boss=Boss.boss(run)
-	check(boss.phase=="dormant" and boss.hp==boss.max_hp and absf(run.checkpoint.progress-saved_progress)<1.0,"恢复到场地入口，海神满血沉睡")
+	check(boss==saved_boss and boss.stage==2 and boss.phase=="fight","恢复第三阶段及当时海神血量，不重播入场")
 	# —— 击败后通关 ——
 	run.state="running";place(run,boss.arena+320);fresh(run);ticks(run,1)
 	Poseidon.enter(run,boss,"stagger")
