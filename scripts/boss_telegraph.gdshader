@@ -1,5 +1,5 @@
 shader_type spatial;
-// Boss 地面预警：直线 / 横带（shape 0）与圆圈（shape 1）。charge 0→1 为前摇进度，
+// Boss 地面预警：直线 / 横带（shape 0）、圆圈（shape 1）与扇形（shape 2，第二章魔龙吐息）。charge 0→1 为前摇进度，
 // 越接近出手越亮，最后 15% 快速闪烁；直线内有朝 flow 方向流动的箭纹，提示攻击来向。
 render_mode unshaded, blend_mix, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
 uniform vec4 tint : source_color = vec4(1.0, 0.55, 0.12, 1.0);
@@ -7,6 +7,9 @@ uniform float charge = 0.0;
 uniform int shape = 0;
 uniform float flow = 1.0;
 uniform vec2 aspect = vec2(1.0, 8.0);
+// 扇形：以平面中心为顶点，角度从局部 +Z（UV 向下）起算、向 +X 为正，单位弧度。
+uniform float angle_from = 0.0;
+uniform float angle_to = 1.0;
 
 void fragment() {
 	vec2 p = UV * 2.0 - 1.0;
@@ -19,6 +22,17 @@ void fragment() {
 		float sweep = 1.0 - charge;
 		fill = (1.0 - smoothstep(sweep - 0.06, sweep, d)) * 0.0 + step(d, 1.0) * 0.22;
 		fill += (smoothstep(sweep - 0.08, sweep, d) - smoothstep(sweep, sweep + 0.04, d)) * 0.8 * step(d, 1.0);
+	} else if (shape == 2) {
+		float d = length(p);
+		float a = atan(p.x, p.y);
+		float lo = min(angle_from, angle_to);
+		float hi = max(angle_from, angle_to);
+		float inside = step(lo, a) * step(a, hi) * step(d, 1.0);
+		float rim = (smoothstep(lo, lo + 0.03, a) - smoothstep(hi - 0.03, hi, a));
+		edge = inside * (1.0 - rim) * 0.8;
+		// 由顶点向外推进的波纹，提示火焰从龙嘴喷出的方向。
+		float waves = fract(d * 6.0 - TIME * 1.4);
+		fill = inside * (0.16 + smoothstep(0.6, 0.75, waves) * (1.0 - smoothstep(0.85, 0.98, waves)) * 0.3);
 	} else {
 		vec2 q = abs(p);
 		float bx = 1.0 - smoothstep(1.0 - 0.12 / aspect.x, 1.0 - 0.04 / aspect.x, q.x);

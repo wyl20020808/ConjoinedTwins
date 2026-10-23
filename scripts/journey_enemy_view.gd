@@ -15,6 +15,9 @@ const SCANNED := {
 	"root_spider":["res://assets/monsters/rigged/root_spider.glb",2.6,1.8],
 	"goblin_bomber":["res://assets/monsters/rigged/goblin_bomber.glb",2.4,2.4],
 	"river_crab_knight":["res://assets/monsters/rigged/river_crab_knight.glb",3.6,3.5],
+	# 2026-10-23 Boss 召唤的飞行小怪（build-tools/boss/rig_minions.py）：火蝠翼展约 3.3 米，潮汐水母高约 2.7 米。
+	"ember_bat":["res://assets/monsters/rigged/ember_bat.glb",3.4,2.8],
+	"tide_jelly":["res://assets/monsters/rigged/tide_jelly.glb",2.8,2.7],
 }
 # 狼与树精的模型原生朝 +Z（其余朝 +X）。原先统一转 -90°，导致它们一直侧身朝玩家移动。
 const NATIVE_FORWARD_Z := ["wolf","briar"]
@@ -34,8 +37,8 @@ const FX_RANGE := 900.0
 const RUN_DUST_EVERY := 0.28
 const DASH_DUST_EVERY := 0.08
 const ALERT_COLORS := {"briar":Color("9bd36a"),"raider":Color("ff8a4a"),"sentinel":Color("8fd0ff"),"archer":Color("d8e27a"),"dasher":Color("ff5a3a"),"wolf":Color("ffcf6a"),
-	"root_spider":Color("c7e070"),"goblin_bomber":Color("ffb347"),"river_crab_knight":Color("6fd6e0")}
-const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86"),"root_spider":Color("5e4126"),"river_crab_knight":Color("4b6f86"),"goblin_bomber":Color("4a4f45")}
+	"root_spider":Color("c7e070"),"goblin_bomber":Color("ffb347"),"river_crab_knight":Color("6fd6e0"),"ember_bat":Color("ff6a1a"),"tide_jelly":Color("6fe8ff")}
+const HIT_CHIPS := {"briar":Color("7a5532"),"sentinel":Color("8d8a7e"),"wolf":Color("8a8a86"),"root_spider":Color("5e4126"),"river_crab_knight":Color("4b6f86"),"goblin_bomber":Color("4a4f45"),"ember_bat":Color("3a1d18"),"tide_jelly":Color("7fd8e8")}
 static var charge_material:ShaderMaterial
 
 static func model_path(archetype: String) -> String:
@@ -234,7 +237,7 @@ static func monster_fx(game, view: Node3D, event: Dictionary, location: Vector3,
 	var seq:int=event.get("attack_seq",0)
 	var charging:bool=run.Monsters.charges(event) and phase=="active"
 	var every:float=DASH_DUST_EVERY if charging else RUN_DUST_EVERY
-	if (moving or charging) and (run.Monsters.charges(event) or event.archetype=="briar" or charging) and run.elapsed-float(view.get_meta("fx_dust_at",-10.0))>=every:
+	if run.Monsters.hover_height(event)==0.0 and (moving or charging) and (run.Monsters.charges(event) or event.archetype=="briar" or charging) and run.elapsed-float(view.get_meta("fx_dust_at",-10.0))>=every:
 		view.set_meta("fx_dust_at",run.elapsed)
 		fx.burst("dust",feet)
 	if phase=="active" and view.get_meta("fx_active_seq",-1)!=seq:
@@ -299,6 +302,15 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 			if event.archetype=="wolf":
 				actor.get_node("LeftArm").rotation.x=-swing
 				actor.get_node("RightArm").rotation.x=swing
+		# 飞行小怪：悬在半空轻轻起伏，前摇时抬高蓄势，扑咬时俯冲到地面再拉起。
+		var hover:float=run.Monsters.hover_height(event)
+		if hover>0.0:
+			var lift:=hover*(1.0+charge*0.25)
+			if event.phase=="active":
+				var into:float=clampf((run.elapsed-event.trigger-run.Monsters.profile(event).windup)/run.Monsters.profile(event).active,0,1)
+				lift*=1.0-sin(into*PI)*(0.8 if run.Monsters.charges(event) else 0.2)
+			actor.position.y+=(lift+sin(run.elapsed*3.1+float(event.id))*6.0)/20.0
+			actor.rotation.x=0.0
 		if actor.has_node("Figure"):
 			# Figure 原生朝 +X：绕本地 X 为左右摇摆，绕本地 Z 为前后俯仰（正值后仰蓄力）。
 			var figure:Node3D=actor.get_node("Figure")
@@ -363,7 +375,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	# 满血且未被锁定时不挂血条，减少世界内文字与条状元素。
 	health.visible=not died and event.phase!="spent" and absf(point.y-run.distance)<800 and (event.hp<event.max_hp or locked or hit_age<1.0)
 	if health.visible:
-		health.global_position=location+Vector3(0,view.get_meta("bar_height",3.5)+event.get("ground_height",0.0)/20,0)
+		health.global_position=location+Vector3(0,view.get_meta("bar_height",3.5)+(event.get("ground_height",0.0)+run.Monsters.hover_height(event))/20,0)
 		health.global_basis=game.camera.global_basis
 		var health_key:Vector2i=Vector2i(event.hp,event.max_hp)
 		if view.get_meta("health_key",Vector2i(-1,-1))!=health_key:
@@ -403,9 +415,9 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 # —— 怪物小音效 ——
 # 各种类的嗓音音高：狼和蛛偏尖，石卫与钳甲兵低沉。
 const VOICE_PITCH := {"briar":1.25,"raider":1.0,"sentinel":0.65,"archer":1.1,"dasher":0.85,"wolf":1.15,
-	"root_spider":1.3,"goblin_bomber":1.6,"river_crab_knight":0.7}
+	"root_spider":1.3,"goblin_bomber":1.6,"river_crab_knight":0.7,"ember_bat":2.0,"tide_jelly":0.8}
 const WINDUP_VOICE := {"briar":["growl",1.4],"raider":["grunt",1.0],"sentinel":["growl",0.7],"archer":["creak",1.7],
-	"dasher":["snarl",0.8],"wolf":["snarl",1.2],"root_spider":["hiss",1.1],"goblin_bomber":["grunt",1.6],"river_crab_knight":["hiss",0.7]}
+	"dasher":["snarl",0.8],"wolf":["snarl",1.2],"root_spider":["hiss",1.1],"goblin_bomber":["grunt",1.6],"river_crab_knight":["hiss",0.7],"ember_bat":["hiss",2.2],"tide_jelly":["hiss",0.6]}
 const STEP_SOUND := {"sentinel":"rubble","river_crab_knight":"metal_light","root_spider":"step_wood"}
 # 近距离才有脚步与低吼；全局限频，几十只怪同时追来也不会把定位播放器占满。
 const VOICE_RANGE := 26.0
@@ -436,7 +448,7 @@ static func monster_ambience(game,view:Node3D,event:Dictionary,location:Vector3)
 			voice(game,"growl",location+Vector3(0,1.0,0),-14.0,pitch)
 	# 脚步：步幅每过半个周期落一脚。
 	var step:=floori(float(event.get("stride",0.0))/PI)
-	if step!=int(view.get_meta("step_count",step)) and distance<STEP_RANGE and run.elapsed>=float(game.get_meta("enemy_step_at",-10.0))+STEP_GAP:
+	if step!=int(view.get_meta("step_count",step)) and run.Monsters.hover_height(event)==0.0 and distance<STEP_RANGE and run.elapsed>=float(game.get_meta("enemy_step_at",-10.0))+STEP_GAP:
 		game.set_meta("enemy_step_at",run.elapsed)
 		game.sfx.play_at(STEP_SOUND.get(event.archetype,"step_grass"),location,-15.0,pitch*0.8)
 	view.set_meta("step_count",step)

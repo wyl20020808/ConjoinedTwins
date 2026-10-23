@@ -52,7 +52,7 @@ static func zone_names(run) -> Array:
 	var names:Array=(run.TRIAL_ZONES if run.combat_trial else run.CHAPTERS[run.level_index].zones).duplicate()
 	if run.Boss.enabled(run):
 		var event:Dictionary=run.Boss.boss(run)
-		names.append("???" if event.is_empty() or event.phase=="dormant" else "%s Boss"%run.Boss.NAME)
+		names.append("???" if event.is_empty() or event.phase=="dormant" else "%s Boss"%run.Boss.title(event))
 	return names
 
 func progress_fraction(run, progress:float) -> float:

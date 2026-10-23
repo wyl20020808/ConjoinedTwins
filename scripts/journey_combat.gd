@@ -189,9 +189,9 @@ static func enemy_position(event: Dictionary) -> Vector2:
 	return Vector2(event.side*360.0,event.y) if event.kind=="stone" else event.sample.get_center()
 
 static func enemy_height(event: Dictionary) -> float:
-	# Boss 的瞄准点是胸口树心，约 5.5 米高。
-	if event.kind=="boss": return 110.0
-	if event.kind=="monster": return event.get("ground_height",0.0)+({"wolf":24.0,"root_spider":20.0,"goblin_bomber":30.0,"river_crab_knight":44.0}.get(event.archetype,38.0))
+	# Boss 的瞄准点：枯根巨像是胸口树心（约 5.5 米高）；魔龙是胸口熔岩核，飞起时随之升高。
+	if event.kind=="boss": return event.get("aim_height",110.0)
+	if event.kind=="monster": return event.get("ground_height",0.0)+({"wolf":24.0,"root_spider":20.0,"goblin_bomber":30.0,"river_crab_knight":44.0,"ember_bat":60.0,"tide_jelly":70.0}.get(event.archetype,38.0))
 	return 38.0 if event.kind in ["stone","monster"] else 17.0
 
 # 线段进入实体的区间与同区间枪线高度相交才挡弹，低栏不会挡住头顶枪线。

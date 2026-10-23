@@ -38,7 +38,7 @@ const STEP_TELEPORT := 3.0
 # 联机积压追帧：单个物理帧最多补 8 帧、最多占 8 毫秒，避免一次追帧把网页卡住。
 const ONLINE_CATCHUP_FRAMES := 8
 const ONLINE_CATCHUP_USEC := 8000
-# 单位为道路单位（20/米）。预热窗口比展示窗口多 40 米，退出窗口再留 20 米迟滞。
+# 单位为道路单位（20/米）。预热窗口比展示窗口多 20 米，后方退出窗口再留 10 米迟滞。
 const MODEL_AHEAD := 2400.0
 const MODEL_PREFETCH := 2800.0
 const MODEL_RETAIN := 3600.0
@@ -554,7 +554,9 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	var bounds := Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)
 	var gaps: Array[Rect2] = []
 	var cracks: Array[Rect2] = []
-	for gap in run.ground_gaps():
+	for index in range(run.kinds.size()):
+		if run.kinds[index] != "road_gap" and not (run.kinds[index] == "collapse" and run.hazard_sample(index,run.elapsed).stage == "collapsed"): continue
+		var gap:Rect2=run.hazard_specs[index].get("visual_gap",run.obstacles[index])
 		if bounds.intersects(gap): gaps.append(gap)
 	for index in range(run.kinds.size()):
 		if run.kinds[index]!="collapse": continue
@@ -816,7 +818,7 @@ func prepare_journey_frame() -> bool:
 			"swing":retained.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["cart","stone"]:retained.append("res://assets/journey/villager_actions.glb")
 		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():retained.append(CombatView.EnemyView.model_path(event.archetype))
-		if event.kind=="boss":retained.append_array(BossView.PATHS)
+		if event.kind=="boss":retained.append_array(BossView.paths(event))
 	for gate in run.charge_gates:
 		if model_resident(gate.receiver.y):
 			retained.append_array(["res://assets/journey/gate.glb","res://assets/journey/waterwheel.glb","res://assets/journey/drawbridge.glb"])
@@ -883,7 +885,7 @@ func prepare_event_views(deadline: int, prefetch:bool=false) -> bool:
 			"swing": paths.append_array(["res://assets/journey/waterwheel.glb","res://assets/journey/wood_planks_diff.jpg"])
 		if event.kind in ["stone","cart"]: paths.append("res://assets/journey/villager_actions.glb")
 		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():paths.append(CombatView.EnemyView.model_path(event.archetype))
-		if event.kind=="boss":paths.append_array(BossView.PATHS)
+		if event.kind=="boss":paths.append_array(BossView.paths(event))
 		chunk_assets.request(paths)
 		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline and model_builds_this_frame<MODEL_BUILDS_PER_FRAME:
 			event_views[event.id]=build_event(event)

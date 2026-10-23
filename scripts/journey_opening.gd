@@ -95,6 +95,8 @@ static func thump_age(run) -> float:
 static func lair_dormant(run) -> Dictionary:
 	var event: Dictionary = run.Boss.boss(run)
 	if event.is_empty() or event.hp <= 0 or event.phase != "dormant": return {}
+	# 第二章魔龙不在巢里（开战时才从天而降），巢穴只冒烟，没有地下震动；第三章海神沉在深潭里，潭水翻涌由海神画面负责。
+	if event.get("species", "") in ["dragon", "poseidon"]: return {}
 	return event
 
 # 每一拍触发一次：巢穴扬尘圈，加上巢穴周围约 25 米内八处碎土与扬尘（位置按拍数变化）。只在 Boss 场地处于显示范围内时触发。
@@ -105,6 +107,12 @@ static func sync_thump(game) -> void:
 	var beat := int(floor(run.elapsed/THUMP))
 	if game.get_meta("lair_thump", -1) == beat: return
 	game.set_meta("lair_thump", beat)
+	# 开场近景用非空间声音，避免听者仍在远处角色位置而听不到震动。
+	if run.opening_age() >= 0.0 and run.opening_age() < LAIR:
+		game.sfx.play("punch_heavy", -5.0, 0.5)
+		if beat % 4 == 0: game.sfx.play("boss_rumble", -9.0, 1.0)
+	else:
+		game.sfx.play_at("punch_heavy", world(event.origin, 0.1), -5.0, 0.5)
 	var hazard_fx = game.get("hazard_fx")
 	if hazard_fx != null: hazard_fx.slam(world(event.origin, 0.1), 7.0)
 	var fx = game.get("fx")

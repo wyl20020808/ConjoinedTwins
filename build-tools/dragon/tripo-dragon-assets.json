@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-22",
+  "generator": "Tripo Studio 文生 3D，H3.1、超清几何、2K、去光、PBR、三角面",
+  "license": "待用户按账号套餐确认",
+  "assets": [
+    {
+      "name": "fire_dragon",
+      "date": "2026-10-23",
+      "download": "dragon 3d model.glb",
+      "file": "build-tools/dragon/source/fire_dragon_v2.glb（4.2 MB，放在被忽略的 source/，见 docs/BOSS_CH2_DESIGN.md）",
+      "sha256": "4bfec6746c4e5b76b76216901ae2104c1a71bc880202884c5031b198b77967c6",
+      "bytes": 4205200,
+      "faces": 29144,
+      "texture": "2048 原样（basecolor JPEG、normal PNG、粗糙度/金属度 JPEG），绑骨导出时 normal 转 JPEG",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/ac44f806-84ae-4da2-83c9-a6f109046b65",
+      "rigged": "assets/boss/rigged/fire_dragon.glb",
+      "rigged_sha256": "d86eac90ed21d8c09389c56a463fb07f399cb09c93d9814a66b3627b3237dfbd",
+      "rigged_by": "build-tools/dragon/rig_dragon.py（Blender 5.2）"
+    },
+    {
+      "name": "fire_dragon_v1",
+      "download": "fire dragon 3d model.glb",
+      "file": "build-tools/dragon/source/fire_dragon.glb（5.1 MB，超过入库阈值未入库，见 docs/BOSS_CH2_DESIGN.md）",
+      "sha256": "b6ae850929baed58483e49c9c8dfbfb486fed7080ad6f452c5f1cdc81baf9be3",
+      "bytes": 5114208,
+      "faces": 28679,
+      "texture": "2048 原样（basecolor JPEG、normal PNG、粗糙度/金属度 JPEG）",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/edf225cf-830f-4bf2-ab0f-d1c38be4bd91",
+      "rigged": "assets/boss/rigged/fire_dragon.glb",
+      "rigged_sha256": "22fc7202d92d759da26efccbd225cdac0a88ac753be9b4e9fa8707ea6a0622b9",
+      "rigged_by": "build-tools/dragon/rig_dragon.py（Blender 5.2）",
+      "note": "2026-10-22 第一版（前肢短小贴身），已被 v2 取代；rigged 与 rig 关节数据见 git 历史。"
+    },
+    {
+      "name": "chain_winch",
+      "download": "medieval chain winch 3d model.glb",
+      "download_sha256": "6876caa59c8c374343c6d78cec178a9643b1a889a7bdfaa59fe5b18f336064f2",
+      "file": "assets/boss/chain_winch.glb",
+      "sha256": "46ee8533346f51662944eda266520f226685d742b19114cbe283027587a7c841",
+      "bytes": 1449612,
+      "faces": 5682,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/b5038855-c154-477a-9b46-f33f874834e8"
+    },
+    {
+      "name": "meteor",
+      "download": "flaming meteor 3d model.glb",
+      "download_sha256": "c59ea3602bcbe86989fe877d4e9139ad2b80404adb50f9f4af5b9854289c5a88",
+      "file": "assets/boss/meteor.glb",
+      "sha256": "de43feec8ede728bf4d8a361b85d2eb326ad14f3ba244089d5094cb49ec4e97c",
+      "bytes": 1341328,
+      "faces": 5633,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/6f59f03e-d530-4018-92f5-516508386e85"
+    },
+    {
+      "name": "dragon_nest",
+      "download": "dragon nest 3d model.glb",
+      "download_sha256": "6b6edb6bf14c172c2b6f63f1629c9b419e6c6a6576f43fe9fce6aad368526c29",
+      "file": "assets/boss/dragon_nest.glb",
+      "sha256": "d597e2eb0562f749e4f10d6bce305d4bd82474ae3f92737e17309c97834bc0fa",
+      "bytes": 1356736,
+      "faces": 5513,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/d888ca4c-2d52-4c6e-9749-8302e09be9c5"
+    },
+    {
+      "name": "ember_bat",
+      "date": "2026-10-23",
+      "download": "fiery ember bat 3d model.glb",
+      "download_sha256": "cea52e1f8c422407aadf639acb6eaaa79510a19d41433e23c72e4fae397079c4",
+      "faces": 5907,
+      "file": "assets/monsters/rigged/ember_bat.glb",
+      "sha256": "a6c420d67b2b7712a892299d7831dcfcb8e2cbf7e35836328550de7dcf5756b9",
+      "bytes": 885912,
+      "texture": "绑骨后 shrink_glb.py 缩到 1024",
+      "rigged_by": "build-tools/boss/rig_minions.py（Blender 5.2）",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/8567e84a-9765-437d-a9a5-e61aed76a927"
+    }
+  ],
+  "export": "2026-10-23 起内置浏览器拦截 blob 下载且不能访问本机端口：在页面里截获导出的 GLB 数据，分段以 base64 读出后在本机拼回，大小与哈希按导出数据核对。"
+}
