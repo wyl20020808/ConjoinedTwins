@@ -95,6 +95,8 @@ static func thump_age(run) -> float:
 static func lair_dormant(run) -> Dictionary:
 	var event: Dictionary = run.Boss.boss(run)
 	if event.is_empty() or event.hp <= 0 or event.phase != "dormant": return {}
+	# 第二章魔龙不在巢里（开战时才从天而降），巢穴只冒烟，没有地下震动；第三章海神沉在深潭里，潭水翻涌由海神画面负责。
+	if event.get("species", "") in ["dragon", "poseidon"]: return {}
 	return event
 
 # 每一拍触发一次：巢穴扬尘圈，加上巢穴周围约 25 米内八处碎土与扬尘（位置按拍数变化）。只在 Boss 场地处于显示范围内时触发。

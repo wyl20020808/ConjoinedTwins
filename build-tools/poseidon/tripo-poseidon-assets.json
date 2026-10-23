@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-23",
+  "generator": "Tripo Studio 文生 3D，H3.1、超清几何、纹理 2K、去光、PBR、三角面",
+  "license": "待用户按账号套餐确认",
+  "export": "内置浏览器拦截 blob 下载且不能访问本机端口：在页面里截获导出的 GLB 数据，分段以 base64 读出后在本机拼回，大小与哈希按导出数据核对。",
+  "assets": [
+    {
+      "name": "poseidon",
+      "download": "poseidon 3d model.glb",
+      "file": "build-tools/poseidon/source/poseidon.glb（被忽略，重新绑骨前从 Tripo 任务重新导出到这里）",
+      "sha256": "b5d022a2ab548316a905c73a6532fc26b8b80001f47733a311ebe879c5b01b68",
+      "bytes": 3385004,
+      "faces": 29172,
+      "rigged": "assets/boss/rigged/poseidon.glb",
+      "rigged_sha256": "cf0daed9b1cd1c2452c84245b768dafc89c3923473a8744d2eca82609d3fe4e1",
+      "rigged_by": "build-tools/poseidon/rig_poseidon.py（Blender 5.2）",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/f3d9835d-2ac5-4752-9d4b-b40f00c41267"
+    },
+    {
+      "name": "tide_jelly",
+      "download": "glowing jellyfish 3d model.glb",
+      "download_sha256": "6bd1465d7cb0a8a9586f178853e00f3fc056b5267abd56417c93b080a7a85165",
+      "faces": 5764,
+      "file": "assets/monsters/rigged/tide_jelly.glb",
+      "sha256": "38a558cd3e5e46c132c44019aa1a4a86e2819d3f0dbe16a893b3d8a051a467f1",
+      "bytes": 928744,
+      "texture": "绑骨后 shrink_glb.py 缩到 1024",
+      "rigged_by": "build-tools/boss/rig_minions.py（Blender 5.2）",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/21cede47-c1da-4086-b09b-b4e0e28a78f8"
+    },
+    {
+      "name": "sunken_temple",
+      "download": "ancient ruins 3d model.glb",
+      "download_sha256": "8ad138691f7858dbc4c77fbe31551abf1677ffe81f281bf02010d107cdc51a23",
+      "faces": 5658,
+      "file": "assets/boss/sunken_temple.glb",
+      "sha256": "f051b03df2fcb12cb3ba061237188593ff9fa4357fa95e79fab307a083bcca0b",
+      "bytes": 1648236,
+      "texture": "shrink_glb.py 缩到 1024",
+      "tripo_task": "https://studio.tripo3d.ai/zh/workspace/generate/2331ccdd-b157-4c7f-998b-7944f3f38810"
+    }
+  ]
+}
