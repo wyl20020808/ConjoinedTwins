@@ -3,7 +3,8 @@ extends RefCounted
 const RandomLayout=preload("res://scripts/journey_random.gd")
 const Boss=preload("res://scripts/journey_boss.gd")
 const STEP:=240.0
-const REUSED:=["sweeper","hammer","press","steam","shuttle","piston","lift","slope","steps","tilt"]
+# 三章共用池不再生成尖坡、倾斜黄板与升降平台，碰撞和展示一并移除。
+const REUSED:=["sweeper","hammer","press","steam","shuttle","piston","steps"]
 # 主节拍只放会动的机关：原矮木栏、立柱、巨岩等静态占位改为往复撞石、摆锤、扫杆、活塞等动态机关。
 const RIDGE:=["shuttle","hammer","sweeper","road_gap","active_spikes","shuttle","collapse","piston"]
 const FOREST:=["shuttle","hammer","tree","road_gap","collapse","boar","shuttle","swing","sweeper","tree","active_spikes","boar"]
@@ -411,7 +412,6 @@ static func formation(run,n:int,y:float,blocked:float,variant:int=-1)->void:
 			var edge:float=-run.EDGE if blocked<0 else run.EDGE-70
 			run.add_hazard("road_gap",Rect2(edge,start-35,70,55))
 		2:
-			run.add_hazard("cargo",Rect2(blocked*145-38,start,76,55))
 			run.add_hazard("pillar",Rect2(blocked*265-16,start+30,32,32))
 		3:
 			var index:int=run.add_hazard("steps",Rect2(blocked*155-65,start,130,85))

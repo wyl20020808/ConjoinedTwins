@@ -391,7 +391,7 @@ func sync_time_of_day(center: Vector3, chapter: int, forest: float) -> void:
 	mist.global_position = anchor + Vector3(0, 0.4, 0)
 	pollen.global_position = anchor + Vector3(0, 4.0, 0)
 	fireflies.emitting = chapter == 1
-	mist.emitting = chapter == 2
+	mist.emitting = false
 	pollen.emitting = chapter == 0 and forest > 0.2
 	pollen.amount_ratio = clampf(forest, 0.0, 1.0)
 

@@ -360,6 +360,7 @@ func _ready() -> void:
 	# 默认“不限”时不改引擎设置，保留启动入口或测试预设的上限。
 	if not OS.has_feature("web") and settings.fps_cap>0:Engine.max_fps=settings.fps_cap
 	world_environment=get_children().filter(func(node): return node is WorldEnvironment)[0].environment
+	world_environment.fog_enabled=false
 	world_environment.fog_light_color=Color("849d8b")
 	world_environment.fog_density=0.003
 	world_environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR
@@ -480,7 +481,8 @@ func apply_quality_effects() -> void:
 	var preset:Dictionary=Settings.DESKTOP[settings.quality]
 	if is_instance_valid(canopy_light):canopy_light.shadow_enabled=preset.shadows
 	if world_environment!=null:
-		world_environment.volumetric_fog_enabled=preset.fog
+		world_environment.fog_enabled=false
+		world_environment.volumetric_fog_enabled=false
 		world_environment.ssao_enabled=preset.ssao
 
 func apply_render_quality() -> void:

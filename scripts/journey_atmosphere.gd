@@ -90,8 +90,9 @@ func _init(parent:Node3D,environment:Environment,light:DirectionalLight3D,camera
 	env.glow_blend_mode=Environment.GLOW_BLEND_MODE_SCREEN
 	for level in range(7):env.set_glow_level(level,level in [2,3,4,5])
 	# 远处雾色取自同方向天空，地平线与晚霞自然衔接。
-	env.fog_aerial_perspective=0.6
-	env.volumetric_fog_enabled=true
+	env.fog_enabled=false
+	env.fog_aerial_perspective=0.0
+	env.volumetric_fog_enabled=false
 	env.volumetric_fog_length=96.0
 	env.volumetric_fog_anisotropy=0.55
 	env.volumetric_fog_ambient_inject=0.15
