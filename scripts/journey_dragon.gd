@@ -241,6 +241,8 @@ static func choose(run, event: Dictionary) -> void:
 		run.Combat.add_pickup(run,"medkit",Vector2(0,event.arena+SUPPLY-60))
 		run.combat.notice="%s进入第 %d 阶段"%[NAME,event.stage+1]
 		enter(run,event,"roar")
+		# 与第一章相同：换阶段时存档，失败从本阶段继续。
+		run.capture_checkpoint()
 		return
 	event.skill_seq+=1
 	if event.cycle_moves>=MOVES[event.stage]:

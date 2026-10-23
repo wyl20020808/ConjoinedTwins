@@ -37,6 +37,21 @@ func verify() -> void:
 	check("越界端口报错", NetClient.parse_address("host:70000", false, false).has("error"))
 	check("不支持的协议报错", NetClient.parse_address("http://host:1", false, false).has("error"))
 	check("原生客户端没有网页默认地址", NetClient.page_default_address() == "")
+	check("旧默认端口迁移到当前默认入口", NetClient.migrate_address("wss://www.u4139693.nyat.app:57412/ws") == NetClient.preferred_default())
+	check("旧默认端口仍参与自动回退", NetClient.is_default("wss://www.u4139693.nyat.app:57412/ws"))
+	check("自定义端口不被迁移", NetClient.migrate_address("wss://www.u4139693.nyat.app:12345/ws") == "wss://www.u4139693.nyat.app:12345/ws")
+	var had_address := FileAccess.file_exists(NetClient.ADDRESS_FILE)
+	var original_address := FileAccess.get_file_as_bytes(NetClient.ADDRESS_FILE) if had_address else PackedByteArray()
+	var saved := ConfigFile.new()
+	saved.set_value("online", "address", "wss://www.u4139693.nyat.app:57412/ws")
+	saved.save(NetClient.ADDRESS_FILE)
+	check("旧配置文件不会覆盖当前默认入口", NetClient.default_address() == NetClient.preferred_default())
+	if had_address:
+		var restore := FileAccess.open(NetClient.ADDRESS_FILE, FileAccess.WRITE)
+		restore.store_buffer(original_address)
+		restore.close()
+	else:
+		DirAccess.remove_absolute(NetClient.ADDRESS_FILE)
 
 	var relay = Relay.new()
 	relay.port = PORT
@@ -49,6 +64,28 @@ func verify() -> void:
 	while client.role < 0 and Time.get_ticks_msec() < deadline: await process_frame
 	check("带 /ws 路径的 WebSocket 地址连上中继并分配为 01", client.role == 0)
 	client.disconnect_from()
+	client.queue_free()
+	await process_frame
+	client = NetClient.new()
+	root.add_child(client)
+	# 接受 TCP 但不回应 WebSocket 握手，模拟隧道无响应，验证实际握手期限。
+	var silent := TCPServer.new()
+	check("无响应 WebSocket 测试端口可监听", silent.listen(PORT + 2, "127.0.0.1") == OK)
+	var terminal := []
+	client.status_changed.connect(func(message):
+		if message.begins_with("连接失败"): terminal.append(message))
+	client.connect_to("ws://127.0.0.1:%d/ws" % (PORT + 2))
+	# 引擎默认三秒握手期限更短；本夹具延长它，以单独验证客户端的六秒门槛。
+	client.peer.handshake_timeout = 30.0
+	var held: Array[StreamPeerTCP] = []
+	var handshake_started := Time.get_ticks_msec()
+	deadline = Time.get_ticks_msec() + NetClient.CONNECT_TIMEOUT_MSEC + 1500
+	while terminal.is_empty() and Time.get_ticks_msec() < deadline:
+		if silent.is_connection_available(): held.append(silent.take_connection())
+		await process_frame
+	check("无响应握手确实等待到超时期限", Time.get_ticks_msec() - handshake_started >= NetClient.CONNECT_TIMEOUT_MSEC)
+	check("WebSocket 超时返回可重试状态", client.peer == null and not terminal.is_empty())
+	silent.stop()
 	client.queue_free()
 	relay.queue_free()
 	await process_frame

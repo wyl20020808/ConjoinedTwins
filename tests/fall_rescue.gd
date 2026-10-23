@@ -24,7 +24,7 @@ func hang(difficulty: String = "普通"):
 	return run
 
 # 按给定频率连按；每次按下保持 1 个固定步再松开。返回结束时的状态。
-func mash(run, holder_rate: float, faller_rate: float = 0.0, seconds: float = 4.0) -> String:
+func mash(run, holder_rate: float, faller_rate: float = 0.0, seconds: float = Run.RESCUE_TIME + Run.RESCUE_CLIMB_TIME + 0.5) -> String:
 	if run.state != "rescue": return run.state
 	var role: int = run.rescue.role
 	for tick in range(int(seconds * 120)):
@@ -71,13 +71,13 @@ func _initialize() -> void:
 
 	# 4. 按住不放不算连按。
 	run = hang()
-	for tick in range(480):
+	for tick in range(int((Run.RESCUE_TIME + 1.0) * 120)):
 		if run.state != "rescue": break
 		run.step(Run.FIXED_STEP, Vector2.ZERO, Vector2.ZERO, false, true)
 	check(run.state == "failed", "按住跳跃键不放救不起来")
 	run.dispose()
 
-	# 5. 同关重复救援所需频率提高：第一次可以的频率，第二次不够。
+	# 5. 同关重复救援不再加难，同样的正常节奏始终有效。
 	run = hang()
 	var steady: float = Run.RESCUE_RATES["普通"] * 1.1
 	mash(run, steady)
@@ -86,8 +86,8 @@ func _initialize() -> void:
 	for tick in range(120):
 		if run.state != "running": break
 		run.step(Run.FIXED_STEP, Vector2(-1, 0), Vector2.ZERO)
-	check(run.state == "rescue" and absf(run.rescue.rate - Run.RESCUE_RATES["普通"] * Run.RESCUE_ESCALATION) < 0.001, "第二次救援所需频率提高")
-	check(mash(run, steady) == "failed", "第二次用同样频率救不起来")
+	check(run.state == "rescue" and absf(run.rescue.rate - Run.RESCUE_RATES["普通"]) < 0.001, "第二次救援所需频率保持不变")
+	check(mash(run, steady) == "running", "第二次用同样节奏仍能救起")
 	run.dispose()
 
 	# 6. 队友腾空时没人拉绳，直接坠落。

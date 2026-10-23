@@ -12,8 +12,8 @@ const PRESS_SAFE := 2.8
 # 在横跨道路的竖直平面里按 θ = HAMMER_ANGLE·sin(2πt/HAMMER_PERIOD + 相位) 不停摆动，没有抬起/放下阶段。
 # 最低点锤头底部离地 0.35 米（跳不过），摆到两端时锤头抬到头顶以上，可以从下面钻过。
 const HAMMER_PERIOD := 1.8
-const HAMMER_LENGTH := 210.0
-const HAMMER_PIVOT := 235.0
+const HAMMER_LENGTH := 360.0
+const HAMMER_PIVOT := 385.0
 const HAMMER_ANGLE := 1.12
 const HAMMER_HEAD := Vector3(52, 44, 36)
 const HAMMER_RATE := HAMMER_ANGLE * TAU / HAMMER_PERIOD

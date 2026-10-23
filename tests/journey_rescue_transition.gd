@@ -13,7 +13,13 @@ func record_frame()->void:
 	previous_frame_usec=now
 func screenshot(label:String)->void:
 	if report_dir.is_empty() or DisplayServer.get_name()=="headless":return
-	root.get_texture().get_image().save_png(report_dir.path_join(label+".png"))
+	var capture:=root.get_texture().get_image()
+	var visible_samples:=0
+	for y in range(1,5):
+		for x in range(1,5):
+			if capture.get_pixel(capture.get_width()*x/5,capture.get_height()*y/5).v>0.1:visible_samples+=1
+	check(visible_samples>0,"%s 截图包含实际画面，不能用全黑帧通过"%label)
+	capture.save_png(report_dir.path_join(label+".png"))
 func check(ok:bool,label:String)->void:
 	print("PASS " if ok else "FAIL ",label)
 	if not ok:failures+=1
@@ -31,6 +37,10 @@ func verify()->void:
 	game.set_physics_process(false)
 	game.play_mode="local"
 	var run=game.run
+	# 本检查专测救援及回镜，不让章节开场在救援结束后插入黑场与另一套镜头。
+	game.opening_enabled=false
+	run.opening_enabled=false
+	run.opening_at=run.NO_OPENING
 	var cycles:=8
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--cycles="):cycles=clampi(int(arg.get_slice("=",1)),1,128)
