@@ -6,7 +6,7 @@
 
 ### Windows 安装向导（2026-10-23）
 
-发给朋友时使用 `builds/windows/installer/<版本>/共生连线_Setup.exe`。版本号保存在安装信息和构建记录中，不同版本保留在各自目录。朋友双击安装，按中文向导选择目录，默认创建桌面快捷方式；安装结束可立即启动。以后双击桌面或开始菜单中的“共生连线”即可游玩。Windows 设置的应用列表和开始菜单提供卸载入口。
+发给朋友时使用 `builds/windows/installer/<版本>/共生连线_Setup.exe`。文件名统一使用游戏名称和标准安装标识，版本号保存在安装信息和构建记录中；不同版本放在各自目录，保留历史产物。朋友双击安装，按中文向导选择目录，默认创建桌面快捷方式；安装结束可立即启动。以后双击桌面或开始菜单中的“共生连线”即可游玩。Windows 设置的应用列表和开始菜单提供卸载入口。
 
 构建电脑需要 Inno Setup 6.7 或更新版本。安装器编译器来自 [Inno Setup 官方下载页](https://jrsoftware.org/isdl.php)，通过 `--iscc` 指定路径，不要求加入 PATH。朋友电脑不需要 Python、Godot 或 Inno Setup。
 
@@ -21,7 +21,7 @@ python build-tools/package_windows_installer.py --skip-export --iscc "你的 Inn
 ```
 
 - 安装仅针对当前用户，默认路径为 `%LOCALAPPDATA%\Programs\ConjoinedTwins`，无需管理员权限；可在向导中更换目录。支持 Windows 10/11 x64；其他平台仍走各自打包流程。
-- 浏览窗口提供“新建文件夹”。选中的文件夹就是最终安装位置，不再自动追加 `ConjoinedTwins` 子目录；不更改路径时仍使用上述默认目录。
+- 选择目录时，浏览窗口提供“新建文件夹”，可以创建并重命名安装目录。用户选中的目录就是最终安装位置，不再自动追加 `ConjoinedTwins` 子目录；不更改路径时仍使用上述默认目录。通过 Inno Setup 的 `AppendDefaultDirName=no` 启用，依据见 [官方说明](https://jrsoftware.org/ishelp/topic_setup_appenddefaultdirname.htm)。
 - 安装器包含主程序、主包、数据包清单和全部校验过的数据包，首次安装不需要下载游戏资源。联网更新继续使用既有云更新，更新文件写入玩家用户数据目录。
 - 固定 AppId 让后续安装复用原安装位置和卸载项。重复安装覆盖本安装器提供的文件；卸载只处理安装文件和快捷方式，保留玩家设置及已下载的云更新。
 - 不会自动关闭正在运行的游戏，也不会重启系统。安装前请先退出游戏。
