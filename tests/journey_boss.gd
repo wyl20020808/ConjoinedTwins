@@ -222,6 +222,8 @@ func verify()->void:
 	run.Combat.damage(run,boss,boss.max_hp)
 	check(boss.hp==0 and Boss.hold_y(run)==INF,"击败后道路放开")
 	ticks(run,1)
+	check(preload("res://scripts/journey_boss_finale.gd").active(run),"击败后先播放死亡演出")
+	ticks(run,roundi(preload("res://scripts/journey_boss_finale.gd").LENGTH/run.FIXED_STEP))
 	place(run,run.finish_distance()+10);ticks(run,2)
 	check(run.state=="settlement","走到终点结算")
 	run.dispose()

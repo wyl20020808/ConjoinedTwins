@@ -49,6 +49,8 @@ const RECORDED_GROUPS := {
 	"rocket_whoosh": 2, "stone_slide_door": 0,
 	# Boss 入场：程序合成（build-tools/boss/make_boss_sfx.py），叠加降调的 CC0 木头与爆炸录音。
 	"boss_roar": 1, "boss_rumble": 1, "boss_burst": 1,
+	"colossus_charge": 3, "colossus_attack": 3, "colossus_hurt": 2,
+	"colossus_death": 1, "colossus_fracture": 1,
 	# 第二章魔龙：程序合成（build-tools/dragon/make_dragon_sfx.py），叠加降调的 CC0 火焰与爆炸录音。
 	"dragon_roar": 1, "wing_flap": 1,
 	# 第三章海神：程序合成（build-tools/poseidon/make_poseidon_sfx.py），叠加降调的 CC0 爆炸录音。
@@ -56,6 +58,7 @@ const RECORDED_GROUPS := {
 	"flame_loop": 0, "fire_crackle_loop": 0, "machine_loop": 0, "stone_roll": 0, "cart_roll": 0,
 }
 var variants := {}
+var last_colossus_voice := {}
 # 持续循环声（喷火、滚石、无人机等）：按调用方给定的键复用定位播放器，数量受调用方的对象池约束。
 var loops := {}
 # 退出场景树后不再新建播放句柄，否则 OGG 播放对象会在退出时残留。
@@ -108,6 +111,11 @@ func has_sound(name: String) -> bool:
 func pick(name: String) -> AudioStream:
 	if variants.has(name):
 		var list: Array = variants[name]
+		if name.begins_with("colossus_") and list.size() > 1:
+			var previous: int = last_colossus_voice.get(name, -1)
+			var index := int(vary.randi() % list.size()) if previous < 0 else (previous+1+int(vary.randi() % (list.size()-1)))%list.size()
+			last_colossus_voice[name] = index
+			return list[index]
 		return list[vary.randi() % list.size()]
 	return streams.get(name)
 

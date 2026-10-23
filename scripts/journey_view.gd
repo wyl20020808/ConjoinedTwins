@@ -1213,7 +1213,7 @@ func sync_gates() -> void:
 		add_sign(end,"共同抵达 · 前方是下一段旅程",Vector3(0,7,0),36)
 	road.get_node("JourneyFinish").position.z=-run.finish_distance()/SCALE
 	# 终点门就在 Boss 身后：Boss 倒下前不显示，入场运镜和战斗画面里不出现“共同抵达”。
-	road.get_node("JourneyFinish").visible=not run.Boss.alive(run.Boss.boss(run))
+	road.get_node("JourneyFinish").visible=not run.Boss.alive(run.Boss.boss(run)) and not BossView.Finale.active(run)
 
 func build_journey_ui() -> void:
 	build_post_fx()
@@ -2396,6 +2396,11 @@ func camera_shot()->Transform3D:
 # 入场动画期间由 BossView 的运镜接管，结束时正好落在 Boss 镜头上。
 func boss_camera(home:Transform3D)->Transform3D:
 	var event:Dictionary=run.Boss.boss(run)
+	if BossView.Finale.active(run):
+		boss_camera_blend=1.0
+		var shot:Dictionary=BossView.Finale.camera(event,run.elapsed,boss_shot(event))
+		camera.fov=shot.fov
+		return shot.transform
 	if run.Boss.cinematic(run):
 		boss_camera_blend=1.0
 		var shot:Dictionary=BossView.intro_camera(self,event,home,boss_shot(event))
@@ -2635,7 +2640,7 @@ func update_journey_ui() -> void:
 	if run.state=="running" and not run.Boss.hint(run).is_empty():journey_hint.visible=true
 	if journey_hint.visible: journey_hint.text=run.active_hint()
 	# Boss 入场动画按电影画面呈现：整个游戏界面层收起，只留黑边和标题（由 BossView 绘制）；暂停时照常显示菜单。
-	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and (run.Boss.cinematic(run) or run.opening_active()))
+	if has_node("JourneyCanvas"):get_node("JourneyCanvas").visible=not (run.state=="running" and (run.Boss.cinematic(run) or run.opening_active() or BossView.Finale.active(run)))
 	update_settings_panel()
 	panel.visible=run.state in ["start","paused","failed","settlement","complete"] and not fail_showing() and not settings_open
 	update_chapter_bar(viewport,inset,hud_width)
