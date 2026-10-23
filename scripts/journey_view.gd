@@ -1440,6 +1440,8 @@ func build_journey_ui() -> void:
 	online_row.add_child(net_button)
 	style_button(net_button,false,16,true)
 	net_status=label("远程双人：连接同一版本网页",16)
+	net_status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	net_status.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	inner.add_child(net_status)
 	touch.blockers.append(net_button)
 	var choice:=HBoxContainer.new()

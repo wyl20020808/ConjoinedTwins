@@ -57,12 +57,13 @@ def validate(source):
 
 def build(source, iscc):
     release, files = validate(source)
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    target = OUTPUT / f"ConjoinedTwins-Setup-{release}.exe"
+    release_output = OUTPUT / release
+    release_output.mkdir(parents=True, exist_ok=True)
+    target = release_output / "共生连线_Setup.exe"
     if target.exists():
         raise FileExistsError(f"安装器已存在，保留原件：{target}")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    evidence = OUTPUT / f"evidence-{stamp}"
+    evidence = release_output / f"evidence-{stamp}"
     evidence.mkdir()
     # 只暂存清单列出的文件，不把历史数据包和调试文件带进安装器。
     with tempfile.TemporaryDirectory(prefix="ct-installer-") as temp:
@@ -73,7 +74,7 @@ def build(source, iscc):
             shutil.copy2(path, dest)
         (payload / "安装说明.txt").write_text(INSTALL_HELP, encoding="utf-8-sig")
         command = [str(iscc), "/Qp", f"/DPayloadDir={payload}", f"/DRelease={release}",
-                   f"/DOutputDir={OUTPUT}", str(ROOT / "build-tools/windows-installer.iss")]
+                   f"/DOutputDir={release_output}", str(ROOT / "build-tools/windows-installer.iss")]
         with (evidence / "compile.log").open("w", encoding="utf-8") as log:
             result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=600)
     if result.returncode != 0 or not target.is_file():
