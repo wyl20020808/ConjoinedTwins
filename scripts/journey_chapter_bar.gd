@@ -19,12 +19,13 @@ var zone_labels: Array[Label] = []
 var zone_title: Label
 var zone_caption: Label
 var drawn_key := ""
+var segments := ZONES
 
 func _ready() -> void:
 	name = "ChapterBar"
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for i in range(ZONES):
+	for i in range(ZONES + 1):
 		var zone := text_label(11, Color(0.86, 0.88, 0.82, 0.62))
 		zone.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		zone.clip_text = true
@@ -48,7 +49,22 @@ func text_label(font_size: int, color: Color) -> Label:
 	return result
 
 static func zone_names(run) -> Array:
-	return run.TRIAL_ZONES if run.combat_trial else run.CHAPTERS[run.level_index].zones
+	var names:Array=(run.TRIAL_ZONES if run.combat_trial else run.CHAPTERS[run.level_index].zones).duplicate()
+	if run.Boss.enabled(run):
+		var event:Dictionary=run.Boss.boss(run)
+		names.append("???" if event.is_empty() or event.phase=="dormant" else "%s Boss"%run.Boss.NAME)
+	return names
+
+func progress_fraction(run, progress:float) -> float:
+	var finish:float=maxf(1.0,run.finish_distance())
+	if not run.Boss.enabled(run):return clampf(progress/finish,0.0,1.0)
+	# 独立终点段给 Boss 名称留足空间，前六段仍按原区域边界显示。
+	var arena:float=run.Boss.start_y(run)
+	if progress>=arena:return clampf((ZONES+(progress-arena)/(finish-arena))/(ZONES+1),0.0,1.0)
+	var zone:int=clampi(int(progress/(finish/ZONES)),0,ZONES-1)
+	var start:float=zone*finish/ZONES
+	var end:float=minf((zone+1)*finish/ZONES,arena)
+	return clampf((zone+(progress-start)/(end-start))/(ZONES+1),0.0,1.0)
 
 static func chapter_caption(run) -> String:
 	if run.combat_trial: return "战斗训练"
@@ -57,15 +73,16 @@ static func chapter_caption(run) -> String:
 # rect 为细条区域；compact 时只画细条与当前区域名，不画六段文字。
 func refresh(run, delta: float, rect: Rect2, shown: bool, compact: bool) -> void:
 	visible = shown
-	var finish: float = maxf(1.0, run.finish_distance())
-	fraction = clampf(run.progress() / finish, 0.0, 1.0)
-	checkpoint_fraction = -1.0 if run.checkpoint.is_empty() else clampf(float(run.checkpoint.progress) / finish, 0.0, 1.0)
+	fraction = progress_fraction(run,run.progress())
+	checkpoint_fraction = -1.0 if run.checkpoint.is_empty() else progress_fraction(run,float(run.checkpoint.progress))
 	current_zone = run.zone_index()
 	var names := zone_names(run)
+	segments=names.size()
+	if segments>ZONES and run.progress()>=run.Boss.start_y(run):current_zone=ZONES
 	# 只在实际奔跑时登记区域；回到开始页后重新出发也会显示起始区域名。
 	if run.state == "start": zone_key = ""
 	elif run.state == "running":
-		var key := "%d:%s:%d" % [run.level_index, str(run.combat_trial), current_zone]
+		var key := "%d:%s:%d:%s" % [run.level_index, str(run.combat_trial), current_zone,names[current_zone]]
 		if key != zone_key:
 			zone_key = key
 			title_left = TITLE_TIME
@@ -74,11 +91,11 @@ func refresh(run, delta: float, rect: Rect2, shown: bool, compact: bool) -> void
 	title_left = maxf(0.0, title_left - delta)
 	update_title(rect)
 	bar_rect = rect
-	for i in range(ZONES):
+	for i in range(zone_labels.size()):
 		var zone := zone_labels[i]
-		zone.visible = shown and (not compact or i == current_zone)
+		zone.visible = shown and i<segments and (not compact or i == current_zone)
 		if not zone.visible: continue
-		var width := rect.size.x / ZONES
+		var width := rect.size.x / segments
 		zone.text = names[i]
 		zone.position = Vector2(rect.position.x + width * i, rect.end.y + 2.0)
 		zone.size = Vector2(width, LABEL_HEIGHT)
@@ -114,9 +131,9 @@ func _draw() -> void:
 	if bar_rect.size.x <= 0.0: return
 	draw_rect(bar_rect.grow(1.0), Color(0.02, 0.03, 0.03, 0.55))
 	draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x * fraction, bar_rect.size.y)), Color("e8bd7d"))
-	var width := bar_rect.size.x / ZONES
+	var width := bar_rect.size.x / segments
 	draw_rect(Rect2(bar_rect.position + Vector2(width * current_zone, 0), Vector2(width, bar_rect.size.y)), Color(1, 1, 1, 0.10))
-	for i in range(1, ZONES):
+	for i in range(1, segments):
 		var x := bar_rect.position.x + width * i
 		draw_rect(Rect2(x - 1.0, bar_rect.position.y - 2.0, 2.0, bar_rect.size.y + 4.0), Color(0.95, 0.92, 0.85, 0.55))
 	if checkpoint_fraction >= 0.0:

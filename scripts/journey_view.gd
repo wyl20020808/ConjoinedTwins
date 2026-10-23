@@ -166,6 +166,8 @@ var partner_status: Label
 var weapon_ammo: Label
 var weapon_detail: Label
 var weapon_icon: TextureRect
+var weapon_caption: Label
+var application_focused:=true
 var health_panel: PanelContainer
 var weapon_panel: PanelContainer
 var post_canvas: CanvasLayer
@@ -1239,7 +1241,7 @@ func build_journey_ui() -> void:
 	weapon_column.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	weapon_column.add_theme_constant_override("separation",2)
 	weapon_panel.add_child(weapon_column)
-	var weapon_caption:=label("武器",11,Color("9fb0a6"))
+	weapon_caption=label("空手",11,Color("9fb0a6"))
 	weapon_caption.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	weapon_column.add_child(weapon_caption)
 	combat_status=label("",15,Color("cfd6cc"))
@@ -1907,12 +1909,13 @@ func _process(delta:float)->void:
 		var started:=Time.get_ticks_usec()
 		frame_delta=delta
 		sync_view()
-		pump_ambience(delta)
 		if web_verify:
 			var cost:Dictionary=frame_costs.get("render_view",{"samples":0,"total_usec":0,"max_usec":0})
 			var duration:=Time.get_ticks_usec()-started
 			cost.samples+=1;cost.total_usec+=duration;cost.max_usec=maxi(cost.max_usec,duration)
 			frame_costs.render_view=cost
+	# 暂停时也持续同步音频状态，不能依赖模拟是否提交新画面。
+	if scene_prepared:pump_ambience(delta)
 	if scene_prepared and online_visual_enabled(): smooth_online_visuals(delta)
 	# 暂停、失败、救援、结算与开始页时，喷火/滚石/机械等持续声一律停下。
 	if run.state!="running" and is_instance_valid(sfx): sfx.stop_loops()
@@ -1980,9 +1983,14 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed and scene_prepared:handle_pad_button(event)
 
 func _notification(what: int) -> void:
-	if what==NOTIFICATION_APPLICATION_FOCUS_OUT and is_instance_valid(touch):
-		if run.state in ["running","rescue"]: command("pause")
-		clear_controls()
+	if what==NOTIFICATION_APPLICATION_FOCUS_OUT:
+		application_focused=false
+		if scene_prepared:
+			if run.state in ["running","rescue"]: command("pause")
+			clear_controls()
+		pump_music(0.0,false)
+	elif what==NOTIFICATION_APPLICATION_FOCUS_IN:
+		application_focused=true
 
 func sync_view() -> void:
 	if robots.size()<2: return
@@ -2239,6 +2247,9 @@ func sync_journey_character(i:int)->void:
 		var phase:float=(Run.JUMP_SPEED-rising)/(Run.JUMP_SPEED*0.4) if action=="Jump_Start" else (Run.JUMP_SPEED*0.6-rising)/(Run.JUMP_SPEED*1.6)
 		play_action(player,action)
 		player.seek(clampf(phase,0,1)*player.current_animation_length,true)
+		# 腾空帧由物理速度选定，禁止渲染更新再推进一次动画时间。
+		player.speed_scale=0.0
+		if rig!=null:rig.strafe={"Run_Back":0.0,"Run_Left":0.0,"Run_Right":0.0}
 		return
 	if landing_left[i]>0.0 and visual_state=="running":
 		# 轻落地 0.25–0.4 秒，重落地约 0.7 秒；轻缓冲越轻播得越快。
@@ -2408,8 +2419,9 @@ func update_journey_camera()->void:
 	var dramatic:bool=run.state in ["rescue","failed"]
 	if dramatic:journey_camera_returning=true
 	if dramatic or journey_camera_returning:
-		update_camera()
 		var target:=camera_shot()
+		if dramatic:update_camera()
+		else:camera.transform=camera.transform.interpolate_with(target,1.0-exp(-frame_delta*12.0))
 		if not dramatic and camera.transform.origin.distance_to(target.origin)<.01:
 			camera.transform=target;journey_camera_returning=false
 	else:
@@ -2583,6 +2595,7 @@ func update_journey_ui() -> void:
 		fill.bg_color=Color("ef8078") if run.combat.health[entry[1]]<=30 else (Color("9cdeb9") if entry[1]==role else Color("e4b883"))
 	var weapon: Dictionary=run.combat.weapons[role]
 	combat_status.text="空手" if weapon.is_empty() else run.Combat.weapon_name(weapon)
+	weapon_caption.text=combat_status.text
 	if not weapon.is_empty():
 		var weapon_type:String=weapon.get("type","smg")
 		if weapon_icon.get_meta("weapon_type","smg")!=weapon_type:
@@ -2735,9 +2748,10 @@ func play_footsteps(i:int)->void:
 # 战斗层：附近敌人察觉时 0.8 秒淡入、探索层同时降到 0.6；脱战后约 3 秒淡出，停在原处下次接着放。
 func pump_music(delta: float, fighting: bool) -> void:
 	if not is_instance_valid(music_explore):return
-	var paused: bool=run.state=="paused"
-	music_explore.stream_paused=paused and music_explore.playing
-	music_combat.stream_paused=paused and music_combat.playing
+	var paused: bool=run.state=="paused" or not application_focused
+	# playing 在暂停后可能为 false；暂停标记必须持续由游戏状态决定。
+	music_explore.stream_paused=paused
+	music_combat.stream_paused=paused
 	if paused:return
 	var chapter: int=clampi(run.level_index,0,MUSIC_EXPLORE.size()-1)
 	var explore_target: float=(0.6 if fighting else 1.0) if run.state in ["running","rescue"] else 0.5
@@ -2775,7 +2789,7 @@ func pump_ambience(delta: float) -> void:
 	Sfx.set_bus_level("Ambience",ambience_level*settings.volumes.ambience)
 	pump_music(delta,target<1.0)
 	# 开始页和加载页无需创建一个立即暂停的播放句柄。
-	if run.state!="running":
+	if run.state!="running" or not application_focused:
 		if not ambient.stream_paused:ambient.stream_paused=true
 		if not forest_birds.stream_paused:forest_birds.stream_paused=true
 		return

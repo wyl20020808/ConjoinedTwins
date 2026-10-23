@@ -388,6 +388,9 @@ func advance_events(_dt: float) -> void:
 	for event in journey_events:
 		if event.has("hp") and event.hp<=0:
 			event.phase="spent"
+			if event.kind=="boss" and not event.get("victory_saved",false):
+				event.victory_saved=true
+				capture_checkpoint()
 			continue
 		if event.kind=="monster":
 			Monsters.advance(self,event)

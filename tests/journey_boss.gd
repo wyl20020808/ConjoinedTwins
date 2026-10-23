@@ -1,6 +1,6 @@
 extends SceneTree
 # 第一章 Boss「枯根巨像」：场地布局、开战存档、站位上限、护甲与硬直、五种技能的命中与躲避、
-# 绳索灼断缚根、阶段切换、击败后通关与失败后从场地入口重打。
+# 绳索灼断缚根、阶段切换、击败后通关与失败后恢复最近阶段。
 const Journey=preload("res://scripts/journey_run.gd")
 const Boss=preload("res://scripts/journey_boss.gd")
 var failures:Array=[]
@@ -61,7 +61,6 @@ func verify()->void:
 	check(boss.phase=="dormant","入口前 Boss 沉睡")
 	place(run,boss.arena+320);ticks(run,1)
 	check(boss.phase=="intro" and not run.checkpoint.is_empty(),"越过开战线进入苏醒并存档")
-	var saved_progress:float=run.checkpoint.progress
 	check(run.bounded(Vector2(0,boss.arena+1700)).y==boss.arena+Boss.HOLD,"Boss 存活时前进被限制在树心前")
 	check(not run.mid_checkpoint_clear() and not run.checkpoint_ground_clear(),"战斗中不补充存档")
 	# —— 入场动画：不能移动、开火、受伤，Boss 不能被锁定；开场 0.8 秒后按跳跃可跳过 ——
@@ -193,6 +192,7 @@ func verify()->void:
 	boss.hp=int(boss.max_hp*0.6);Boss.enter(run,boss,"idle")
 	until(run,boss,"roar")
 	check(boss.stage==1,"血量 65% 以下进入第二阶段")
+	check(Boss.boss(run).stage==1 and run.checkpoint.run.journey_events[run.boss_index].stage==1,"第二阶段自动存档")
 	until(run,boss,"idle")
 	boss.cycle_moves=0;boss.pattern_index=0
 	until(run,boss,"summon");until(run,boss,"recover")
@@ -202,13 +202,17 @@ func verify()->void:
 	boss.hp=int(boss.max_hp*0.25);Boss.enter(run,boss,"idle")
 	until(run,boss,"roar")
 	check(boss.stage==2,"血量 30% 以下进入第三阶段")
+	var saved_boss:Dictionary=run.checkpoint.run.journey_events[run.boss_index].duplicate(true)
+	var saved_combat:Dictionary=run.checkpoint.run.combat.duplicate(true)
+	var saved_positions:Array=[run.checkpoint.a,run.checkpoint.b]
 	place(run,boss.arena+900,-run.EDGE+20,-run.EDGE+110);fresh(run);ticks(run,2)
 	check(run.combat.health[0]==100-Boss.THORN_DAMAGE,"第三阶段贴边被荆棘扣血")
-	# —— 失败后从场地入口重打 ——
+	# —— 失败后恢复最近阶段，保留双方当时的战斗资源与位置 ——
 	fresh(run);run.fail_threat("测试失败")
 	run.state="failed";check(run.restore_checkpoint(),"失败后恢复存档")
 	boss=Boss.boss(run)
-	check(boss.phase=="dormant" and boss.hp==boss.max_hp and absf(run.checkpoint.progress-saved_progress)<1.0,"恢复到场地入口，Boss 满血沉睡")
+	check(boss==saved_boss and boss.stage==2,"恢复第三阶段及当时 Boss 血量，不重播入场")
+	check(run.combat==saved_combat and [run.a.position,run.b.position]==saved_positions,"恢复双方血量、武器、弹药及位置")
 	# —— 击败后通关 ——
 	run.state="running";place(run,boss.arena+320);fresh(run);ticks(run,1)
 	Boss.enter(run,boss,"stagger")

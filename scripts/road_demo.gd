@@ -359,6 +359,7 @@ func register_animation(node: Node) -> void:
 		animation_players.append(node)
 		add_rescue_clips(node)
 		for name in node.get_animation_list():
+			if "Jump_" in name:node.get_animation(name).loop_mode=Animation.LOOP_NONE
 			if name.ends_with("Idle") or name.ends_with("Run") or name.ends_with("Interact") or name.ends_with("HitRecieve_2"):
 				node.get_animation(name).loop_mode = Animation.LOOP_LINEAR
 		node.animation_finished.connect(func(name):

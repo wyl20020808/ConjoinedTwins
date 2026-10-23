@@ -31,6 +31,8 @@ var action_time := 0.0
 var action_weight := 0.0
 var ground_ref := 0.0
 var ground := Callable()
+var finish_combat_pose := Callable()
+var combat_active := false
 
 var clips := {}
 var rotation_tracks := {}
@@ -75,6 +77,7 @@ func final_pose(bone: int) -> Transform3D:
 func _process_modification_with_delta(_delta: float) -> void:
 	var skeleton := get_skeleton()
 	if skeleton == null or clips.is_empty(): return
+	if combat_active:skeleton.clear_bones_global_pose_override()
 	# 前进/后退先合成，再按侧向权重混入侧步；三者权重之和为 1（Run 本身由动画播放器给出）。
 	for clip in ["Run_Back", "Run_Left", "Run_Right"]:
 		var weight: float = strafe[clip]
@@ -92,11 +95,15 @@ func _process_modification_with_delta(_delta: float) -> void:
 	if action_weight > 0.001 and clips.has(action_clip):
 		var weights := {}
 		for name in ACTION_BONES:
+			# 重定向片段只负责躯干与头；手臂由最终接触目标驱动，避免肩部重定向扭曲。
+			if not gun_arms and (name.begins_with("Right") or name.begins_with("Left")): continue
 			var bone := skeleton.find_bone(name)
 			if bone >= 0: weights[bone] = ACTION_BONES[name] * action_weight
 		blend_clip(skeleton, action_clip, action_time, 1.0, weights)
 	if foot_weight > 0.001 and ground.is_valid(): plant_feet(skeleton)
 	else: last_foot_shift = [0.0, 0.0]
+	# 手部接触必须在躯干、肩膀与落地修正之后求解。
+	if finish_combat_pose.is_valid(): finish_combat_pose.call()
 	for bone in recorded:
 		if bone >= 0: final_poses[bone] = skeleton.get_bone_global_pose(bone)
 
