@@ -16,13 +16,16 @@ const PATROL_RANGE := 2800.0
 const PATROL_SPEED := 70.0
 const PATROL_SPAN := Vector2(150,100)
 const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"dasher":260.0,"wolf":270.0,
-	"root_spider":290.0,"goblin_bomber":200.0,"river_crab_knight":150.0}
+	"root_spider":290.0,"goblin_bomber":200.0,"river_crab_knight":150.0,"ember_bat":300.0,"tide_jelly":150.0}
 const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼",
-	"root_spider":"根须蛛", "goblin_bomber":"矿灯地精", "river_crab_knight":"河岸钳甲兵"}
-const HP := {"briar":45,"raider":60,"sentinel":75,"archer":60,"dasher":90,"wolf":60,"root_spider":45,"goblin_bomber":53,"river_crab_knight":135}
+	"root_spider":"根须蛛", "goblin_bomber":"矿灯地精", "river_crab_knight":"河岸钳甲兵", "ember_bat":"火翼妖", "tide_jelly":"潮汐水母"}
+const HP := {"briar":45,"raider":60,"sentinel":75,"archer":60,"dasher":90,"wolf":60,"root_spider":45,"goblin_bomber":53,"river_crab_knight":135,"ember_bat":30,"tide_jelly":50}
 # 攻击方式：远程（直线飞行物）、冲锋（沿锁定方向扑咬）、近战（向落点砸下）。新怪物按方式复用既有攻击逻辑。
-const RANGED := ["archer","goblin_bomber"]
-const CHARGERS := ["dasher","wolf","root_spider"]
+const RANGED := ["archer","goblin_bomber","tide_jelly"]
+const CHARGERS := ["dasher","wolf","root_spider","ember_bat"]
+# Boss 召唤的飞行小怪（不进普通敌群轮换；显示名避开网页字体子集里没有的“蝙蝠”二字）：画面悬浮高度（道路单位），瞄准点同步抬高；扑咬时画面俯冲到地面。
+# 固定高机位下飞得太高会投影到远处、像在龙脚下，所以只离地 1.7–2 米。
+const FLYERS := {"ember_bat":34.0,"tide_jelly":40.0}
 # 全部种类每章都可能出现，敌群之间轮流换主力，避免长时间同几种。
 const ROSTER := ["briar","raider","sentinel","archer","dasher","wolf","root_spider","goblin_bomber","river_crab_knight"]
 const PROFILES := {
@@ -31,7 +34,10 @@ const PROFILES := {
 	"wolf":{"windup":0.45,"active":0.45,"cycle":1.8,"range":230.0,"damage":28,"speed":430.0},
 	# 根须蛛：更短更快的扑咬；地精：飞得更慢、预警更长的炸药包。
 	"root_spider":{"windup":0.4,"active":0.4,"cycle":1.6,"range":220.0,"damage":22,"speed":460.0},
-	"goblin_bomber":{"windup":0.8,"active":1.3,"cycle":2.6,"range":620.0,"damage":38,"speed":520.0}}
+	"goblin_bomber":{"windup":0.8,"active":1.3,"cycle":2.6,"range":620.0,"damage":38,"speed":520.0},
+	# 火蝠：俯冲扑咬，伤害低但成群；潮汐水母：慢速吐出水弹，射程短于枪（400），必须飞近才能出手、也就能被还击。
+	"ember_bat":{"windup":0.55,"active":0.45,"cycle":2.4,"range":240.0,"damage":10,"speed":520.0},
+	"tide_jelly":{"windup":0.9,"active":1.4,"cycle":3.4,"range":380.0,"damage":14,"speed":430.0}}
 const MELEE := {"windup":WINDUP,"active":FLIGHT,"cycle":CYCLE,"range":ATTACK_RANGE,"damage":32,"speed":0.0}
 
 static func ranged(event:Dictionary)->bool:
@@ -39,6 +45,9 @@ static func ranged(event:Dictionary)->bool:
 
 static func charges(event:Dictionary)->bool:
 	return event.get("archetype","") in CHARGERS
+
+static func hover_height(event:Dictionary)->float:
+	return FLYERS.get(event.get("archetype",""),0.0)
 
 static func profile(event:Dictionary)->Dictionary:
 	return PROFILES.get(event.archetype,MELEE)
@@ -192,7 +201,7 @@ static func sample(event: Dictionary, time: float) -> Dictionary:
 		center=event.launch+event.attack_direction*maxf(0,age-data.windup)*data.speed
 		bottom=event.get("launch_height",0.0)+24.0;size=Vector2(12,12);height=8.0
 	elif charges(event):
-		center=event.origin;bottom=event.get("ground_height",0.0);height={"dasher":42.0,"root_spider":22.0}.get(event.archetype,26.0)
+		center=event.origin;bottom=event.get("ground_height",0.0);height={"dasher":42.0,"root_spider":22.0,"ember_bat":30.0}.get(event.archetype,26.0)
 	elif phase=="active": bottom=event.get("ground_height",0.0)+maxf(0,70-(age-WINDUP)*180)
 	if event.get("attack_blocked",false) and phase=="active":phase="recovery"
 	return {"rect":Rect2(center-size/2,size),"phase":phase,"bottom":bottom,"top":bottom+height}
@@ -281,6 +290,13 @@ static func blockers(run, from:Vector2, to:Vector2) -> Array[Rect2]:
 
 static func clear_path(run, from:Vector2, to:Vector2, solids:Array[Rect2]) -> bool:
 	if absf(to.x)>run.EDGE-BODY_RADIUS: return false
+	# 整条路径的五点脚底与支撑半径都碰不到缺口时，普通路面必然有支撑。
+	# 有缺口（包括塌陷、桥下水面）仍走原有逐点检查；实体裁线保持闭区间。
+	var bounds:=Rect2(from,Vector2.ZERO).expand(to).grow(BODY_RADIUS+run.Motion.RADIUS)
+	if absf(from.x)<=run.EDGE-BODY_RADIUS and run.ground_gaps_in_bounds(bounds,run.elapsed).is_empty():
+		for rect in solids:
+			if run.segment_hits(from,to,rect):return false
+		return true
 	# 寻路网格只查询静止格心。点与矩形按原线段判定的闭区间处理，省去逐轴裁线及插值。
 	if from==to:
 		for rect in solids:

@@ -2,8 +2,13 @@ extends RefCounted
 # 第一章终点 Boss「枯根巨像」。Boss 是 journey_events 中 kind=="boss" 的事件，
 # 全部状态为可深拷贝的数据，按固定步与模拟时间推进：随存档恢复、联机两端一致。
 # 设计依据见 docs/BOSS_CH1_DESIGN.md。坐标为道路单位（20 = 1 米），+y 为前进方向。
+# 本文件同时是各章 Boss 的统一入口：第二章「烬翼魔龙」（species=="dragon"）的技能与入场在 journey_dragon.gd，
+# 第三章「海神波塞冬」（species=="poseidon"）在 journey_poseidon.gd，由这里按事件分派；
+# 场地尺寸、站位上限、护甲减伤与锁定规则三章共用。
 
-const CHAPTERS := [0]
+const Dragon = preload("res://scripts/journey_dragon.gd")
+const Poseidon = preload("res://scripts/journey_poseidon.gd")
+const CHAPTERS := [0, 1, 2]
 # 场地长度、树心与玩家前进上限都相对场地入口（章节终点之前 ARENA）。
 const ARENA := 1800.0
 const TRIGGER := 300.0
@@ -97,6 +102,8 @@ static func start_y(run) -> float:
 static func boss(run) -> Dictionary:
 	var index:int=run.boss_index
 	if index>=0 and index<run.journey_events.size() and run.journey_events[index].kind=="boss": return run.journey_events[index]
+	# 非 Boss 章节及训练场没有 Boss；避免每次边界、射程与镜头查询扫描整张事件表。
+	if index<0 and not enabled(run): return {}
 	for event in run.journey_events:
 		if event.kind=="boss": return event
 	return {}
@@ -118,6 +125,12 @@ static func hold_y(run) -> float:
 
 static func add(run) -> void:
 	if not enabled(run): return
+	if Dragon.enabled(run):
+		Dragon.add(run)
+		return
+	if Poseidon.enabled(run):
+		Poseidon.add(run)
+		return
 	var arena:=start_y(run)
 	var core:=Vector2(0,arena+CORE)
 	var body:=Rect2(-180,core.y-40,360,220)
@@ -144,8 +157,28 @@ static func cinematic(run) -> bool:
 	return alive(event) and event.phase=="intro"
 
 # 跳过入场：直接进入最后的镜头交还段，模拟时间轴整体前移，各端结果一致。
+static func dragon(event: Dictionary) -> bool:
+	return event.get("species","")==Dragon.SPECIES
+
+static func poseidon(event: Dictionary) -> bool:
+	return event.get("species","")==Poseidon.SPECIES
+
+# 后两章 Boss 的技能脚本；第一章（枯根巨像）返回 null，逻辑在本文件。
+static func module(event: Dictionary):
+	if dragon(event): return Dragon
+	if poseidon(event): return Poseidon
+	return null
+
+static func title(event: Dictionary) -> String:
+	var special = module(event)
+	return special.NAME if special != null else NAME
+
 static func skip_intro(run) -> void:
 	var event:=boss(run)
+	var special = module(event)
+	if cinematic(run) and special != null:
+		special.skip_intro(run,event)
+		return
 	if not cinematic(run) or run.elapsed-event.state_at<INTRO_SKIP_AFTER or run.elapsed-event.state_at>=INTRO-RETURN_TIME: return
 	event.state_at=run.elapsed-(INTRO-RETURN_TIME)
 	event.intro_skipped=true
@@ -169,6 +202,10 @@ static func exposed(event: Dictionary) -> bool:
 	return event.get("state","")=="stagger"
 
 static func advance(run, event: Dictionary) -> void:
+	var special = module(event)
+	if special != null:
+		special.advance(run,event)
+		return
 	if event.hp<=0: return
 	if event.phase=="dormant":
 		if minf(run.a.position.y,run.b.position.y)<event.arena+TRIGGER: return
@@ -473,6 +510,7 @@ static func drop_ammo(run, event: Dictionary) -> void:
 static func hint(run) -> String:
 	var event:=boss(run)
 	if event.is_empty() or event.phase=="dormant": return ""
+	if module(event) != null: return module(event).hint(run,event)
 	if event.hp<=0: return "%s倒下了，继续前进"%NAME if run.elapsed-event.get("defeated_at",run.elapsed)<6.0 else ""
 	match event.state:
 		"intro": return ""

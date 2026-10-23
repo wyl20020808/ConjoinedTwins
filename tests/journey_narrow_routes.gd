@@ -27,7 +27,7 @@ func verify()->void:
 		for route:Dictionary in routes.values():
 			for y in range(int(route.narrow_start+20),int(route.narrow_end-20),20):
 				for x in range(-int(run.EDGE)+1,int(run.EDGE),4):
-					var half_width:float=54.0 if route.lanes.size()==1 else 22.0
+					var half_width:float=38.0 if route.lanes.size()==1 else 22.0
 					var expected:bool=route.lanes.any(func(lane):return x>=lane-half_width and x<lane+half_width)
 					check(run.surface_at(Vector2(x,y),0).supported==expected,"only marked lanes have ground")
 		print("NARROW CHAPTER ",chapter," routes=",routes.size()," small=",small)
@@ -46,8 +46,8 @@ func verify()->void:
 				check(spec.has("visual_gap"),"single lane separates visual edge from foot support")
 				if spec.has("visual_gap"):
 					check(not spec.visual_gap.has_point(Vector2(center,600)),"visible bridge retains center")
-			check(run.has_ground_support(Vector2(center+20,600)),"edge misalignment retains foot support")
-			check(not run.has_ground_support(Vector2(center+80,600)),"walking beyond tolerance still falls")
+			check(run.has_ground_support(Vector2(center+25,600)),"edge misalignment retains foot support")
+			check(not run.has_ground_support(Vector2(center+28,600)),"walking beyond tolerance still falls")
 
 		run.encounter_markers.append({"y":400.0,"kind":"center_path","blocked":1.0,"formation":true,"lanes":lanes,"narrow_start":400.0,"narrow_end":840.0})
 		run.a.position=Vector2(-42,220);run.b.position=Vector2(42,220);run.distance=220

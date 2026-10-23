@@ -254,8 +254,9 @@ static func ground_mechanisms(run)->void:
 # 双路间距 5.5 米，三路相邻间距 3.3 米，均可在原绳长内合作。
 static func narrow_terrain(run,route:Dictionary)->void:
 	var left:float=-run.EDGE
-	# 单道保留脚下纠错余量；显示缺口另存，桥面仍为原来的 2.2 米。
-	var half_width:=54.0 if route.lanes.size()==1 else 22.0
+	# 单道桥脚底半径为 12，支撑边缘外扩 16：中心最多越过可见边缘 4（0.2 米）。
+	# 允许半身探出，整个人离桥仍会掉落；显示桥面保持 2.2 米。
+	var half_width:=38.0 if route.lanes.size()==1 else 22.0
 	for center:float in route.lanes:
 		if center-half_width>left:
 			var index:int=run.add_hazard("road_gap",Rect2(left,route.start,center-half_width-left,route.end-route.start))
@@ -265,7 +266,7 @@ static func narrow_terrain(run,route:Dictionary)->void:
 	if left<run.EDGE:
 		var index:int=run.add_hazard("road_gap",Rect2(left,route.start,run.EDGE-left,route.end-route.start))
 		if route.lanes.size()==1:
-			run.hazard_specs[index].visual_gap=Rect2(left-32.0,route.start,run.EDGE-left+32.0,route.end-route.start)
+			run.hazard_specs[index].visual_gap=Rect2(left-16.0,route.start,run.EDGE-left+16.0,route.end-route.start)
 
 const SHUTTLE_WIDTH:=90.0
 const SHUTTLE_PERIOD:=3.6

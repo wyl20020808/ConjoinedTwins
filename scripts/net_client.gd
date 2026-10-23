@@ -544,6 +544,12 @@ func take_frames(maximum: int = -1) -> Array:
 	elif frames.size() > 3: count = 2
 	elif frames.size() > 0: count = 1
 	if maximum >= 0: count = mini(count, maximum)
+	# 生产入口逐帧消费；不要为每一帧复制整份积压队列，断流追赶时尤其容易反复分配。
+	if count<=2:
+		var taken:Array=[]
+		for i in range(count):taken.append(frames.pop_front())
+		next_frame+=count
+		return taken
 	var out := frames.slice(0, count)
 	frames = frames.slice(count)
 	next_frame += count

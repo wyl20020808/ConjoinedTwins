@@ -2228,7 +2228,7 @@ func has_ground_support(point: Vector2, time: float = -1.0) -> bool:
 func ground_sweep_supported(from: Vector2, to: Vector2, time: float = -1.0) -> bool:
 	# 圆形脚底与矩形缺口的精确胶囊相交；每条边和内部均参与检测。
 	var bounds:=Rect2(from,Vector2.ZERO).expand(to).grow(Motion.RADIUS)
-	for gap in ground_gaps(time):
+	for gap in ground_gaps_in_bounds(bounds,time):
 		if not bounds.intersects(gap,true):continue
 		if terrain_supports_sweep(from, to, elapsed if time < 0 else time): return true
 		if gap.has_point(from) or gap.has_point(to): return false
@@ -2236,6 +2236,9 @@ func ground_sweep_supported(from: Vector2, to: Vector2, time: float = -1.0) -> b
 		for i in range(4):
 			if Surfaces.segments_distance(from, to, corners[i], corners[(i + 1) % 4]) < Motion.RADIUS - 0.00001: return false
 	return true
+
+func ground_gaps_in_bounds(_bounds: Rect2, time: float = -1.0) -> Array[Rect2]:
+	return ground_gaps(time)
 
 func sweeper_rope_hits(index: int, start: float, end: float, old_path: PackedVector2Array, old_z: PackedFloat32Array) -> bool:
 	var center := obstacles[index].get_center()
@@ -2372,7 +2375,9 @@ func advance_rope(dt: float) -> void:
 	var first := Vector3(a.position.x, ROPE_HEIGHT + foot_height(0), a.position.y)
 	var last := Vector3(b.position.x, ROPE_HEIGHT + foot_height(1), b.position.y)
 	if rope.physical.is_empty(): rope.physical = RopePhysics.create(first, last, LINK_LIMIT)
-	RopePhysics.advance(rope.physical, first, last, dt, rope_floor_query(), rope_colliders(), surface_rope_guide())
+	var floor_hint:Dictionary={}
+	var floor_query:=rope_floor_query(floor_hint)
+	RopePhysics.advance(rope.physical, first, last, dt, floor_query, rope_colliders(), surface_rope_guide(), floor_hint)
 
 # 死亡后仍运行固定步；绳子绑定身体或脱扣后的自由端都由同一求解器推进。
 func begin_death() -> void:
@@ -2422,7 +2427,9 @@ func death_step(delta: float) -> void:
 		var first := death_positions[0] + Vector3(0, ROPE_HEIGHT, 0)
 		var last := death_positions[1] + Vector3(0, ROPE_HEIGHT, 0)
 		var guide := PackedVector3Array([first, last])
-		RopePhysics.advance(rope.physical, first, last, FIXED_STEP, rope_floor_query(), rope_colliders(), guide)
+		var floor_hint:Dictionary={}
+		var floor_query:=rope_floor_query(floor_hint)
+		RopePhysics.advance(rope.physical, first, last, FIXED_STEP, floor_query, rope_colliders(), guide, floor_hint)
 
 func detach_rope(role: int) -> void:
 	RopePhysics.release(rope.physical, role)
@@ -2492,7 +2499,9 @@ func advance_rescue_rope() -> void:
 		var edge:=rescue_edge()
 		var hanging_waist:Vector3=first if rescue.role==0 else last
 		if hanging_waist.y<edge.y-1.0:guide=PackedVector3Array([first,edge,last])
-	RopePhysics.advance(rope.physical,first,last,FIXED_STEP,rope_floor_query(),rope_colliders(),guide)
+	var floor_hint:Dictionary={}
+	var floor_query:=rope_floor_query(floor_hint)
+	RopePhysics.advance(rope.physical,first,last,FIXED_STEP,floor_query,rope_colliders(),guide,floor_hint)
 
 # 绳子翻过的崖沿点（地面高度）。
 func rescue_edge() -> Vector3:
@@ -2508,7 +2517,7 @@ func terrain_move(from: Vector2, to: Vector2, foot: float, time: float) -> Vecto
 
 const FLAT_TERRAIN := ["drawbridge", "lift", "ferry"]
 # 每个物理子步只收集一次地面环境，质点迭代不重复扫描全部机关或分配缺口数组。
-func rope_floor_query() -> Callable:
+func rope_floor_query(hint:Dictionary={}) -> Callable:
 	var gaps := ground_gaps(elapsed)
 	var query_time:=elapsed
 	var bounds:=Rect2(a.position,Vector2.ZERO).expand(b.position).grow(LINK_LIMIT)
@@ -2521,6 +2530,11 @@ func rope_floor_query() -> Callable:
 		var sample := terrain_sample(index,elapsed,obstacles[index].get_center())
 		# 吊桥、升降台与渡船整块等高：本子步高度只取一次，质点迭代不再逐点重算。
 		if bounds.intersects(sample.rect,true):local_patches.append({"index":index,"rect":sample.rect,"supported":sample.supported,"flat":kinds[index] in FLAT_TERRAIN,"height":sample.height})
+	# 平地/等高台面的最高点是保守上界；非平面地形保留完整采样。
+	hint.bounds=bounds
+	hint.ceiling=0.0
+	for patch in local_patches:
+		if patch.supported:hint.ceiling=maxf(hint.ceiling,patch.height) if patch.flat else INF
 	# 粒子通常只在两人附近；先筛本地几何，越界查询仍回退到完整列表。
 	# 不改变采样顺序、时间、碰撞半径或任何高度判定。
 	var local_gaps:Array=[]

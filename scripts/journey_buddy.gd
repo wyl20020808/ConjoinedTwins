@@ -134,7 +134,11 @@ func think(run,delta:float,human_move:Vector2=Vector2.ZERO,human_jump:bool=false
 			var samples:Array=[]
 			for n in range(FORECAST_STEPS+1):samples.append(predict_event(run,event,FORECAST*n/FORECAST_STEPS))
 			near_events.append({"event":event,"samples":samples})
+	var evaluated:Array[Vector2]=[]
 	for direction:Vector2 in candidates:
+		# 静止、直行和横移时多个候选相同；保留首次顺序与评分，只预测一次同样的路径。
+		if evaluated.has(direction):continue
+		evaluated.append(direction)
 		# 没有推进意图时不主动超越真人；门前允许走到相邻操作位。
 		if direction.y>0 and desired.y==0:continue
 		for jump in [false,true]:

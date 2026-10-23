@@ -102,9 +102,14 @@ func verify()->void:
 	bar.refresh(run,0.016,Rect2(0,0,700,4),true,false)
 	check(bar.segments==7 and bar.zone_labels[6].visible,"第一章独立 Boss 终点段")
 	check(is_equal_approx(bar.progress_fraction(run,boss.arena),6.0/7.0),"Boss 进度定位到终点段入口")
-	run.level_index=1;run.retry()
-	bar.refresh(run,0.016,Rect2(0,0,700,4),true,false)
-	check(bar.segments==6 and not bar.zone_labels[6].visible,"无 Boss 的章节保留六段")
+	# 第二、三章也有终点 Boss（烬翼魔龙、海神波塞冬），同样是独立终点段并显示各自名称。
+	for chapter in [[1,"烬翼魔龙 Boss"],[2,"海神波塞冬 Boss"]]:
+		run.level_index=chapter[0];run.retry()
+		bar.refresh(run,0.016,Rect2(0,0,700,4),true,false)
+		var later:Dictionary=run.Boss.boss(run)
+		later.phase="intro"
+		check(bar.segments==7 and ChapterBar.zone_names(run).back()==chapter[1],"第 %d 章独立 Boss 终点段与名称"%(chapter[0]+1))
+		later.phase="dormant"
 	game.frame_delta=1.0/60.0;run.state="running"
 	game.journey_camera_returning=true
 	game.camera.transform=game.camera_shot().translated(Vector3(8,4,6))
