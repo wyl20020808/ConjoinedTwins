@@ -390,6 +390,22 @@ Godot 导入改为 `animation/import=true`，清空 `retarget/bone_map`，关闭
 
 **许可待确认**：同上文。
 
+## 2026-10-23 Tripo 文生 3D：第三章 Boss「海神波塞冬」
+
+与上一节同批生成（同一账号、同样参数与导出方式）。提示词、哈希与 Tripo 任务链接见 `build-tools/poseidon/tripo-poseidon-prompts.json`、`tripo-poseidon-assets.json`。
+
+| 资产 | 入库文件 | 面数 | 用途 |
+| --- | --- | ---: | --- |
+| 海神本体 | `assets/boss/rigged/poseidon.glb`（原件 3.4 MB 放在被忽略的 `build-tools/poseidon/source/`） | 29172 | `build-tools/poseidon/rig_poseidon.py` 绑骨（双臂、双腿、披风两束、神矛刚性挂右手）并写 11 个动作；贴图保留 2048 |
+| 潮汐水母 | `assets/monsters/rigged/tide_jelly.glb` | 5764 | 海神召唤的飞行远程小怪；`build-tools/boss/rig_minions.py` 绑骨，贴图缩到 1024 |
+| 海底神殿遗迹 | `assets/boss/sunken_temple.glb` | 5658 | 深潭后方的背景遗迹，贴图缩到 1024 |
+
+**许可待确认**：同上文。
+
+## 2026-10-23 海神音效（程序合成）
+
+`assets/audio/recorded/tide_crash_0.wav`、`water_splash_0.wav`、`thunder_0.wav`、`water_jet_loop.wav` 由 `build-tools/poseidon/make_poseidon_sfx.py` 用 numpy 合成（固定随机种子）：巨浪为低通噪声涌起、宽频拍击与气泡嘶声，叠加降调的 `explosion_0.wav`；水花为短促宽频冲击加下落水滴音；雷声为高通炸裂接低频滚雷，叠加降调的 `explosion_1.wav`；激流循环为滤波噪声并首尾交叉淡化。所叠加录音均为项目已登记的 CC0 素材，合成部分为本项目原创。
+
 ## 2026-10-22 魔龙音效（程序合成）
 
 `assets/audio/recorded/dragon_roar_0.wav`、`wing_flap_0.wav` 由 `build-tools/dragon/make_dragon_sfx.py` 用 numpy 合成（固定随机种子）：龙吼为低沉胸腔吼声与撕裂尖啸两层谐波加口型共振峰塑形的气声，尾段叠加降调的 `flame_loop.wav`，起声叠加降调的 `explosion_1.wav`；振翅为低通噪声风压加皮膜颤音与低频冲击。所叠加录音均为项目已登记的 CC0 素材（见 `build-tools/journey/recorded-audio-sources.json`），合成部分为本项目原创。

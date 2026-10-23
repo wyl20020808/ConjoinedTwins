@@ -51,6 +51,8 @@ const RECORDED_GROUPS := {
 	"boss_roar": 1, "boss_rumble": 1, "boss_burst": 1,
 	# 第二章魔龙：程序合成（build-tools/dragon/make_dragon_sfx.py），叠加降调的 CC0 火焰与爆炸录音。
 	"dragon_roar": 1, "wing_flap": 1,
+	# 第三章海神：程序合成（build-tools/poseidon/make_poseidon_sfx.py），叠加降调的 CC0 爆炸录音。
+	"tide_crash": 1, "water_splash": 1, "thunder": 1, "water_jet_loop": 0,
 	"flame_loop": 0, "fire_crackle_loop": 0, "machine_loop": 0, "stone_roll": 0, "cart_roll": 0,
 }
 var variants := {}

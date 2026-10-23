@@ -39,9 +39,9 @@ func _initialize()->void:call_deferred("verify")
 
 func verify()->void:
 	# —— 布局 ——
-	# 第二章是烬翼魔龙（tests/journey_dragon.gd），第三章暂无 Boss。
+	# 第二章是烬翼魔龙（tests/journey_dragon.gd），第三章是海神波塞冬（tests/journey_poseidon.gd）。
 	var third=chapter(2)
-	check(Boss.boss(third).is_empty(),"第 3 章没有 Boss")
+	check(Boss.poseidon(Boss.boss(third)),"第 3 章的 Boss 是海神")
 	third.dispose()
 	var second=chapter(1)
 	check(Boss.dragon(Boss.boss(second)),"第 2 章的 Boss 是魔龙")

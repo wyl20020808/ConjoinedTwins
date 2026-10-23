@@ -34,9 +34,9 @@ const PROFILES := {
 	# 根须蛛：更短更快的扑咬；地精：飞得更慢、预警更长的炸药包。
 	"root_spider":{"windup":0.4,"active":0.4,"cycle":1.6,"range":220.0,"damage":22,"speed":460.0},
 	"goblin_bomber":{"windup":0.8,"active":1.3,"cycle":2.6,"range":620.0,"damage":38,"speed":520.0},
-	# 火蝠：俯冲扑咬，伤害低但成群；潮汐水母：慢速吐出水弹。
+	# 火蝠：俯冲扑咬，伤害低但成群；潮汐水母：慢速吐出水弹，射程短于枪（400），必须飞近才能出手、也就能被还击。
 	"ember_bat":{"windup":0.55,"active":0.45,"cycle":2.4,"range":240.0,"damage":10,"speed":520.0},
-	"tide_jelly":{"windup":0.8,"active":1.3,"cycle":2.8,"range":640.0,"damage":22,"speed":460.0}}
+	"tide_jelly":{"windup":0.9,"active":1.4,"cycle":3.4,"range":380.0,"damage":14,"speed":430.0}}
 const MELEE := {"windup":WINDUP,"active":FLIGHT,"cycle":CYCLE,"range":ATTACK_RANGE,"damage":32,"speed":0.0}
 
 static func ranged(event:Dictionary)->bool:
