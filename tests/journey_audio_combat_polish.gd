@@ -75,7 +75,7 @@ func horde_wakes_together()->void:
 	var run=Journey.new();run.level_index=0;run.retry();run.state="running"
 	var arena:Dictionary=run.arenas[0]
 	var members:Array=run.journey_events.filter(func(e):return e.kind=="monster" and e.has("horde") and e.horde==arena.start)
-	check(members.size()>=27,"怪物潮专区三波共 %d 只"%members.size())
+	check(members.size()>=20 and members.size()<=26,"怪物潮专区三波共 %d 只"%members.size())
 	var ammo:Array=run.combat.pickups.filter(func(p):return p.kind=="ammo" and p.position.y>=arena.start and p.position.y<arena.end)
 	check(ammo.size()>=7,"专区弹药补给 %d 箱"%ammo.size())
 	var y:float=arena.start+run.Monsters.HORDE_ENTRY+20

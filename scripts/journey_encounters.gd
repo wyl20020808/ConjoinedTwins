@@ -253,9 +253,11 @@ static func ground_mechanisms(run)->void:
 # 双路间距 5.5 米，三路相邻间距 3.3 米，均可在原绳长内合作。
 static func narrow_terrain(run,route:Dictionary)->void:
 	var left:float=-run.EDGE
+	# 单道桥加宽，给身体碰撞半径之外留下横向纠错余量；多道桥保留分路。
+	var half_width:=54.0 if route.lanes.size()==1 else 22.0
 	for center:float in route.lanes:
-		if center-22>left:run.add_hazard("road_gap",Rect2(left,route.start,center-22-left,route.end-route.start))
-		left=center+22
+		if center-half_width>left:run.add_hazard("road_gap",Rect2(left,route.start,center-half_width-left,route.end-route.start))
+		left=center+half_width
 	if left<run.EDGE:run.add_hazard("road_gap",Rect2(left,route.start,run.EDGE-left,route.end-route.start))
 
 const SHUTTLE_WIDTH:=90.0

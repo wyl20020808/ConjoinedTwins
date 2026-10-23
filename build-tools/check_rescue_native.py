@@ -39,7 +39,7 @@ def main():
     hashes = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
     command = [args.godot, '--path', str(ROOT), '--script', 'res://tests/journey_rescue_transition.gd',
                '--position', '-10000,-10000', '--resolution', '1280x720', '--log-file', str(output / 'godot.log'),
-               '--', f'--cycles={args.cycles}']
+               '--', '--chapter=0', f'--cycles={args.cycles}']
     if args.driver:
         command[1:1] = ['--rendering-driver', args.driver]
         if args.driver == 'vulkan' and not args.method:
