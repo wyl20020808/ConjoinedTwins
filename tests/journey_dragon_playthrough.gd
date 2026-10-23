@@ -1,6 +1,6 @@
 extends SceneTree
 # 第二章魔龙实打：两名脚本玩家从场地入口出发，只通过移动、跳跃和射击输入
-# （与本地双人相同：只有 01 号开火）拾枪、躲吐息并换边、跳冲击环、躲火雨与熔岩池、离开俯冲横带、
+# （与本地双人相同：只有 01 号开火）拾枪、躲吐息并换边、跳冲击环、躲火雨与熔岩池、离开俯冲横带、绕跑甩开悬空炎息、打掉火翼妖、
 # 两人各站一块绞盘踏板拉锁链破甲（火球来时让开）、输出熔岩核，直到击败魔龙并走到终点结算。
 # 不修改血量、坐标或 Boss 状态；入口之前的路程由其他旅程测试覆盖。
 const Journey=preload("res://scripts/journey_run.gd")
@@ -97,6 +97,18 @@ func verify()->void:
 						var lane:float=boss.lane_y
 						var away:=lane+170.0 if lane+170.0<arena+Dragon.HOLD else lane-170.0
 						targets=[Vector2(run.a.position.x,away),Vector2(run.b.position.x,away)]
+				"hover":
+					# 火柱落点追人：两人一起绕着落点跑（切向为主，太近时向外），远离熔岩尾迹。
+					targets=[run.a.position,run.b.position]
+					if age>=Dragon.HOVER_ARRIVE and age<Dragon.hover_beam_end(boss):
+						var mid:Vector2=(run.a.position+run.b.position)*0.5
+						var away:Vector2=mid-boss.beam
+						if away.length()<1.0:away=Vector2(1,0)
+						var dir:Vector2=(away.normalized().orthogonal()*0.8+away.normalized()*(0.6 if away.length()<220.0 else -0.2)).normalized()
+						if absf(mid.x)>run.EDGE-90.0:dir.x=-signf(mid.x)*absf(dir.x)
+						if mid.y>arena+Dragon.HOLD-60.0:dir.y=-absf(dir.y)
+						if mid.y<arena+Dragon.FLOOR+80.0:dir.y=absf(dir.y)
+						targets=[run.a.position+dir*60.0,run.b.position+dir*60.0]
 				"charge":
 					# 两人各站一块踏板；火球飞向哪块，站在上面的人先往前让开，落地后回来。
 					var p0:=Dragon.plate_center(boss,0)
@@ -108,7 +120,7 @@ func verify()->void:
 							if targets[role].distance_to(boss.spit_target)<1.0:targets[role]+=Vector2(0,110)
 					if Dragon.nova_warning(run,boss):targets=[run.a.position,run.b.position]
 		if boss.state in ["tail","nova"]:jump=ring_jump(run,boss)
-		if boss.hp>0 and boss.state!="charge":
+		if boss.hp>0 and boss.state not in ["charge","hover"]:
 			for role in range(2):targets[role]=dodge_pools(boss,targets[role])
 		if boss.stage==2:
 			for role in range(2):targets[role].x=clampf(targets[role].x,-run.EDGE+Dragon.WALL_WIDTH+30,run.EDGE-Dragon.WALL_WIDTH-30)

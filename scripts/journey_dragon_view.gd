@@ -24,7 +24,9 @@ const EMBER := Color("ff6a1a")
 const LAVA := Color("ffb347")
 const DANGER := Color("ff4a1a")
 const TOXIC := Color("ffcf4a")
-const MAX_POOLS := 16
+# 悬空炎息沿途留下的小熔岩也用这组池子；只有前 12 个带补光，控制光源数量。
+const MAX_POOLS := 28
+const LIT_POOLS := 12
 const CHAIN_LINKS := 48
 
 static func world(point: Vector2, height: float = 0.0) -> Vector3:
@@ -365,12 +367,13 @@ static func lava_pool(n: int) -> MeshInstance3D:
 	mat.set_shader_parameter("seed", float(n)*3.7)
 	node.material_override = mat
 	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var light := OmniLight3D.new()
-	light.light_color = EMBER
-	light.omni_range = 4.5
-	light.light_energy = 1.6
-	light.position = Vector3(0, 0.8, 0)
-	node.add_child(light)
+	if n < LIT_POOLS:
+		var light := OmniLight3D.new()
+		light.light_color = EMBER
+		light.omni_range = 4.5
+		light.light_energy = 1.6
+		light.position = Vector3(0, 0.8, 0)
+		node.add_child(light)
 	node.hide()
 	return node
 
@@ -447,6 +450,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	rings(game, view, event)
 	meteors(game, view, dragon, event, age)
 	pools(run, view, event)
+	hover_fx(game, view, dragon, event, age)
 	strafe_fx(game, view, dragon, event, age)
 	charge_fx(game, view, dragon, event, age)
 	fires(game, view, event, dead)
@@ -467,7 +471,7 @@ static func place(run, view: Node3D, dragon: Node3D, event: Dictionary, dead: bo
 	var flying := smoothstep(30.0, 140.0, alt)
 	# 侧倾：朝转弯内侧压翼，按 0.15 秒后的朝向变化估算转弯角速度。
 	var turn: float = heading.angle_to(ahead.heading)
-	pivot.rotation = Vector3(FLY_PITCH*flying, 0, clampf(turn*3.0, -0.6, 0.6)*flying)
+	pivot.rotation = Vector3(float(pose.get("pitch", FLY_PITCH))*flying, 0, clampf(turn*3.0, -0.6, 0.6)*flying)
 	if dead: dragon.position.y = -smoothstep(6.0, 9.0, death_age)*8.0
 	dragon.visible = event.phase != "dormant" and (not dead or death_age < 9.0)
 
@@ -520,6 +524,13 @@ static func animate(run, dragon: Node3D, event: Dictionary, age: float, dead: bo
 					clip = "Fly"; t = fposmod(age*1.2, 1.0)
 				elif age < Dragon.STRAFE_RETURN: clip = "Glide"; t = fposmod(age, 2.0)
 				else: clip = "Land"; t = age-Dragon.STRAFE_RETURN
+			"hover":
+				var beam_end: float = Dragon.hover_beam_end(event)
+				if age < Dragon.HOVER_TAKEOFF: clip = "Takeoff"; t = age
+				elif age < beam_end+Dragon.HOVER_BACK: clip = "Fly"; t = fposmod(age*(0.85 if age >= Dragon.HOVER_ARRIVE and age < beam_end else 1.2), 1.0)
+				else: clip = "Land"; t = age-beam_end-Dragon.HOVER_BACK
+			"bats":
+				clip = "Roar"; t = clampf(age/(Dragon.BATS_WINDUP*pace), 0, 1)*1.6
 			"charge":
 				clip = "Charge"; t = fposmod(age, 2.0)
 			"stagger":
@@ -636,6 +647,14 @@ static func telegraphs(game, view: Node3D, event: Dictionary, age: float) -> voi
 				circle.position = local(event, event.targets[n], 0.07)
 				circle.scale = Vector3.ONE*(Dragon.METEOR_RADIUS*2/SCALE)
 				set_charge(circle, age/land)
+		"hover":
+			# 火柱落点：瞄准期圆圈逐渐亮起并跟着人走，喷火期间保持全亮。
+			if age < Dragon.HOVER_ARRIVE or age >= Dragon.hover_beam_end(event): return
+			var circle: MeshInstance3D = marks.get_node("Spit")
+			circle.show()
+			circle.position = local(event, event.beam, 0.12)
+			circle.scale = Vector3.ONE*(Dragon.BEAM_RADIUS*2.4/SCALE)
+			set_charge(circle, clampf((age-Dragon.HOVER_ARRIVE)/(Dragon.HOVER_AIM-Dragon.HOVER_ARRIVE), 0, 1))
 		"tail":
 			# 前摇：脚下一圈逐渐亮起，提示冲击环从这里扩散。
 			var windup: float = Dragon.TAIL_WINDUP*pace
@@ -762,8 +781,27 @@ static func pools(run, view: Node3D, event: Dictionary) -> void:
 		if not show: continue
 		var pool: Dictionary = list[n]
 		node.position = local(event, pool.position, 0.06+n*0.002)
+		node.scale = Vector3.ONE*(float(pool.get("radius", Dragon.POOL_RADIUS))/Dragon.POOL_RADIUS)
 		var left: float = float(pool.until)-run.elapsed
 		(node.material_override as ShaderMaterial).set_shader_parameter("life", clampf(left/1.2, 0.0, 1.0))
+
+# 悬空炎息：火柱从嘴里斜向下喷到落点，落点翻起火焰；喷火开关与横掠、吐息共用。
+static func hover_fx(game, view: Node3D, dragon: Node3D, event: Dictionary, age: float) -> void:
+	var run = game.run
+	var on: bool = Dragon.beam_on(event, run.elapsed) and run.state == "running"
+	view.set_meta("hover_on", on)
+	if not on: return
+	var trail: GPUParticles3D = view.get_node("Trail")
+	var fire: GPUParticles3D = view.get_node("Flame")
+	var ground := world(event.beam, 0.1)
+	var at := mouth(dragon)
+	var aim := (ground-at).normalized()
+	fire.global_transform = Transform3D(Basis.looking_at(aim, Vector3.UP if absf(aim.y) < 0.98 else Vector3.BACK), at)
+	trail.global_transform = Transform3D(Basis.looking_at(Vector3(1, 0, 0), Vector3.UP), ground)
+	(trail.process_material as ParticleProcessMaterial).emission_box_extents = Vector3(1.8, 0.2, 1.8)
+	view.set_meta("flame_at", ground)
+	var fx = game.get("fx")
+	if fx != null and int(run.elapsed/run.FIXED_STEP)%5 == 0: fx.burst("dust", ground)
 
 # 横掠：龙低空横穿，嘴下方一路喷火，横带上沿着龙的轨迹翻起火带。
 static func strafe_fx(game, view: Node3D, dragon: Node3D, event: Dictionary, age: float) -> void:
@@ -782,14 +820,16 @@ static func strafe_fx(game, view: Node3D, dragon: Node3D, event: Dictionary, age
 		view.set_meta("flame_at", ground)
 		var fx = game.get("fx")
 		if fx != null and int(run.elapsed/run.FIXED_STEP)%5 == 0: fx.burst("dust", ground)
-	if trail.emitting != passing: trail.emitting = passing
-	var flaming: bool = passing or view.get_meta("breath_on", false)
+	var hovering: bool = view.get_meta("hover_on", false)
+	if trail.emitting != (passing or hovering): trail.emitting = passing or hovering
+	var flaming: bool = passing or hovering or view.get_meta("breath_on", false)
 	if fire.emitting != flaming: fire.emitting = flaming
 	game.sfx.loop_at("dragon_breath", "flame_loop", flaming, view.get_meta("flame_at", Vector3.ZERO), 4.0, 0.7)
 	# 起飞与降落时翼风扬尘。
-	if event.hp > 0 and event.state == "strafe":
+	if event.hp > 0 and event.state in ["strafe", "hover"]:
 		var fx = game.get("fx")
-		var gust: bool = age < Dragon.STRAFE_TAKEOFF or age > Dragon.STRAFE_RETURN+0.3 and age < Dragon.STRAFE_RETURN+1.2
+		var back: float = Dragon.STRAFE_RETURN if event.state == "strafe" else Dragon.hover_beam_end(event)+Dragon.HOVER_BACK
+		var gust: bool = age < Dragon.STRAFE_TAKEOFF or age > back+0.3 and age < back+1.2
 		if gust and fx != null and int(run.elapsed/run.FIXED_STEP)%6 == 0:
 			var base := world(event.perch, 0.1)
 			var spin: float = run.elapsed*6.0
@@ -932,6 +972,30 @@ static func moments(game, view: Node3D, dragon: Node3D, event: Dictionary, age: 
 				game.sfx.play_at("boss_burst", base, 0.0, 1.0)
 				if hazard_fx != null: hazard_fx.slam(base, 9.0)
 				if fx != null: fx.impact(base, Color("d8c2a0"), 12.0, 0.0, false)
+		"hover":
+			var beam_end: float = Dragon.hover_beam_end(event)
+			if once(view, key):
+				game.sfx.play_at("whoosh", base, 6.0, 0.45)
+				game.sfx.play_at(roar_name, head, 0.0, 1.05)
+			var beat := int(age*1.1)
+			if age > 0.4 and age < beam_end+Dragon.HOVER_BACK+0.6 and once_tag(view, "flap", "%s:%d"%[key, beat]):
+				game.sfx.play_at("wing_flap" if game.sfx.has_sound("wing_flap") else "whoosh", dragon.global_position+Vector3(0, PIVOT, 0), 4.0, 0.55)
+			if age >= Dragon.HOVER_AIM and once_tag(view, "beam", key):
+				game.sfx.play_at("flame_start", head, 8.0, 0.55)
+				game.sfx.play_at(roar_name, head, -2.0, 1.2)
+			if age >= beam_end+Dragon.HOVER_BACK+Dragon.LAND_TOUCH and once_tag(view, "land", key):
+				game.sfx.play_at("boss_burst", base, 0.0, 1.0)
+				if hazard_fx != null: hazard_fx.slam(base, 9.0)
+				if fx != null: fx.impact(base, Color("d8c2a0"), 12.0, 0.0, false)
+		"bats":
+			if once(view, key):
+				game.sfx.play_at("growl", head, 2.0, 0.6)
+			if age >= Dragon.BATS_WINDUP*pace and once_tag(view, "bats", key):
+				game.sfx.play_at(roar_name, head, 4.0, 1.3)
+				for n in range(3): game.sfx.play_at("hiss", base+Vector3((n-1)*6.0, 4.0, 2.0), 0.0, 2.2+n*0.2)
+				game.sfx.play_at("wing_flap" if game.sfx.has_sound("wing_flap") else "whoosh", base+Vector3(0, 6.0, 0), 4.0, 1.6)
+				if fx != null:
+					for x in [-10.0, 10.0]: fx.impact(world((event.perch as Vector2)+Vector2(x*20.0, 60.0), 3.0), EMBER, 3.0, 2.0, false)
 		"charge":
 			if once(view, key):
 				game.sfx.play_at("boss_rumble", base, 2.0, 0.9)

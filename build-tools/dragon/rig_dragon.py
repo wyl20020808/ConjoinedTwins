@@ -2,8 +2,9 @@
 
 在 Blender 5.2 后台运行：
   blender -b --python rig_dragon.py -- <输出 GLB> [--preview <目录>] [--shots 动作:秒,动作:秒...]
-输入固定为 build-tools/dragon/source/fire_dragon.glb（Tripo 原模型：最长边约 1、脚底在原点、
-脸朝 -Y、Z 向上；半直立姿势，后腿站立、前肢短小、双翼向上张开呈 V 形、长尾拖地向 +Y）。
+输入固定为 build-tools/dragon/source/fire_dragon_v2.glb（2026-10-23 Tripo 重新生成：最长边约 1、脚底在原点、
+脸朝 -Y、Z 向上；半直立姿势，后腿蹲站、两条粗壮前臂向前外侧张开、巨爪张开，双翼向上张开，长尾拖地向 +Y 并弯向 -X）。
+第一版（前肢短小、贴身）的关节数据见 git 历史。
 
 做法与第一章 rig_boss.py 相同：
 1. 关节位置取自原模型几何剖面（2026-10-22 用 profile 脚本按切片求质心，见 docs/BOSS_CH2_DESIGN.md），
@@ -17,7 +18,7 @@ import bpy, sys, os, math, bmesh
 from mathutils import Vector, Quaternion, kdtree
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(HERE, 'source', 'fire_dragon.glb')
+SOURCE = os.path.join(HERE, 'source', 'fire_dragon_v2.glb')
 FPS = 30
 FORWARD = Vector((0, -1, 0))
 LEFT = Vector((1, 0, 0))
@@ -52,18 +53,19 @@ def mirror(p, side):
 
 
 # —— 关节（模型坐标，左侧 +X）——
-# 躯干中线：剖面质心（|x|<0.07 的切片）。
-HIPS = Vector((0, -0.02, 0.19))
-BELLY = Vector((0, -0.14, 0.27))
-CHEST = Vector((0, -0.25, 0.37))
-NECK1 = Vector((0, -0.31, 0.45))
-NECK2 = Vector((0, -0.35, 0.52))
-HEAD = Vector((0, -0.385, 0.545))
-SNOUT = Vector((0, -0.50, 0.525))
-JAW = Vector((0, -0.40, 0.515))
-JAW_TIP = Vector((0, -0.485, 0.49))
-TAIL = [Vector((0, 0.04, 0.17)), Vector((0, 0.12, 0.135)), Vector((0.02, 0.20, 0.08)), Vector((0.04, 0.28, 0.045)),
-        Vector((0.05, 0.36, 0.035)), Vector((0.04, 0.43, 0.05)), Vector((0, 0.49, 0.09))]
+# 躯干中线：剖面质心（|x|<0.06 的切片，2026-10-23 对 v2 模型重新求取，配合带网格的正/侧视图核对）。
+HIPS = Vector((0, -0.12, 0.20))
+BELLY = Vector((0, -0.19, 0.29))
+CHEST = Vector((0, -0.225, 0.40))
+NECK1 = Vector((0, -0.235, 0.48))
+NECK2 = Vector((0, -0.275, 0.545))
+HEAD = Vector((0, -0.31, 0.605))
+SNOUT = Vector((0, -0.465, 0.61))
+JAW = Vector((0, -0.35, 0.585))
+JAW_TIP = Vector((0, -0.42, 0.535))
+# 尾巴从髋后贴地伸向 +Y，末段弯向 -X 并上翘。
+TAIL = [Vector((0, -0.03, 0.16)), Vector((-0.02, 0.07, 0.10)), Vector((-0.06, 0.15, 0.07)), Vector((-0.12, 0.23, 0.06)),
+        Vector((-0.17, 0.31, 0.068)), Vector((-0.22, 0.39, 0.118)), Vector((-0.247, 0.465, 0.205))]
 
 
 def leg_chain(side):
@@ -73,28 +75,28 @@ def leg_chain(side):
     # 尾根贴地处（y>0.06）不算腿。
     ankle = centroid([v for v in verts if side * v.x > 0.06 and 0.04 < v.z < 0.07 and -0.2 < v.y < 0.06])
     knee = centroid([v for v in verts if side * v.x > 0.05 and 0.10 < v.z < 0.13 and -0.2 < v.y < 0.06])
-    hip = Vector((side * 0.075, -0.05, 0.21))
+    hip = Vector((side * 0.08, -0.13, 0.22))
     return hip, knee, Vector((ankle.x, ankle.y, ankle.z)), Vector((heel.x, toe.y + 0.02, 0.01))
 
 
+# 前臂粗长、向前外侧张开：肩 → 肘（外侧略下）→ 腕（前方）→ 爪尖（前下方）。
 def arm_chain(side):
-    shoulder = Vector((side * 0.07, -0.22, 0.39))
-    elbow = Vector((side * 0.075, -0.255, 0.28))
-    hand = Vector((side * 0.072, -0.235, 0.17))
-    tip = Vector((side * 0.075, -0.255, 0.12))
+    shoulder = Vector((side * 0.10, -0.21, 0.44))
+    elbow = Vector((side * 0.19, -0.23, 0.37))
+    hand = Vector((side * 0.255, -0.33, 0.345))
+    tip = Vector((side * 0.29, -0.43, 0.25))
     return shoulder, elbow, hand, tip
 
 
 def wing_chain(side):
-    root = Vector((side * 0.085, -0.20, 0.40))
-    elbow = Vector((side * 0.15, -0.22, 0.49))
-    wing = [v for v in verts if side * v.x > 0.16 and v.z > 0.5]
-    # 翼腕：翼前缘最高处的爪（正面图上 x≈±0.21、z≈0.59）。
-    wrist = centroid([v for v in wing if abs(abs(v.x) - 0.21) < 0.03 and v.z > 0.57])
-    far = [v for v in verts if side * v.x > 0.46]
+    root = Vector((side * 0.11, -0.19, 0.47))
+    elbow = Vector((side * 0.17, -0.20, 0.59))
+    # 翼腕：翼前缘最高处的爪（正面图上 x≈±0.22、z≈0.71）。
+    wrist = centroid([v for v in verts if abs(side * v.x - 0.22) < 0.03 and v.z > 0.68])
+    far = [v for v in verts if side * v.x > 0.43 and v.z > 0.7]
     tip1 = max(far, key=lambda v: side * v.x)
-    tip2 = mirror(Vector((0.44, -0.18, 0.42)), side)
-    tip3 = mirror(Vector((0.32, -0.18, 0.31)), side)
+    tip2 = mirror(Vector((0.465, -0.19, 0.50)), side)
+    tip3 = mirror(Vector((0.34, -0.19, 0.43)), side)
     return root, elbow, wrist, tip1, tip2, tip3
 
 
@@ -168,15 +170,18 @@ def region(v):
     """按部位限定可选骨骼，避免翼膜被腿骨、尾巴被前肢等远处骨骼拉走。"""
     side = 'L' if v.x > 0 else 'R'
     ax = abs(v.x)
-    if ax > 0.105 and v.z > 0.27 and v.y < -0.1:
-        return 'wing', side
-    if v.y > 0.03 and v.z < 0.2 and ax < 0.12:
-        return 'tail', side
-    if v.y < -0.36 and v.z > 0.44:
+    # 双角在头顶后上方（z>0.62），比翼根更靠中线，先归头部，免得被翼骨拉长。
+    if v.z > 0.62 and ax < 0.15 and v.y < -0.15:
         return 'head', side
-    if ax > 0.035 and v.y < -0.17 and 0.1 < v.z < 0.42 and ax < 0.12:
+    if (ax > 0.11 and v.z > 0.465) or ax > 0.33:
+        return 'wing', side
+    if v.y > 0.02 and v.z < 0.26:
+        return 'tail', side
+    if v.y < -0.28 and v.z > 0.53 and ax < 0.13:
+        return 'head', side
+    if v.y < -0.15 and ((ax > 0.13 and 0.17 < v.z <= 0.465) or (ax > 0.085 and 0.38 < v.z <= 0.465)):
         return 'arm', side
-    if ax > 0.04 and v.z < 0.24 and v.y > -0.2:
+    if ax > 0.03 and v.z < 0.30 and v.y > -0.27:
         return 'leg', side
     return 'body', side
 
@@ -203,8 +208,8 @@ for index, v in enumerate(verts):
         d = segment_distance(v, a, b)
         # 下颌：嘴线以下、头前部的顶点归 Jaw，其余头部顶点不吃 Jaw。
         if name == 'Jaw':
-            below = v.z < JAW.z + (v.y - JAW.y) * 0.35 + 0.005
-            if not (below and v.y < -0.405):
+            below = v.z < JAW.z + (v.y - JAW.y) * 0.2 + 0.005
+            if not (below and v.y < -0.36):
                 continue
             d *= 0.5
         candidates.append((d, name))
@@ -329,7 +334,13 @@ def roll(deg):  # 绕前后轴侧倾，正值左侧抬起
     return rot(FORWARD, deg)
 
 
+# v2 模型静止时双翼已高举成 V 形，上抬幅度按 WING_UP 缩小，避免翼越过头顶交叉到身前。
+WING_UP = 0.5
+
+
 def flap(side, deg):  # 翅膀绕前后轴上抬（正）或下压（负）
+    if deg > 0:
+        deg *= WING_UP
     return rot(Vector((0, 1, 0)), -deg if side == 'L' else deg)
 
 
@@ -423,7 +434,15 @@ def wings_folded(amount):
                  both('Finger3', lambda s: compose(sweep(s, 30 * amount), flap(s, 18 * amount))))
 
 
+# v2 颈部静止时接近竖直，后仰（负值）按 NECK_BACK 缩小，免得头仰到翼后被挡住。
+NECK_BACK = 0.45
+
+
 def neck(pitch_deg, yaw_deg=0.0, head_pitch=0.0, jaw=0.0, head_yaw=0.0):
+    if pitch_deg < 0:
+        pitch_deg *= NECK_BACK
+    if head_pitch < 0:
+        head_pitch *= 0.7
     return {'Neck1': compose(yaw(yaw_deg * 0.4), pitch(pitch_deg * 0.5)),
             'Neck2': compose(yaw(yaw_deg * 0.6), pitch(pitch_deg * 0.5)),
             'Head': compose(yaw(head_yaw), pitch(head_pitch)),

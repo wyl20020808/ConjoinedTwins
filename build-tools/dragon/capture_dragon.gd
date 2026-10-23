@@ -3,7 +3,7 @@ extends SceneTree
 # 检查模型、飞行姿态、动作、预警、火焰与锁链等特效和血条。截图完毕自动退出。
 #   Godot --path . --resolution 1280x720 --script res://build-tools/dragon/capture_dragon.gd
 # 输出目录取环境变量 DRAGON_CAPTURE_DIR（默认 user://dragon-capture/），不写入工程。
-# 环境变量 DRAGON_CAPTURE_ONLY=intro|fight 只截其中一部分；DRAGON_CAPTURE_MOMENTS 指定入场时刻（逗号分隔秒数）。
+# 环境变量 DRAGON_CAPTURE_ONLY=intro|fight|air 只截其中一部分（air：悬空炎息与召唤火蝠）；DRAGON_CAPTURE_MOMENTS 指定入场时刻（逗号分隔秒数）。
 # 角色直接放到场地内只是取景夹具，不代表通关路线。
 const Boss = preload("res://scripts/journey_boss.gd")
 const Dragon = preload("res://scripts/journey_dragon.gd")
@@ -99,6 +99,10 @@ func capture() -> void:
 	place(boss.arena + 900, -110, -40)
 	await advance(0.3)
 	await shot("fight_01_idle")
+	if only == "air":
+		await air(boss)
+		await finish()
+		return
 	begin(boss, "breath"); boss.breath_side = 1.0
 	await advance(0.9)
 	await shot("fight_02_breath_windup")
@@ -171,6 +175,33 @@ func capture() -> void:
 	await advance(2.5)
 	await shot("fight_22_dead")
 	await finish()
+
+# 悬空炎息：起飞 → 悬停 → 火柱追人 → 飞回降落；召唤火蝠：咆哮 → 火蝠飞出 → 扑向两人。
+func air(boss: Dictionary) -> void:
+	var run = game.run
+	boss.skill_seq += 1; Dragon.start_hover(run, boss)
+	await advance(0.7)
+	await shot("air_01_takeoff")
+	await advance(1.4)
+	await shot("air_02_hover_aim")
+	await advance(1.2)
+	await shot("air_03_beam")
+	await advance(1.4)
+	await shot("air_04_beam_trail")
+	while boss.state == "hover" and run.elapsed-boss.state_at < Dragon.hover_beam_end(boss)+0.5: await advance(1.0/60.0)
+	await shot("air_05_return")
+	while boss.state == "hover": await advance(1.0/60.0)
+	await shot("air_06_landed")
+	await advance(1.0)
+	begin(boss, "bats")
+	await advance(0.8)
+	await shot("air_07_bats_roar")
+	await advance(0.9)
+	await shot("air_08_bats_out")
+	await advance(1.6)
+	await shot("air_09_bats_dive")
+	await advance(1.2)
+	await shot("air_10_bats_close")
 
 func finish() -> void:
 	game.queue_free()

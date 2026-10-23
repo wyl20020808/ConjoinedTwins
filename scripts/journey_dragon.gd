@@ -13,18 +13,19 @@ const ARENA := 1800.0
 const TRIGGER := 300.0
 const HOLD := 1380.0
 const FLOOR := 120.0
-# 龙的落点（髋部）与胸口：胸口熔岩核是瞄准点，在落点前方 130、离地约 9.6 米（模型放大 26 倍）。
+# 龙的落点（脚下）与胸口：胸口熔岩核是瞄准点，在落点前方 120、离地约 10.2 米（模型放大 26 倍，v2 模型更直立）。
 const PERCH := 1660.0
-const CHEST_AHEAD := 130.0
-const CHEST_HEIGHT := 192.0
+const CHEST_AHEAD := 120.0
+const CHEST_HEIGHT := 205.0
 const MAX_HP := 2400
 const STAGES := [0.65, 0.30]
 const PACE := [1.0, 0.88, 0.75]
 const MOVES := [2, 3, 3]
-# 二阶段起加入起飞俯冲；三阶段场地两侧燃起火墙。
-const PATTERN := [["breath","tail","meteors","breath","meteors","tail"],
-	["strafe","breath","meteors","tail","strafe","meteors","breath","tail"],
-	["strafe","meteors","breath","tail","strafe","breath","meteors","tail"]]
+# 每个阶段都会起飞：一阶段起就有悬空炎息（飞到场地上空追着人喷火），二阶段起加入横掠俯冲；
+# 每轮都可能召唤火蝠。三阶段场地两侧燃起火墙。
+const PATTERN := [["hover","breath","bats","tail","hover","meteors"],
+	["strafe","hover","bats","breath","meteors","hover","tail","strafe","bats"],
+	["hover","strafe","bats","breath","meteors","hover","tail","strafe","bats"]]
 
 # —— 入场（电影式，约 14.4 秒）——
 # 0–1.2 镜头抬向天空、远处龙吼 → 1.2–6.6 魔龙绕场地盘旋一整圈（从两人头顶掠过）→ 6.6–8.4 俯冲降落、8.4 秒着地震起尘浪
@@ -60,7 +61,7 @@ const BREATH_FROM := 0.0
 const BREATH_TO := 80.0
 const BREATH_HALF := 7.0
 const BREATH_DAMAGE := 30
-const MOUTH_AHEAD := 250.0
+const MOUTH_AHEAD := 240.0
 
 # —— 甩尾震地：尾巴拍地掀起向外扩散的冲击环，跳起才能躲开；二阶段起连续两道 ——
 const TAIL_WINDUP := 1.0
@@ -91,6 +92,31 @@ const STRAFE_HALF := 70.0
 const STRAFE_REACH := 90.0
 const STRAFE_ALT := 180.0
 const STRAFE_DAMAGE := 30
+
+# —— 悬空炎息：起飞到场地上空悬停，朝地面喷出一道火柱，火柱落点追着一人移动并沿途留下熔岩；之后飞回落点降落 ——
+# 时间轴：0–1.2 起飞 → 1.2–2.2 飞到悬停点 → 2.2–2.8 落点圆圈亮起（不伤人）→ 2.8 起喷火 BEAM_TIME 秒 → 飞回 1.0 秒 → 降落 1.6 秒。
+# 火柱落点追人速度低于两人跑速（180），一直移动就能甩开；二阶段起喷到一半改追另一人。
+const HOVER_TAKEOFF := 1.2
+const HOVER_ARRIVE := 2.2
+const HOVER_AIM := 2.8
+const HOVER_BACK := 1.0
+const HOVER_POINT := 1530.0
+const HOVER_ALT := 230.0
+const BEAM_TIME := [3.0, 3.6, 4.2]
+const BEAM_SPEED := [115.0, 130.0, 145.0]
+const BEAM_RADIUS := 46.0
+const BEAM_DAMAGE := 18
+const BEAM_LEAD := 200.0
+const BEAM_POOL_EVERY := 0.22
+const BEAM_POOL_TIME := [1.8, 2.0, 2.6]
+const BEAM_POOL_RADIUS := 40.0
+
+# —— 召唤火蝠：仰头长啸，火蝠从龙巢两侧飞出扑向两人；场上火蝠太多时跳过 ——
+const BATS_WINDUP := 1.1
+const BATS_RECOVER := 0.6
+const BATS_COUNT := [2, 3, 4]
+const BATS_X := [-200.0, 200.0, -90.0, 90.0, 0.0]
+const BATS_CAP := 5
 
 # —— 蓄焰 / 锁龙链（破甲机会）——
 # 龙伏地蓄焰，场地中段两块绞盘踏板亮起（间距小于绳长，两人可同时站上）；两人同时站稳累计 HOLD_TIME 秒，
@@ -136,7 +162,8 @@ static func add(run) -> void:
 		"trigger":-1.0,"phase":"dormant","hp":MAX_HP,"max_hp":MAX_HP,"stage":0,
 		"state":"idle","state_at":0.0,"skill":"","skill_seq":0,"cycle_moves":0,"pattern_index":0,
 		"breath_side":1.0,"targets":[],"pools":[],"lane_y":0.0,"lane_side":1.0,
-		"hold":0.0,"pinned":false,"spit_seq":0,"spit_target":Vector2.ZERO,"stagger_count":0,"stage_at":0.0,"ammo_at":0.0,"ammo_drops":0})
+		"hold":0.0,"pinned":false,"spit_seq":0,"spit_target":Vector2.ZERO,"stagger_count":0,"stage_at":0.0,"ammo_at":0.0,"ammo_drops":0,
+		"beam":Vector2.ZERO,"beam_target":0,"beam_drops":0,"hover_count":0,"adds":[]})
 	run.event_serial+=1
 	# 入口两侧各一把枪（间距小于绳长，两人可同时拾取），另有弹药与医疗包；硬直结束与换阶段时再刷新。
 	run.Combat.add_pickup(run,"gun",Vector2(-60,arena+160),{},"smg")
@@ -195,6 +222,8 @@ static func advance(run, event: Dictionary) -> void:
 		"tail": tail(run,event)
 		"meteors": meteors(run,event)
 		"strafe": strafe(run,event)
+		"hover": hover(run,event)
+		"bats": bats(run,event)
 		"charge": charge(run,event)
 		"nova": nova(run,event)
 	update_body(run,event)
@@ -221,6 +250,10 @@ static func choose(run, event: Dictionary) -> void:
 	var pattern:Array=PATTERN[event.stage]
 	var skill:String=pattern[event.pattern_index%pattern.size()]
 	event.pattern_index+=1
+	# 场上火蝠太多时跳过召唤。
+	if skill=="bats" and living_adds(run,event)>BATS_CAP-BATS_COUNT[event.stage]:
+		skill=pattern[event.pattern_index%pattern.size()]
+		event.pattern_index+=1
 	event.cycle_moves+=1
 	event.skill=skill
 	match skill:
@@ -237,6 +270,8 @@ static func choose(run, event: Dictionary) -> void:
 			event.lane_side=-event.lane_side
 			event.lane_y=lane_target(run,event)
 			enter(run,event,"strafe")
+		"hover": start_hover(run,event)
+		"bats": enter(run,event,"bats")
 
 # —— 龙身位置：落地时在落点；起飞俯冲时按时间轴飞行。瞄准点（origin）跟随胸口 ——
 
@@ -245,6 +280,7 @@ static func body_pose(run, event: Dictionary, time: float) -> Dictionary:
 	var perch: Vector2=event.perch
 	var grounded:={"pos":perch,"alt":0.0,"heading":Vector2(0,-1)}
 	if event.get("phase","")=="intro": return intro_pose(event,time-event.state_at)
+	if event.state=="hover" and event.hp>0: return hover_pose(run,event,time)
 	if event.state!="strafe" or event.hp<=0: return grounded
 	var t: float=time-event.state_at
 	var side: float=event.lane_side
@@ -275,6 +311,35 @@ static func hermite(p0: Vector2, m0: Vector2, p1: Vector2, m1: Vector2, k: float
 	var pos:=p0*(2*k3-3*k2+1)+m0*(k3-2*k2+k)*duration+p1*(-2*k3+3*k2)+m1*(k3-k2)*duration
 	var vel:=p0*(6*k2-6*k)+m0*(3*k2-4*k+1)*duration+p1*(-6*k2+6*k)+m1*(3*k2-2*k)*duration
 	return {"pos":pos,"alt":lerpf(alt0,alt1,smoothstep(0.0,1.0,k)),"heading":vel.normalized() if vel.length()>0.001 else Vector2(0,-1)}
+
+# 悬停时身体半直立（pitch 小于平飞），朝两人方向，略微上下起伏并把头转向火柱落点。
+static func hover_pose(run, event: Dictionary, time: float) -> Dictionary:
+	var perch: Vector2=event.perch
+	var t: float=time-event.state_at
+	var spot:=Vector2(0,event.arena+HOVER_POINT)
+	var beam_end:=hover_beam_end(event)
+	if t<HOVER_TAKEOFF:
+		var k:=smoothstep(0.0,1.0,t/HOVER_TAKEOFF)
+		return {"pos":perch+Vector2(0,40*k),"alt":lerpf(0.0,160.0,k*k),"heading":Vector2(0,-1)}
+	if t<HOVER_ARRIVE:
+		var k:=(t-HOVER_TAKEOFF)/(HOVER_ARRIVE-HOVER_TAKEOFF)
+		var pose:=hermite(perch+Vector2(0,40),Vector2(0,-200),spot,Vector2(0,-60),k,160.0,HOVER_ALT,HOVER_ARRIVE-HOVER_TAKEOFF)
+		pose.heading=Vector2(0,-1)
+		pose.pitch=lerpf(0.85,0.35,smoothstep(0.0,1.0,k))
+		return pose
+	if t<beam_end:
+		var bob:=sin((t-HOVER_ARRIVE)*2.6)*14.0
+		var look:Vector2=(event.beam as Vector2)-spot
+		var heading:=Vector2(0,-1) if look.length()<1.0 else Vector2(0,-1).lerp(look.normalized(),0.35).normalized()
+		return {"pos":spot,"alt":HOVER_ALT+bob,"heading":heading,"pitch":0.35}
+	if t<beam_end+HOVER_BACK:
+		var k:=(t-beam_end)/HOVER_BACK
+		var pose:=hermite(spot,Vector2(0,100),perch+Vector2(0,260),Vector2(0,200),k,HOVER_ALT,200.0,HOVER_BACK)
+		pose.heading=Vector2(0,-1)
+		pose.pitch=0.35
+		return pose
+	var k:=clampf((t-beam_end-HOVER_BACK)/LAND_TOUCH,0.0,1.0)
+	return {"pos":(perch+Vector2(0,260)).lerp(perch,smoothstep(0.0,1.0,k)),"alt":200.0*(1.0-smoothstep(0.0,1.0,k)),"heading":Vector2(0,-1)}
 
 static func intro_pose(event: Dictionary, t: float) -> Dictionary:
 	var perch: Vector2=event.perch
@@ -403,7 +468,7 @@ static func pools(run, event: Dictionary) -> void:
 	if live.size()!=event.pools.size(): event.pools=live
 	for pool in live:
 		for role in range(2):
-			if players(run)[role].distance_to(pool.position)<POOL_RADIUS+run.Motion.RADIUS*0.5 and run.foot_height(role)<10.0:
+			if players(run)[role].distance_to(pool.position)<float(pool.get("radius",POOL_RADIUS))+run.Motion.RADIUS*0.5 and run.foot_height(role)<10.0:
 				run.Combat.hit(run,role,"boss:pool",POOL_DAMAGE,true)
 
 # —— 起飞俯冲 ——
@@ -433,6 +498,83 @@ static func strafe(run, event: Dictionary) -> void:
 			if int((t-STRAFE_LOCK-run.FIXED_STEP)/0.25)!=serial and absf(x)<run.EDGE-40:
 				event.pools.append({"position":Vector2(x,event.lane_y),"until":run.elapsed+2.5})
 	if t>=STRAFE_END: enter(run,event,"recover")
+
+# —— 悬空炎息 ——
+
+static func beam_time(event: Dictionary) -> float:
+	return BEAM_TIME[event.stage]
+
+static func hover_beam_end(event: Dictionary) -> float:
+	return HOVER_AIM+beam_time(event)
+
+static func hover_done(event: Dictionary) -> float:
+	return hover_beam_end(event)+HOVER_BACK+LAND_CLIP
+
+static func start_hover(run, event: Dictionary) -> void:
+	event.hover_count=int(event.get("hover_count",0))+1
+	# 轮流追两人；起点在目标前方（朝龙的一侧），留出反应距离。
+	event.beam_target=int(event.hover_count)%2
+	event.beam=beam_start(run,event)
+	event.beam_drops=0
+	enter(run,event,"hover")
+
+static func beam_start(run, event: Dictionary) -> Vector2:
+	var target:Vector2=players(run)[int(event.beam_target)]
+	var point:=target+Vector2(0,BEAM_LEAD)
+	point.x=clampf(point.x,-run.EDGE+30,run.EDGE-30)
+	point.y=clampf(point.y,event.arena+FLOOR+40,event.arena+HOLD)
+	return point
+
+# 火柱正在喷射（落点会伤人、留熔岩）。
+static func beam_on(event: Dictionary, time: float) -> bool:
+	if event.state!="hover" or event.hp<=0: return false
+	var t: float=time-event.state_at
+	return t>=HOVER_AIM and t<hover_beam_end(event)
+
+static func hover(run, event: Dictionary) -> void:
+	var t:=age(run,event)
+	# 瞄准期间落点跟着目标走；喷火后按限速追赶。
+	if t<HOVER_AIM: event.beam=beam_start(run,event)
+	elif t<hover_beam_end(event):
+		var into:=t-HOVER_AIM
+		if event.stage>=1 and into>=beam_time(event)*0.5 and into-run.FIXED_STEP<beam_time(event)*0.5:
+			event.beam_target=1-int(event.beam_target)
+		var target:Vector2=players(run)[int(event.beam_target)]
+		var focus:Vector2=event.beam
+		event.beam=focus.move_toward(target,BEAM_SPEED[event.stage]*run.FIXED_STEP)
+		for role in range(2):
+			if players(run)[role].distance_to(event.beam)<BEAM_RADIUS+run.Motion.RADIUS and run.foot_height(role)<30.0:
+				run.Combat.hit(run,role,"boss:beam",BEAM_DAMAGE,true)
+		var serial:=int(into/BEAM_POOL_EVERY)
+		if serial>=int(event.beam_drops):
+			event.beam_drops=serial+1
+			event.pools.append({"position":event.beam,"until":run.elapsed+BEAM_POOL_TIME[event.stage],"radius":BEAM_POOL_RADIUS})
+	if t>=hover_done(event): enter(run,event,"recover")
+
+# —— 召唤火蝠 ——
+
+static func bats(run, event: Dictionary) -> void:
+	if age(run,event)<BATS_WINDUP*pace(event): return
+	if once_spawned(event):
+		# 从龙巢两侧飞出（龙身后方），先飞过来再扑人，给玩家转火的时间。
+		for n in range(BATS_COUNT[event.stage]):
+			var point:=Vector2(BATS_X[n],float(event.perch.y)+60.0+(n%2)*40.0)
+			var monster:Dictionary=run.Monsters.add(run,point,"forest","ember_bat")
+			monster.alert=true
+			monster.boss_add=true
+			event.adds.append(monster.id)
+	if age(run,event)>=BATS_WINDUP*pace(event)+BATS_RECOVER: enter(run,event,"recover")
+
+static func once_spawned(event: Dictionary) -> bool:
+	if int(event.get("bats_seq",-1))==int(event.skill_seq): return false
+	event.bats_seq=event.skill_seq
+	return true
+
+static func living_adds(run, event: Dictionary) -> int:
+	var count:=0
+	for other in run.journey_events:
+		if other.kind=="monster" and other.id in event.get("adds",[]) and other.hp>0: count+=1
+	return count
 
 # —— 蓄焰 / 锁龙链 ——
 
@@ -560,5 +702,10 @@ static func hint(run, event: Dictionary) -> String:
 			if nova_warning(run,event): return "炎爆将至：跳起躲避冲击！锁链 %d%%"%int(hold_ratio(event)*100)
 			return "魔龙蓄焰：两人各站一块绞盘踏板拉动锁链，火球来了先让开 · %d%%"%int(hold_ratio(event)*100)
 		"nova": return "炎爆：冲击环到脚下时跳起"
+		"hover":
+			if age(run,event)<HOVER_AIM: return "魔龙飞上天空：火柱要追着 %02d 烧，准备跑动"%(int(event.beam_target)+1)
+			if age(run,event)<hover_beam_end(event): return "悬空炎息：火柱追着 %02d 走，一直跑别停，绕开地上的熔岩"%(int(event.beam_target)+1)
+			return "魔龙飞回巢穴"
+		"bats": return "魔龙召唤火翼妖：它们会俯冲扑咬，先把它们打下来"
 		"stagger": return "魔龙被锁链拽倒！熔岩核暴露，全力输出"
 	return ""

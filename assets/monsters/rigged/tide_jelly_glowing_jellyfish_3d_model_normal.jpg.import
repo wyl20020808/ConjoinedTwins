@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://br1f44x8v0ye0"
-path="res://.godot/imported/fire_dragon_fire_dragon_3d_model_normal.jpg-2a60aee66b59b27ee4828268f22f2021.ctex"
+uid="uid://b0fkpkcw3wf1e"
+path="res://.godot/imported/tide_jelly_glowing_jellyfish_3d_model_normal.jpg-a3f775ece623073ebfc951a92c360123.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "f0eb7827bb2feec7bb808dfb278e7649"
+"md5": "6d3903acdd0ad968af4898435425bb3c"
 }
 
 [deps]
 
-source_file="res://assets/boss/rigged/fire_dragon_fire_dragon_3d_model_normal.jpg"
-dest_files=["res://.godot/imported/fire_dragon_fire_dragon_3d_model_normal.jpg-2a60aee66b59b27ee4828268f22f2021.ctex"]
+source_file="res://assets/monsters/rigged/tide_jelly_glowing_jellyfish_3d_model_normal.jpg"
+dest_files=["res://.godot/imported/tide_jelly_glowing_jellyfish_3d_model_normal.jpg-a3f775ece623073ebfc951a92c360123.ctex"]
 
 [params]
 

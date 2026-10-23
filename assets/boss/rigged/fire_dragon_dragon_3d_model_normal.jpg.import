@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://df24ebceei2fc"
-path="res://.godot/imported/fire_dragon_fire_dragon_3d_model_basecolor.jpg-14f990d8f0fd73d2bd2b6c13029a693a.ctex"
+uid="uid://dc2j0fku11oj8"
+path="res://.godot/imported/fire_dragon_dragon_3d_model_normal.jpg-265fbc312a4557cc9558627eb9c626e4.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "4b3ef044d2006caa3e9ba238f4ad4ff4"
+"md5": "e9a8f30b80178a49c9d98681fe9d08a2"
 }
 
 [deps]
 
-source_file="res://assets/boss/rigged/fire_dragon_fire_dragon_3d_model_basecolor.jpg"
-dest_files=["res://.godot/imported/fire_dragon_fire_dragon_3d_model_basecolor.jpg-14f990d8f0fd73d2bd2b6c13029a693a.ctex"]
+source_file="res://assets/boss/rigged/fire_dragon_dragon_3d_model_normal.jpg"
+dest_files=["res://.godot/imported/fire_dragon_dragon_3d_model_normal.jpg-265fbc312a4557cc9558627eb9c626e4.ctex"]
 
 [params]
 

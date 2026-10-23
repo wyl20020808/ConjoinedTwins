@@ -16,7 +16,10 @@ func place(run,y:float,ax:float=-42.0,bx:float=42.0)->void:
 	run.distance=y
 	run.rope.reset(run.a.position,run.b.position)
 
+# 清掉场上的召唤物（火蝠），避免它们干扰后面单独验证的招式。
 func fresh(run)->void:
+	for e in run.journey_events:
+		if e.kind=="monster" and e.get("boss_add",false):run.Combat.damage(run,e,e.hp)
 	run.combat.health=[100,100];run.combat.invulnerable=[0.0,0.0];run.combat.hits.clear()
 	run.invulnerable_until=0.0;run.shield=false
 
@@ -133,7 +136,8 @@ func verify()->void:
 	ticks(run,roundi(1.2/run.FIXED_STEP))
 	check(run.combat.health[0]<100-Dragon.METEOR_DAMAGE,"站在熔岩池里持续灼烧")
 	ticks(run,roundi(Dragon.POOL_TIME/run.FIXED_STEP))
-	check(boss.pools.is_empty(),"熔岩池到时熄灭")
+	# 之后自动接上的招式（如悬空炎息）会留下自己的小熔岩，这里只看火雨的熔岩池。
+	check(boss.pools.all(func(p):return p.has("radius")),"熔岩池到时熄灭")
 	place(run,boss.arena+900);fresh(run)
 	start(run,boss,"meteors");Dragon.aim_meteors(run,boss)
 	ticks(run,roundi(Dragon.METEOR_WINDUP*Dragon.PACE[boss.stage]/run.FIXED_STEP)+1)
@@ -174,6 +178,41 @@ func verify()->void:
 	boss.skill_seq+=1;Dragon.start_charge(run,boss)
 	until(run,boss,"nova");until(run,boss,"recover")
 	check(run.combat.health==[100-Dragon.NOVA_DAMAGE,100-Dragon.NOVA_DAMAGE],"不跳被炎爆击中")
+	# —— 悬空炎息（一阶段起）：飞到场地上空，火柱追着一人烧，沿途留下熔岩；一直跑能甩开 ——
+	check(Dragon.PATTERN[0].has("hover") and Dragon.PATTERN[0].has("bats"),"一阶段招式里就有起飞喷火与召唤火蝠")
+	place(run,boss.arena+900);fresh(run)
+	boss.skill_seq+=1;Dragon.start_hover(run,boss)
+	ticks(run,roundi((Dragon.HOVER_ARRIVE+0.1)/run.FIXED_STEP))
+	check(boss.airborne and boss.aim_height>Dragon.CHEST_HEIGHT+Dragon.HOVER_ALT-40.0,"悬空炎息：飞到场地上空，瞄准点随之升高")
+	check(Dragon.body_pose(run,boss,run.elapsed).pos.y>boss.arena+Dragon.HOLD,"悬停点在两人能到的范围之外")
+	var victim:int=boss.beam_target
+	until(run,boss,"recover")
+	check(run.combat.health[victim]<100,"站着不动被追人的火柱烧到")
+	check(not boss.airborne and boss.origin.distance_to(boss.perch-Vector2(0,Dragon.CHEST_AHEAD))<1.0,"喷完飞回落点降落")
+	check(int(boss.beam_drops)>=roundi(Dragon.BEAM_TIME[0]/Dragon.BEAM_POOL_EVERY)-1,"火柱沿途留下熔岩")
+	ticks(run,roundi(3.0/run.FIXED_STEP))
+	place(run,boss.arena+900);fresh(run);boss.pools=[]
+	boss.skill_seq+=1;Dragon.start_hover(run,boss)
+	# 两人一起绕着火柱落点跑（切向为主、略向外），不停下。
+	for n in range(roundi(12.0/run.FIXED_STEP)):
+		if boss.state!="hover":break
+		var mid:Vector2=(run.a.position+run.b.position)*0.5
+		var away:Vector2=mid-boss.beam
+		if away.length()<1.0:away=Vector2(1,0)
+		var dir:Vector2=(away.normalized().orthogonal()*0.8+away.normalized()*(0.6 if away.length()<220.0 else -0.2)).normalized()
+		if absf(mid.x)>run.EDGE-90.0:dir.x=-signf(mid.x)*absf(dir.x)
+		run.step(run.FIXED_STEP,dir,dir)
+	check(not run.combat.hits.has("boss:beam:0") and not run.combat.hits.has("boss:beam:1"),"一直跑动可以甩开追人的火柱")
+	until(run,boss,"recover")
+	# —— 召唤火蝠：从龙巢两侧飞出，警觉并扑向两人；场上火蝠太多时跳过召唤 ——
+	place(run,boss.arena+900);fresh(run)
+	start(run,boss,"bats")
+	until(run,boss,"recover")
+	var bats:Array=run.journey_events.filter(func(e):return e.kind=="monster" and e.archetype=="ember_bat" and e.hp>0)
+	check(bats.size()==Dragon.BATS_COUNT[0] and bats.all(func(e):return e.alert and e.get("boss_add",false)),"召唤出两只警觉的火蝠")
+	check(Dragon.living_adds(run,boss)==Dragon.BATS_COUNT[0] and run.Monsters.hover_height(bats[0])>0.0,"火蝠记为魔龙召唤物并悬空飞行")
+	ticks(run,roundi(3.0/run.FIXED_STEP))
+	check(bats.any(func(e):return e.origin.y<boss.perch.y-200.0),"火蝠飞向两人")
 	# —— 阶段二：双向吐息、双冲击环、起飞横掠 ——
 	boss.hp=int(boss.max_hp*0.6);Dragon.enter(run,boss,"idle")
 	until(run,boss,"roar")

@@ -127,6 +127,16 @@
 /Applications/Godot.app/Contents/MacOS/Godot --path . --resolution 1600x900 --script res://build-tools/dragon/play_dragon.gd
 ```
 
+## 10b. 第二轮调整（2026-10-23，用户反馈）
+
+用户反馈：龙应该在战斗中也会飞——飞起来喷火、再落回地面；前爪不明显；可以召唤蝙蝠之类的小怪。
+
+- **悬空炎息（一阶段起就有）**：1.2 秒起飞 → 1.0 秒飞到场地上空悬停（落点前方 S+1530、离地约 11.5 米，两人到不了下方）→ 0.6 秒落点圆圈亮起并跟人 → 喷火 3.0 / 3.6 / 4.2 秒：火柱落点以 115 / 130 / 145 单位/秒追一人（两人跑速 180，一直跑能甩开），站在火柱里每秒 18；二阶段起喷到一半改追另一人；沿途每 0.22 秒留下一小块熔岩（1.8 / 2.0 / 2.6 秒）→ 1.0 秒飞回 → 1.6 秒降落。悬停时身体半直立、头转向火柱落点。
+- **召唤火翼妖（火蝙蝠）**：仰头长啸 1.1 秒，2 / 3 / 4 只火翼妖从龙巢两侧飞出扑向两人（20 血，扑咬 10，离地约 1.7 米飞行、扑咬时俯冲到地面）；场上超过 5 只时跳过召唤。
+- **招式池**：一阶段 悬空炎息、吐息、召唤、甩尾、悬空炎息、火雨；二、三阶段在原招式外加入悬空炎息与召唤，横掠俯冲保留。
+- **模型**：Tripo 重新生成 v2 魔龙（两条粗壮前臂向前外侧张开、巨爪张开），`rig_dragon.py` 按网格剖面与带坐标网格的正/侧视图重新求关节；v2 颈部更直立、双翼静止时更高，后仰与上抬幅度按比例缩小，双角归头部权重。瞄准点改为落点前 120、离地 10.25 米。
+- **验证（执行者自测）**：`tests/journey_dragon.gd` 539 项 0 失败（新增悬空炎息站着被烧 / 一直跑甩开 / 留熔岩 / 落回，召唤数量、警觉、飞行与飞向两人）；`tests/journey_dragon_playthrough.gd` 只用输入通关（288 秒、7 次破甲、4 次横掠）；`tests/journey_boss.gd` 677 项 0 失败。`build-tools/dragon/capture_dragon.gd` 新增 `DRAGON_CAPTURE_ONLY=air` 截图核对悬停取景、火柱、熔岩尾迹与火翼妖。可见窗口试玩手感与难度待用户验收。
+
 ## 11. 回归与性能检查（2026-10-22）
 
 - 0 失败：`journey_dragon`（529）、`journey_dragon_playthrough`、`journey_boss`（677）、`journey_boss_intro_fx`、`journey_boss_playthrough`、`journey_opening`、`chapter_menu`、`journey_combat`（76）、`journey_monsters`（471）、`journey_encounter_density`（505）、`journey_arena_layout`（182）、`journey_combat_variety`（85）、`journey_dual_weapon`、`online_chapter_sync`、`journey_combat_online`。
