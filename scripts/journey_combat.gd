@@ -124,7 +124,14 @@ static func swap_weapon(run, role: int) -> void:
 	run.combat.notice="%02d 换上%s"%[role+1,weapon_name(spare)]
 
 static func collect(run, previous: Array) -> void:
+	# 先用两人的完整移动段排除远处补给，再计算弹药需求与精确线段距离。
+	# 用闭区间包含拾取半径恰好相等的边界，不依赖远处坐标可能舍掉的浮点微量。
+	var margin:float=PICKUP_RADIUS+run.Motion.RADIUS
+	var first:=Rect2(previous[0],Vector2.ZERO).expand(run.a.position).grow(margin)
+	var second:=Rect2(previous[1],Vector2.ZERO).expand(run.b.position).grow(margin)
 	for pickup in run.combat.pickups.duplicate():
+		var point_bounds:=Rect2(pickup.position,Vector2.ZERO)
+		if not first.intersects(point_bounds,true) and not second.intersects(point_bounds,true):continue
 		var nearest := -1
 		var nearest_distance := INF
 		for role in range(2):

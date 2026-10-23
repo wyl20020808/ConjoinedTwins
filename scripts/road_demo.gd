@@ -900,6 +900,10 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 	var center: Vector2 = sample.rect.get_center()
 	for p in sample.parts:
 		var body: MeshInstance3D = view.get_node(p.name)
+		# 连续旅程用粒子喷流，旧锥柱整组不再显示，也不再逐帧更新网格和十股喷流。
+		if p.name == "jet" and view.get_meta("particle_steam", false):
+			body.hide()
+			continue
 		body.position = Vector3((p.rect.get_center().x - center.x) / SCALE,
 			(p.bottom + p.top) * 0.5 / SCALE, -(p.rect.get_center().y - center.y) / SCALE)
 		var size: Vector2 = p.get("size", p.rect.size)
@@ -945,17 +949,19 @@ func sync_industrial_model(view: Node3D, index: int, sample: Dictionary) -> void
 	marker.position = Vector3((sample.launch.x - center.x) / SCALE, 0.035, -(sample.launch.y - center.y) / SCALE)
 	marker.visible = sample.warning
 	corridor.visible = sample.warning and run.kinds[index] in ["drone", "forklift"]
-	var delta: Vector2 = spec.velocity * (5.0 if run.kinds[index] == "drone" else 4.0)
-	var launch_sample: Dictionary = Run.Industrial.sample(run.kinds[index], run.obstacles[index], spec, maxf(0, spec.trigger))
-	var launch_center: Vector2 = launch_sample.rect.get_center() - center
-	var direction := delta.normalized()
-	var perpendicular := Vector2(-direction.y, direction.x)
-	var across: float = absf(perpendicular.x) * launch_sample.rect.size.x + absf(perpendicular.y) * launch_sample.rect.size.y
-	var along: float = absf(direction.x) * launch_sample.rect.size.x + absf(direction.y) * launch_sample.rect.size.y
-	corridor.position = Vector3(launch_center.x + delta.x * 0.5, 0.4, -launch_center.y - delta.y * 0.5) / SCALE
-	corridor.mesh.size = Vector3(maxf(0.1, across / SCALE), 0.025, maxf(0.1, (delta.length() + along) / SCALE))
-	corridor.rotation.y = atan2(-delta.x, delta.y)
+	if corridor.visible:
+		var delta: Vector2 = spec.velocity * (5.0 if run.kinds[index] == "drone" else 4.0)
+		var launch_sample: Dictionary = Run.Industrial.sample(run.kinds[index], run.obstacles[index], spec, maxf(0, spec.trigger))
+		var launch_center: Vector2 = launch_sample.rect.get_center() - center
+		var direction := delta.normalized()
+		var perpendicular := Vector2(-direction.y, direction.x)
+		var across: float = absf(perpendicular.x) * launch_sample.rect.size.x + absf(perpendicular.y) * launch_sample.rect.size.y
+		var along: float = absf(direction.x) * launch_sample.rect.size.x + absf(direction.y) * launch_sample.rect.size.y
+		corridor.position = Vector3(launch_center.x + delta.x * 0.5, 0.4, -launch_center.y - delta.y * 0.5) / SCALE
+		corridor.mesh.size = Vector3(maxf(0.1, across / SCALE), 0.025, maxf(0.1, (delta.length() + along) / SCALE))
+		corridor.rotation.y = atan2(-delta.x, delta.y)
 	var sign: Label3D = view.get_node("WarningLabel")
+	if sign.layers == 0: return
 	sign.position = Vector3(0, 7.0, 0)
 	var stage: String = {"warning": "预警", "flight": "俯冲", "spent": "已通过", "parked": "停驻", "crossing": "横穿", "down": "下压", "hold": "停留", "up": "回升", "safe": "开放时窗", "ready": "待触发", "lower": "落锤", "swing": "摆动", "raise": "抬锤", "intact": "完整地板", "crack": "裂纹预警", "grace": "退出宽限", "collapsed": "已塌陷", "pressure": "升压", "jet": "喷射", "fade": "消退", "shuttling": "往复横移", "cycling": "升降循环", "active": "启动", "extend": "伸出", "retract": "收回", "tripped": "已绊倒", "rotate": "旋转"}.get(sample.stage, "")
 	# 未登记的内部阶段名不显示，避免英文代号出现在提示里。

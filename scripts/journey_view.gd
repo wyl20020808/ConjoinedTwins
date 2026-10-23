@@ -40,7 +40,7 @@ const ONLINE_CATCHUP_FRAMES := 8
 const ONLINE_CATCHUP_USEC := 8000
 # 单位为道路单位（20/米）。预热窗口比展示窗口多 40 米，退出窗口再留 20 米迟滞。
 const MODEL_AHEAD := 2400.0
-const MODEL_PREFETCH := 3200.0
+const MODEL_PREFETCH := 2800.0
 const MODEL_RETAIN := 3600.0
 const MODEL_BEHIND := 600.0
 const Landscape = preload("res://scripts/journey_landscape.gd")
@@ -239,6 +239,9 @@ var checkpoint_toast: Label
 var checkpoint_toast_left := 0.0
 var toasted_checkpoint := -INF
 var view_pending:=false
+const MODEL_BUILDS_PER_FRAME := 1
+var model_builds_this_frame := 0
+var model_build_frame := -1
 var journey_camera_returning:=false
 const UNDERSTORY:=["fern","shrub","grass","detail_fern_bed"]
 
@@ -766,6 +769,9 @@ func install_chunk_item(chunk: Node3D, item: Array) -> void:
 
 func prepare_journey_frame() -> bool:
 	var started := Time.get_ticks_usec()
+	if model_build_frame!=Engine.get_process_frames():
+		model_build_frame=Engine.get_process_frames()
+		model_builds_this_frame=0
 	# 开场运镜期间没人操作，镜头一路飞过整章：放宽每帧载入预算、多开一路后台计划，尽量不让镜头等载入。
 	var opening:bool=run.state=="running" and run.opening_active()
 	var deadline := started + (OPENING_SLICE_USEC if opening else Run.PRELOAD_SLICE_USEC)
@@ -824,6 +830,7 @@ func prepare_journey_frame() -> bool:
 	chunk_assets.retain(retained)
 	chunk_assets.poll(deadline)
 	var events_ready := prepare_event_views(deadline)
+	var hazards_ready := prepare_hazard_views(deadline)
 	for number in chunk_jobs.keys():
 		if Time.get_ticks_usec()>=deadline: break
 		var job: Dictionary = chunk_jobs[number]
@@ -845,7 +852,11 @@ func prepare_journey_frame() -> bool:
 			job.node.visible=chunk_wanted(number,3)
 			chunk_jobs.erase(number)
 			chunk_install_count+=1
-	var ready := events_ready and prepare_hazard_views(deadline)
+	var ready := events_ready and hazards_ready
+	# 可见对象先就绪，再利用剩余预算准备边缘之外的模型；不让远景抢占必需对象。
+	if ready:
+		prepare_event_views(deadline,true)
+		prepare_hazard_views(deadline,true)
 	var completed := 0
 	var required := 0
 	for number in view_chunk_numbers(3,true):
@@ -859,10 +870,11 @@ func prepare_journey_frame() -> bool:
 	if not ready: preparation_waits+=1
 	return ready
 
-func prepare_event_views(deadline: int) -> bool:
+func prepare_event_views(deadline: int, prefetch:bool=false) -> bool:
 	var ready := true
 	for event in run.journey_events:
 		if not model_preload(event.y) or event_views.has(event.id): continue
+		if model_visible(event.y)==prefetch:continue
 		var paths: Array=[]
 		match event.kind:
 			"tree": paths.append("res://assets/landscape/oak_7.glb")
@@ -873,17 +885,20 @@ func prepare_event_views(deadline: int) -> bool:
 		if event.kind=="monster" and not CombatView.EnemyView.model_path(event.archetype).is_empty():paths.append(CombatView.EnemyView.model_path(event.archetype))
 		if event.kind=="boss":paths.append_array(BossView.PATHS)
 		chunk_assets.request(paths)
-		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
+		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline and model_builds_this_frame<MODEL_BUILDS_PER_FRAME:
 			event_views[event.id]=build_event(event)
+			model_builds_this_frame+=1
 			event_views[event.id].hide()
 		elif model_visible(event.y): ready=false
 	for gate in run.charge_gates:
 		if not model_preload(gate.receiver.y) or gate_views.has(gate.id): continue
+		if model_visible(gate.receiver.y)==prefetch:continue
 		var paths: Array=["res://assets/journey/gate.glb", "res://assets/journey/%s.glb"%("waterwheel" if gate.id=="waterwheel" else "drawbridge")]
 		if gate.get("kind","")=="relay":paths.append(MECH_PLATE)
 		chunk_assets.request(paths)
-		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline:
-			gate_views[gate.id]=quiet_world_text(build_gate(gate))
+		if chunk_assets.ready(paths) and Time.get_ticks_usec()<deadline and model_builds_this_frame<MODEL_BUILDS_PER_FRAME:
+			gate_views[gate.id]=manage_presentation(quiet_world_text(build_gate(gate)))
+			model_builds_this_frame+=1
 			gate_views[gate.id].hide()
 		elif model_visible(gate.receiver.y): ready=false
 	return ready
@@ -933,7 +948,7 @@ func build_event(event: Dictionary) -> Node3D:
 	var kind:String=event.kind
 	if kind=="boss":
 		BossView.build(self,root,event)
-		return root
+		return manage_presentation(root)
 	var body:=Node3D.new()
 	body.name="Body"
 	root.add_child(body)
@@ -988,7 +1003,7 @@ func build_event(event: Dictionary) -> Node3D:
 	warning.material_override.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
 	add_sign(root,run.EVENT_NAMES[kind],Vector3(0,5,0),24).name="Hint"
 	quiet_world_text(root)
-	return root
+	return manage_presentation(root)
 
 func sync_events() -> void:
 	var rolling_cart=null
@@ -1154,7 +1169,7 @@ func sync_gates() -> void:
 			continue
 		if not gate_views.has(gate.id):
 			if incremental_loading: continue
-			gate_views[gate.id]=quiet_world_text(build_gate(gate))
+			gate_views[gate.id]=manage_presentation(quiet_world_text(build_gate(gate)))
 		var view:Node3D=gate_views[gate.id]
 		view.show()
 		var lowered:float=clampf((run.elapsed-gate.opened_at)/0.6,0,1) if gate.open else 0.0
@@ -2884,17 +2899,19 @@ func build_ball_model(chunk:Node3D,index:int)->void:
 	# 铁球换成带刺铁锤球；刺尖略超出碰撞球体约 6%，对玩家从宽。
 	tripo_model(body,TRIPO_BOULDER if run.kinds[index]=="stone_ball" else MECH_SPIKED_BALL,Vector3.ONE*diameter*(1.0 if run.kinds[index]=="stone_ball" else 1.12),Vector3.ZERO)
 
-func prepare_hazard_views(deadline: int) -> bool:
+func prepare_hazard_views(deadline: int, prefetch:bool=false) -> bool:
 	var ready:=true
 	for index in visual_hazard_candidates():
 		if static_views.has(index) or not hazard_has_view(index):continue
-		if Time.get_ticks_usec()>=deadline:
+		if model_visible(hazard_view_y(index))==prefetch:continue
+		if Time.get_ticks_usec()>=deadline or model_builds_this_frame>=MODEL_BUILDS_PER_FRAME:
 			if model_visible(hazard_view_y(index)):ready=false
 			continue
 		if not chunk_assets.ready(hazard_asset_paths(index)):
 			if model_visible(hazard_view_y(index)):ready=false
 			continue
 		sync_static_hazard(index)
+		if static_views.has(index):model_builds_this_frame+=1
 	return ready
 
 func sync_static_hazards()->void:
@@ -2905,7 +2922,8 @@ func sync_static_hazards()->void:
 	for index in visual_hazard_candidates():
 		if incremental_loading and not static_views.has(index):continue
 		sync_static_hazard(index)
-		if hazard_fx and static_views.has(index):hazard_fx.track(index,run.kinds[index],run.hazard_sample(index,run.elapsed),static_views[index])
+		if hazard_fx and static_views.has(index) and static_views[index].visible:
+			hazard_fx.track(index,run.kinds[index],run.hazard_sample(index,run.elapsed),static_views[index])
 	if hazard_fx:hazard_fx.release_missing()
 
 func sync_static_hazard(i: int) -> void:
@@ -2922,13 +2940,14 @@ func sync_static_hazard(i: int) -> void:
 		if not static_views.has(i):static_views[i]=make_hazard_view(i)
 		var old_view:Node3D=static_views[i]
 		var sample:Dictionary=run.hazard_sample(i,run.elapsed)
+		old_view.visible=model_visible(sample.rect.get_center().y)
+		if not old_view.visible:return
 		old_view.position=Vector3(sample.rect.get_center().x/SCALE,0,-sample.rect.get_center().y/SCALE)
 		if kind in Run.Terrain.KINDS:sync_terrain_model(old_view,i)
 		elif kind in Run.Industrial.KINDS:sync_industrial_model(old_view,i,sample)
 		else:
 			old_view.get_node("SweeperArm").rotation.y=sample.geometry.angle
 			old_view.get_node("WarningFootprint").visible=true
-		old_view.visible=model_visible(sample.rect.get_center().y)
 		return
 	if not static_views.has(i):
 		var view:=Node3D.new()
@@ -2969,7 +2988,7 @@ func sync_static_hazard(i: int) -> void:
 			holder.position.y=.4
 			var warning:=box(view,Vector3(0,.065,0),Vector3(rect.size.x/SCALE+.08,.025,rect.size.y/SCALE+.08),material("small_trap_warning",Color("e7ae43"),.25))
 			warning.name="SpikeWarning"
-		static_views[i]=quiet_world_text(view)
+		static_views[i]=manage_presentation(quiet_world_text(view))
 	static_views[i].position=Vector3(rect.get_center().x/SCALE,0,-rect.get_center().y/SCALE)
 	static_views[i].visible=model_visible(rect.get_center().y)
 	if kind=="color_gate" or run.hazard_specs[i].get("color_wall",false):fade_passed_color_gate(static_views[i],rect.get_center().y)
@@ -3035,10 +3054,26 @@ func quiet_world_text(node:Node)->Node:
 	for child in node.get_children():quiet_world_text(child)
 	return node
 
+func manage_presentation(view:Node3D)->Node3D:
+	if not view.has_meta("managed_presentation"):
+		view.set_meta("managed_presentation",true)
+		view.visibility_changed.connect(update_presentation_processing.bind(view))
+	update_presentation_processing(view)
+	return view
+
+func update_presentation_processing(view:Node3D)->void:
+	# hide 只关绘制，不能代替停止 AnimationPlayer / Skeleton 的继承处理。
+	var active:bool=view.is_visible_in_tree() and not view.get_meta("enemy_far_ready",false)
+	var mode:=Node.PROCESS_MODE_INHERIT if active else Node.PROCESS_MODE_DISABLED
+	if view.process_mode!=mode:view.process_mode=mode
+
 func make_hazard_view(index:int)->Node3D:
 	var view:Node3D=super.make_hazard_view(index)
 	if run.kinds[index]=="rocket":dress_rocket(view,index)
-	return quiet_world_text(view)
+	if run.kinds[index]=="steam" and hazard_fx:
+		view.set_meta("particle_steam",true)
+		view.get_node("jet").hide()
+	return manage_presentation(quiet_world_text(view))
 
 # 火箭的方块机身与尾翼换成火焰弩箭；箭头朝向镜头（+Z，迎面飞来），长度与危险盒一致。
 func dress_rocket(view:Node3D,index:int)->void:

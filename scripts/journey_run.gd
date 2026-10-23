@@ -711,6 +711,19 @@ func ground_gaps(time:float=-1.0)->Array[Rect2]:
 	ground_gap_cache=ground_gap_queries[sample_time]
 	return ground_gap_cache
 
+func ground_gaps_in_bounds(bounds: Rect2, time: float = -1.0) -> Array[Rect2]:
+	# 与原胶囊扫掠共用完整包围盒，只缩小候选；塌陷按查询时刻更新，仍执行原精确判定。
+	var gaps:=ground_gaps(time)
+	var sample_time:=elapsed if time<0 else time
+	# 全量参考实现可以覆写 ground_gaps，不依赖旅程分桶。
+	if not ground_gap_bins.has(sample_time):return gaps
+	var bins: Dictionary=ground_gap_bins[sample_time]
+	var result: Array[Rect2]=[]
+	for cell in range(floori(bounds.position.y/400.0),floori(bounds.end.y/400.0)+1):
+		for gap: Rect2 in bins.get(cell,[]):
+			if bounds.intersects(gap,true) and not result.has(gap):result.append(gap)
+	return result
+
 func restore_checkpoint()->bool:
 	var restored:=super()
 	# 起点存档可能记在开场期间；从存档恢复不重播开场。

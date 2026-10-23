@@ -97,6 +97,8 @@ static func start_y(run) -> float:
 static func boss(run) -> Dictionary:
 	var index:int=run.boss_index
 	if index>=0 and index<run.journey_events.size() and run.journey_events[index].kind=="boss": return run.journey_events[index]
+	# 非 Boss 章节及训练场没有 Boss；避免每次边界、射程与镜头查询扫描整张事件表。
+	if index<0 and not enabled(run): return {}
 	for event in run.journey_events:
 		if event.kind=="boss": return event
 	return {}

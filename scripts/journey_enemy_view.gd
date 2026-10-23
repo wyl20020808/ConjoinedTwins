@@ -250,6 +250,8 @@ static func monster_fx(game, view: Node3D, event: Dictionary, location: Vector3,
 
 static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var run=game.run
+	# 预加载对象尚未显示时，不创建血条、命中特效和额外表现节点。
+	if not view.visible or not game.model_visible(event.y):return
 	if not view.has_node("EnemyHealth"): prepare(game,view,event)
 	var died:bool=event.hp<=0
 	var death_age:float=run.elapsed-event.get("defeated_at",-10.0)
@@ -261,6 +263,7 @@ static func sync(game, view: Node3D, event: Dictionary) -> void:
 	var far:bool=event.kind=="monster" and game.view_gap(event.y)>1400
 	if far and view.get_meta("enemy_far_ready",false):return
 	view.set_meta("enemy_far_ready",far)
+	game.update_presentation_processing(view)
 	var point:Vector2=run.Combat.enemy_position(event)
 	var location:=Vector3(point.x/20,0,-point.y/20)
 	var actor:Node3D=view.get_meta("enemy_body")

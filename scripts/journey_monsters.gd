@@ -281,6 +281,13 @@ static func blockers(run, from:Vector2, to:Vector2) -> Array[Rect2]:
 
 static func clear_path(run, from:Vector2, to:Vector2, solids:Array[Rect2]) -> bool:
 	if absf(to.x)>run.EDGE-BODY_RADIUS: return false
+	# 整条路径的五点脚底与支撑半径都碰不到缺口时，普通路面必然有支撑。
+	# 有缺口（包括塌陷、桥下水面）仍走原有逐点检查；实体裁线保持闭区间。
+	var bounds:=Rect2(from,Vector2.ZERO).expand(to).grow(BODY_RADIUS+run.Motion.RADIUS)
+	if absf(from.x)<=run.EDGE-BODY_RADIUS and run.ground_gaps_in_bounds(bounds,run.elapsed).is_empty():
+		for rect in solids:
+			if run.segment_hits(from,to,rect):return false
+		return true
 	# 寻路网格只查询静止格心。点与矩形按原线段判定的闭区间处理，省去逐轴裁线及插值。
 	if from==to:
 		for rect in solids:

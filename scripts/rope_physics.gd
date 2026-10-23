@@ -10,6 +10,8 @@ const GRAVITY := Vector3(0, -800, 0)
 # 同一次绳索求解会投影数百次。边界只准备一次，保持碰撞体顺序及双精度半径。
 class ContactQuery:
 	var floor_query: Callable
+	var floor_bounds: Rect2
+	var floor_ceiling: float
 	var circles: Array[bool] = []
 	var centers: Array[Vector2] = []
 	var radii: Array[float] = []
@@ -17,8 +19,10 @@ class ContactQuery:
 	var tops: Array[float] = []
 	var lows: Array[Vector3] = []
 	var highs: Array[Vector3] = []
-	func _init(floor_callback: Callable, colliders: Array) -> void:
+	func _init(floor_callback: Callable, colliders: Array, bounds: Rect2 = Rect2(), ceiling: float = INF) -> void:
 		floor_query = floor_callback
+		floor_bounds = bounds
+		floor_ceiling = ceiling
 		for collider in colliders:
 			var circle: bool = collider.has("radius")
 			circles.append(circle)
@@ -29,9 +33,12 @@ class ContactQuery:
 			lows.append(Vector3.ZERO if circle else collider.low - Vector3.ONE * RADIUS)
 			highs.append(Vector3.ZERO if circle else collider.high + Vector3.ONE * RADIUS)
 	func project(point: Vector3, from: Vector3) -> Vector3:
-		var floor_height: float = floor_query.call(Vector2(point.x, point.z))
-		if is_finite(floor_height) and point.y < floor_height + RADIUS and from.y >= floor_height - RADIUS:
-			point.y = floor_height + RADIUS
+		var ground_point := Vector2(point.x, point.z)
+		# 只在已证明的局部高度上界内跳过地面采样；边界外、斜坡及贴地质点仍走原判定。
+		if point.y < floor_ceiling + RADIUS or not floor_bounds.has_point(ground_point):
+			var floor_height: float = floor_query.call(ground_point)
+			if is_finite(floor_height) and point.y < floor_height + RADIUS and from.y >= floor_height - RADIUS:
+				point.y = floor_height + RADIUS
 		for i in range(circles.size()):
 			if circles[i]:
 				if point.y < bottoms[i] or point.y > tops[i]: continue
@@ -75,9 +82,9 @@ static func shift(state: Dictionary, offset: Vector3) -> void:
 		for i in range(state[key].size()): state[key][i] += offset
 
 static func advance(state: Dictionary, a: Vector3, b: Vector3, dt: float,
-		floor_query: Callable, colliders: Array, guide: PackedVector3Array) -> void:
+		floor_query: Callable, colliders: Array, guide: PackedVector3Array, floor_hint: Dictionary = {}) -> void:
 	if dt <= 0: return
-	var contact_query := ContactQuery.new(floor_query, colliders)
+	var contact_query := ContactQuery.new(floor_query, colliders, floor_hint.get("bounds",Rect2()), floor_hint.get("ceiling",INF))
 	var points: PackedVector3Array = state.points
 	var previous: PackedVector3Array = state.previous
 	var bound_a:bool=state.bound[0]
