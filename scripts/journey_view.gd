@@ -551,7 +551,9 @@ func rebuild_floor(chunk: Node3D,number: int) -> void:
 	var bounds := Rect2(-Run.EDGE,y0,Run.EDGE*2,CHUNK*SCALE)
 	var gaps: Array[Rect2] = []
 	var cracks: Array[Rect2] = []
-	for gap in run.ground_gaps():
+	for index in range(run.kinds.size()):
+		if run.kinds[index] != "road_gap" and not (run.kinds[index] == "collapse" and run.hazard_sample(index,run.elapsed).stage == "collapsed"): continue
+		var gap:Rect2=run.hazard_specs[index].get("visual_gap",run.obstacles[index])
 		if bounds.intersects(gap): gaps.append(gap)
 	for index in range(run.kinds.size()):
 		if run.kinds[index]!="collapse": continue

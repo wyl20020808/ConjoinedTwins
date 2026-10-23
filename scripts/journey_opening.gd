@@ -105,6 +105,12 @@ static func sync_thump(game) -> void:
 	var beat := int(floor(run.elapsed/THUMP))
 	if game.get_meta("lair_thump", -1) == beat: return
 	game.set_meta("lair_thump", beat)
+	# 开场近景用非空间声音，避免听者仍在远处角色位置而听不到震动。
+	if run.opening_age() >= 0.0 and run.opening_age() < LAIR:
+		game.sfx.play("punch_heavy", -5.0, 0.5)
+		if beat % 4 == 0: game.sfx.play("boss_rumble", -9.0, 1.0)
+	else:
+		game.sfx.play_at("punch_heavy", world(event.origin, 0.1), -5.0, 0.5)
 	var hazard_fx = game.get("hazard_fx")
 	if hazard_fx != null: hazard_fx.slam(world(event.origin, 0.1), 7.0)
 	var fx = game.get("fx")

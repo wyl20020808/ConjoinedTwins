@@ -40,6 +40,15 @@ func verify()->void:
 		run.charge_gates.clear();run.select_charge_gate();run.rewards.clear();run.combat=run.Combat.fresh()
 		var route:={"start":400.0,"end":840.0,"lanes":lanes}
 		run.Encounters.narrow_terrain(run,route)
+		if lanes.size()==1:
+			var center:float=lanes[0]
+			for spec in run.hazard_specs:
+				check(spec.has("visual_gap"),"single lane separates visual edge from foot support")
+				if spec.has("visual_gap"):
+					check(not spec.visual_gap.has_point(Vector2(center,600)),"visible bridge retains center")
+			check(run.has_ground_support(Vector2(center+20,600)),"edge misalignment retains foot support")
+			check(not run.has_ground_support(Vector2(center+80,600)),"walking beyond tolerance still falls")
+
 		run.encounter_markers.append({"y":400.0,"kind":"center_path","blocked":1.0,"formation":true,"lanes":lanes,"narrow_start":400.0,"narrow_end":840.0})
 		run.a.position=Vector2(-42,220);run.b.position=Vector2(42,220);run.distance=220
 		if case_index>=5:run.a.position=Vector2(lanes[0],220);run.b.position=Vector2(lanes[0],260)
