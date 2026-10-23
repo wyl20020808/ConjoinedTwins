@@ -37,8 +37,8 @@ var cache_polls := 20
 var raw_fallback := {}
 
 func _ready() -> void:
-	# 桌面版云更新后的进程：该版本的数据包已全部下载到本机，启动时一次挂载，之后与整包相同。
-	if CloudUpdate.mount_installed_packs():
+	# 桌面版：本进程版本的数据包都在本机（安装目录自带或云更新下载），启动时一次挂载，之后与整包相同。
+	if CloudUpdate.mount_packs():
 		manifest_state = "none"
 		return
 	var url := packs_url()

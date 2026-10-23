@@ -97,22 +97,48 @@ static func load_installed() -> Dictionary:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(CURRENT))
 	return parsed if parsed is Dictionary and parsed.has("release") and parsed.has("core") else {}
 
+# 已下载版本里的文件：只写文件名的在 FILES 下；绝对路径指向安装目录里复用的数据包。
+static func resolve(path: String) -> String:
+	return path if path.is_absolute_path() else FILES + path
+
 static func installed_ready(info: Dictionary) -> bool:
 	if info.is_empty(): return false
 	var files: Array = [info.core]
 	files.append_array(info.get("packs", []))
 	for path in files:
-		if not FileAccess.file_exists(FILES + str(path)): return false
+		if not FileAccess.file_exists(resolve(str(path))): return false
 	return true
 
-# 更新后的进程由 ChapterPacks 在加载任何章节资源前调用：挂载该版本的全部数据包。
-static func mount_installed_packs() -> bool:
-	if not running_update(): return false
-	var info := load_installed()
-	if info.is_empty() or str(info.release) != current_release(): return false
-	for name in info.get("packs", []):
-		if not ProjectSettings.load_resource_pack(ProjectSettings.globalize_path(FILES + str(name))):
-			push_error("更新数据包无法挂载：" + str(name))
+# 安装目录（exe 所在目录）：安装包自带 packs.json 与 packs/ 下的数据包。
+static func bundled_dir() -> String:
+	return OS.get_executable_path().get_base_dir() + "/"
+
+static func load_bundled() -> Dictionary:
+	var path := bundled_dir() + "packs.json"
+	if not FileAccess.file_exists(path): return {}
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
+	return parsed if parsed is Dictionary and parsed.has("packs") else {}
+
+static func wanted_feature(info: Dictionary) -> bool:
+	var feature := str(info.get("feature", ""))
+	return feature.is_empty() or OS.has_feature(feature)
+
+# ChapterPacks 在加载任何章节资源前调用，挂载本进程版本的全部数据包：
+# 更新后的进程用已下载版本的清单，安装包自带的版本用安装目录里的 packs.json。
+static func mount_packs() -> bool:
+	var paths: Array[String] = []
+	if running_update():
+		var info := load_installed()
+		if info.is_empty() or str(info.release) != current_release(): return false
+		for path in info.get("packs", []): paths.append(resolve(str(path)))
+	else:
+		var bundled := load_bundled()
+		if bundled.is_empty(): return false
+		for name in bundled.packs:
+			if wanted_feature(bundled.packs[name]): paths.append(bundled_dir() + str(bundled.packs[name].file))
+	for path in paths:
+		if not ProjectSettings.load_resource_pack(ProjectSettings.globalize_path(path)):
+			push_error("数据包无法挂载：" + path)
 			return false
 	return true
 
@@ -188,36 +214,46 @@ func wanted() -> Array[Dictionary]:
 	var names := packs.keys()
 	names.sort()
 	for name in names:
-		var info: Dictionary = packs[name]
-		var feature := str(info.get("feature", ""))
-		if feature.is_empty() or OS.has_feature(feature): result.append(info)
+		if wanted_feature(packs[name]): result.append(packs[name])
 	return result
+
+# 本机已有的同一文件：先找已下载的，再找安装目录自带的数据包（文件名与 SHA-256 都一致才复用）。
+func local_copy(info: Dictionary) -> String:
+	var name := str(info.file).get_file()
+	if verified(FILES + name, info): return name
+	var bundled := bundled_dir() + "packs/" + name
+	if verified(bundled, info): return bundled
+	return ""
 
 func download_release() -> void:
 	DirAccess.make_dir_recursive_absolute(FILES)
+	progress.emit("正在核对本机已有的数据…", 0.0)
 	var items := wanted()
+	var located: Array[String] = []
 	var total := 0
-	for info in items: total += int(info.size)
-	var done_bytes := 0
 	for info in items:
+		located.append(local_copy(info))
+		if located[-1].is_empty(): total += int(info.size)
+		await get_tree().process_frame
+	var done_bytes := 0
+	for i in items.size():
+		if not located[i].is_empty(): continue
+		var info := items[i]
 		var name := str(info.file).get_file()
-		var path := FILES + name
-		if not verified(path, info):
-			var part := path + ".part"
-			var reply: Dictionary = await request(base_url + str(info.file), part, 0.0, done_bytes, total)
-			if not reply.ok:
-				fall_back("下载 %s 失败（%s），继续使用当前版本。" % [name, reply.error])
-				return
-			if not verified(part, info):
-				DirAccess.remove_absolute(part)
-				fall_back("%s 校验失败，继续使用当前版本。" % name)
-				return
-			DirAccess.remove_absolute(path)
-			DirAccess.rename_absolute(part, path)
+		var part := FILES + name + ".part"
+		var reply: Dictionary = await request(base_url + str(info.file), part, 0.0, done_bytes, total)
+		if not reply.ok:
+			fall_back("下载 %s 失败（%s），继续使用当前版本。" % [name, reply.error])
+			return
+		if not verified(part, info):
+			DirAccess.remove_absolute(part)
+			fall_back("%s 校验失败，继续使用当前版本。" % name)
+			return
+		DirAccess.remove_absolute(FILES + name)
+		DirAccess.rename_absolute(part, FILES + name)
+		located[i] = name
 		done_bytes += int(info.size)
-	var packs: Array[String] = []
-	for info in items.slice(1): packs.append(str(info.file).get_file())
-	var record := {"release": str(manifest.release), "core": str(manifest.core.file).get_file(), "packs": packs}
+	var record := {"release": str(manifest.release), "core": located[0], "packs": located.slice(1), "downloaded": total}
 	var file := FileAccess.open(CURRENT, FileAccess.WRITE)
 	file.store_string(JSON.stringify(record, " "))
 	file.close()
@@ -239,7 +275,7 @@ func prune(record: Dictionary) -> void:
 		if not keep.has(name): DirAccess.remove_absolute(FILES + name)
 
 func relaunch(info: Dictionary) -> void:
-	var args := PackedStringArray(["--main-pack", ProjectSettings.globalize_path(FILES + str(info.core)), "--", "--ct-release=" + str(info.release)])
+	var args := PackedStringArray(["--main-pack", ProjectSettings.globalize_path(resolve(str(info.core))), "--", "--ct-release=" + str(info.release)])
 	if DisplayServer.get_name() == "headless": args.insert(0, "--headless")
 	for arg in OS.get_cmdline_user_args():
 		if not arg.begins_with("--ct-release="): args.append(arg)

@@ -13,7 +13,6 @@
 """
 import argparse
 import datetime
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -25,7 +24,6 @@ import prepare_windows
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE = Path("D:/ConjoinedTwins-web")
-SPLIT = ROOT / "builds/update-split"
 FORMAT = 1
 
 
@@ -63,30 +61,27 @@ def engine_hash(engine):
 def publish(args, config):
     pck = prepare_windows.OUTPUT / "ConjoinedTwins.pck"
     release = prepare_windows.RELEASE.read_text(encoding="utf-8").strip() if prepare_windows.RELEASE.exists() else ""
-    if not pck.exists() or not release:
+    if not pck.exists() or not prepare_windows.PACKS.exists() or not release:
         raise SystemExit("没有已导出的 Windows 版或版本号，先去掉 --skip-export 重新导出")
-    if SPLIT.exists():
-        shutil.rmtree(SPLIT)
-    SPLIT.mkdir(parents=True)
-    shutil.copy2(pck, SPLIT / "index.pck")
-    subprocess.run([sys.executable, str(ROOT / "build-tools/split_web_pack.py"), str(SPLIT)], check=True)
-    split = json.loads((SPLIT / "packs.json").read_text(encoding="utf-8"))
+    bundled = json.loads(prepare_windows.PACKS.read_text(encoding="utf-8"))
+    if bundled.get("release") != release:
+        raise SystemExit("builds/windows 与 ct_release.txt 不是同一次导出，先重新导出")
     files = args.out / "files"
     files.mkdir(parents=True, exist_ok=True)
-    core_hash = sha(SPLIT / "index.pck")
+    core_hash = sha(pck)
     core_name = f"core.{core_hash[:12]}.pck"
-    shutil.copy2(SPLIT / "index.pck", files / core_name)
+    shutil.copy2(pck, files / core_name)
     manifest = {"format": FORMAT, "release": release, "engine": engine_hash(args.engine),
                 "published": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-                "core": {"file": f"files/{core_name}", "size": (files / core_name).stat().st_size, "sha256": core_hash},
+                "core": {"file": f"files/{core_name}", "size": pck.stat().st_size, "sha256": core_hash},
                 "packs": {}, **config}
-    for name, info in split["packs"].items():
-        source = SPLIT / info["file"]
+    # 数据包与安装包里的是同一批文件（同名同哈希），玩家本机已有的不会再下载。
+    for name, info in bundled["packs"].items():
+        source = prepare_windows.OUTPUT / info["file"]
         target = files / source.name
         if not target.exists():
             shutil.copy2(source, target)
-        manifest["packs"][name] = {"file": f"files/{source.name}", "size": info["size"],
-                                   "sha256": sha(target), "feature": info["feature"]}
+        manifest["packs"][name] = {**info, "file": f"files/{source.name}"}
     if not args.no_installer and prepare_windows.ARCHIVE.exists():
         installer = args.out / "installer"
         installer.mkdir(exist_ok=True)
@@ -103,7 +98,6 @@ def publish(args, config):
     for path in files.iterdir():
         if path.name not in keep:
             path.unlink()
-    shutil.rmtree(SPLIT)
     total = manifest["core"]["size"] + sum(p["size"] for p in manifest["packs"].values())
     print(f"已发布 {release} → {args.out}")
     print(f"  主包 {manifest['core']['size'] / 1e6:.1f} MB，数据包 {len(manifest['packs'])} 个，合计 {total / 1e6:.1f} MB")

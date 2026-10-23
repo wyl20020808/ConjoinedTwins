@@ -6,7 +6,8 @@
 
 模板只从 Godot 官方 GitHub 发布包里按 HTTP Range 读取 windows_release_x86_64.exe 一个条目，
 存到被 Git 忽略的 build-tools/cache/，来源记录在 windows-template-source.json，不做全局安装。
-导出全部资源在同一个 .pck 里（只含桌面 s3tc 贴图），不需要按章节下载。
+导出后拆成主包 ConjoinedTwins.pck 与 packs/ 下的数据包（只含桌面 s3tc 贴图），全部随安装包附带，
+与云更新（publish_update.py）使用同一套带哈希的文件，更新时只下载变化的包。
 联机默认连接 net_client.gd 的 DEFAULT_SERVER（主机电脑经 SakuraFrp 隧道发布的 wss 地址）。
 """
 import argparse
@@ -29,12 +30,13 @@ OUTPUT = ROOT / "builds/windows/ConjoinedTwins"
 ARCHIVE = ROOT / "builds/windows/ConjoinedTwins-Windows.zip"
 # 版本号：导出时间（UTC）+ 提交，按字符串比较即新旧；导出时写入包内，云更新据此判断是否需要更新。
 RELEASE = ROOT / "ct_release.txt"
+PACKS = OUTPUT / "packs.json"
 DEFAULT_ENGINE = "D:/Tools/Godot/4.7.1/Godot_v4.7.1-stable_win64_console.exe"
 API = "https://api.github.com/repos/godotengine/godot-builds/releases/tags/4.7.1-stable"
 ASSET = "Godot_v4.7.1-stable_export_templates.tpz"
 README = """共生连线 · Windows 版
 
-1. 把整个文件夹解压到任意位置（不要只拖出 exe，ConjoinedTwins.pck 必须和它放在一起）。
+1. 把整个文件夹解压到任意位置（不要只拖出 exe，ConjoinedTwins.pck 和 packs 文件夹必须和它放在一起）。
 2. 双击 ConjoinedTwins.exe。Windows 若提示“已保护你的电脑”，点“更多信息” → “仍要运行”（程序没有数字签名）。
 3. 在主界面选好章节 → 开始页选“远程双人” → 点“连接队友”。服务器地址已经填好，不用改。
    联机章节以 01 号（先连上的人）选的为准，两人都载入完成后点“出发”。
@@ -86,6 +88,37 @@ def run(command, log, timeout):
         return subprocess.run(command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, timeout=timeout).returncode
 
 
+def split_release():
+    """把导出的整包拆成主包与按章节用量分组的数据包（与云更新同一套文件）。
+
+    ConjoinedTwins.pck 只留主包（脚本、场景、界面），数据包放在 packs/，文件名带内容哈希，
+    packs.json 记录大小与 SHA-256。游戏启动时挂载这些包；云更新只下载哈希不同的文件，
+    安装包自带的数据包直接复用，玩家装完后第一次更新也不必重新下载全部资源。
+    """
+    temp = ROOT / "builds/windows-split"
+    if temp.exists():
+        shutil.rmtree(temp)
+    temp.mkdir(parents=True)
+    pck = OUTPUT / "ConjoinedTwins.pck"
+    shutil.move(pck, temp / "index.pck")
+    subprocess.run([sys.executable, str(ROOT / "build-tools/split_web_pack.py"), str(temp)], check=True,
+                   stdout=subprocess.DEVNULL)
+    plan = json.loads((temp / "packs.json").read_text(encoding="utf-8"))
+    packs_dir = OUTPUT / "packs"
+    packs_dir.mkdir()
+    packs = {}
+    for name, info in plan["packs"].items():
+        source = temp / info["file"]
+        shutil.move(source, packs_dir / source.name)
+        packs[name] = {"file": f"packs/{source.name}", "size": info["size"], "sha256": sha(packs_dir / source.name),
+                       "feature": info["feature"]}
+    shutil.move(temp / "index.pck", pck)
+    PACKS.write_text(json.dumps({"release": RELEASE.read_text(encoding="utf-8"), "packs": packs},
+                                ensure_ascii=False, indent=1), encoding="utf-8")
+    shutil.rmtree(temp)
+    print(f"core {pck.stat().st_size} bytes, {len(packs)} packs {sum(p['size'] for p in packs.values())} bytes", flush=True)
+
+
 def export(engine):
     from network_manifest import generate
     generate()
@@ -109,10 +142,12 @@ def export(engine):
         print(f"export exit={code}, files={sorted(p.name for p in OUTPUT.iterdir())}, evidence={evidence}", flush=True)
         return False
     (OUTPUT / "使用说明.txt").write_text(README.replace("\n", "\r\n"), encoding="utf-8-sig")
+    split_release()
     ARCHIVE.unlink(missing_ok=True)
     with zipfile.ZipFile(ARCHIVE, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        for path in sorted(OUTPUT.iterdir()):
-            archive.write(path, f"ConjoinedTwins/{path.name}")
+        for path in sorted(OUTPUT.rglob("*")):
+            if path.is_file():
+                archive.write(path, f"ConjoinedTwins/{path.relative_to(OUTPUT).as_posix()}")
     print(f"exe {exe.stat().st_size} bytes, pck {pck.stat().st_size} bytes", flush=True)
     print(f"zip {ARCHIVE} {ARCHIVE.stat().st_size} bytes sha256 {sha(ARCHIVE)}", flush=True)
     print(f"release {RELEASE.read_text(encoding='utf-8')}", flush=True)
