@@ -3,7 +3,7 @@ extends RefCounted
 # 独立绳索求解模块（首轮）：两端点之间一条贴地拉紧的折线/弧线路径。
 # 保存端点、接触障碍的稳定标识、连续绕行侧和接触路径；有效长度按地面绕障路径计算，
 # 绳段实际高度决定能否挂上或越过障碍。
-# 边界：只处理圆形障碍的切线与表面弧段；不含弹性、摆荡、松弛下垂和打结仿真。
+# 几何部分处理圆形障碍的切线与表面弧段；松绳、弯曲和接触物理由 rope_physics 统一推进，不模拟复杂打结。
 # 绕行侧一旦建立就保持不变，不会逐帧改选另一侧的更短路径。解除接触只有两条途径：
 # 一、连续缠绕角退回零后进入“松脱待定”，绳段离开表面超过 RELEASE_DISTANCE，
 #     或连续 RELEASE_SOLVES 次求解都没有再压回，才真正解除；期间压回即恢复原接触。
@@ -14,6 +14,9 @@ const RELEASE_DISTANCE := 0.5
 const RELEASE_SOLVES := 36
 const MAX_PASSES := 12
 const ARC_STEP := 0.3
+
+const Physics = preload("res://scripts/rope_physics.gd")
+var physical := {}
 
 var a := Vector2.ZERO
 var b := Vector2.ZERO
@@ -43,6 +46,7 @@ func reset(start: Vector2, end: Vector2) -> void:
 	b = end
 	height_a = 0.0
 	height_b = 0.0
+	physical = {}
 	contacts.clear()
 	lifted.clear()
 	length = start.distance_to(end)
@@ -68,6 +72,7 @@ func straight(start: Vector2, end: Vector2, rope_a: float, rope_b: float) -> voi
 
 # 坐标重定位：端点、接触圆心和路径整体平移，接触关系不变。
 func shift(offset: Vector2) -> void:
+	Physics.shift(physical, Vector3(offset.x, 0, offset.y))
 	a += offset
 	b += offset
 	for contact in contacts: contact.center += offset
@@ -172,6 +177,19 @@ static func active(list: Array) -> Array:
 # circles: [{id, center, radius, top, bottom}]，radius 已含绳索与表面的间隙。
 # rope_a / rope_b 为两端绳索挂点的实际高度。commit 为 false 时只试算长度，不改变已保存状态。
 func solve(end_a: Vector2, end_b: Vector2, rope_a: float, rope_b: float, circles: Array, commit: bool) -> float:
+	# 没有历史接触，且直线完全避开全部最大截面时，无需构造切线接触链。
+	if contacts.is_empty():
+		var clear:=true
+		for circle in circles:
+			if segment_distance(end_a,end_b,circle.center)<=maxf(circle.radius,circle.get("max_radius",circle.radius))+PENETRATION:
+				clear=false;break
+		if clear:
+			var direct:=Vector2(end_a.distance_to(end_b),rope_b-rope_a).length()
+			solved_contacts=0;solved_blocking=0;solved_valid=true
+			if commit:
+				straight(end_a,end_b,rope_a,rope_b)
+				length=direct;required=direct
+			return direct
 	var list: Array = []
 	var known := {}
 	for circle in circles: known[circle.id] = circle
@@ -296,6 +314,9 @@ func solve(end_a: Vector2, end_b: Vector2, rope_a: float, rope_b: float, circles
 	solved_contacts = nodes.size() if valid else 0
 	solved_blocking = nodes.size() + over.size() if valid else 0
 	solved_valid = valid
+	# 地面拓扑路径与两端高度组成三维不可伸长长度。
+	result = Vector2(result, rope_b - rope_a).length()
+	demand = Vector2(demand, rope_b - rope_a).length()
 	# 球体截面随跳跃高度变化：预留全跳跃过程中最大的截面，避免下降时突然超长。
 	# 预留只影响 required 和 blocking，不伪造真实接触，也不作为受阻失败计时依据。
 	var expanded: Array = []
@@ -345,4 +366,23 @@ func path_heights() -> PackedFloat32Array:
 	for i in range(path.size()):
 		if i > 0: travelled += path[i - 1].distance_to(path[i])
 		result.append(lerpf(height_a, height_b, travelled / maxf(total, 0.000001)))
+	return result
+
+# 几何求解只负责接触拓扑和运动可行性；实际绳形、危险检测与渲染共用这条质点链。
+func physical_path() -> PackedVector2Array:
+	if physical.is_empty(): return path
+	var result := PackedVector2Array()
+	for p in physical.points: result.append(Vector2(p.x, p.z))
+	return result
+
+func physical_heights() -> PackedFloat32Array:
+	if physical.is_empty(): return path_heights()
+	var result := PackedFloat32Array()
+	for p in physical.points: result.append(p.y)
+	return result
+
+func guide3d() -> PackedVector3Array:
+	var result := PackedVector3Array()
+	var z := path_heights()
+	for i in range(path.size()): result.append(Vector3(path[i].x, z[i], path[i].y))
 	return result

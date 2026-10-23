@@ -1,8 +1,12 @@
 config_version=5
 
 [application]
-config/name="共生连线 · 归航 Demo"
-run/main_scene="res://scenes/road_demo.tscn"
+config/name="共生连线 · 连续旅程"
+run/main_scene="res://scenes/journey_boot.tscn"
+
+[autoload]
+
+ChapterPacks="*res://scripts/chapter_packs.gd"
 
 [display]
 window/size/viewport_width=1280
@@ -10,10 +14,20 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 
 [rendering]
-renderer/rendering_method="gl_compatibility"
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.mobile="gl_compatibility"
+renderer/rendering_method.web="gl_compatibility"
+gl_compatibility/driver.windows="opengl3_angle"
 anti_aliasing/quality/msaa_3d=1
+anti_aliasing/quality/use_debanding=true
 textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.055, 0.075, 0.11, 1)
+
+[gui]
+
+theme/custom_font="res://assets/fonts/web_ui_font.tres"
+
+theme/custom_font.web="res://assets/fonts/web_ui_font.tres"
 
 [physics]
 common/physics_ticks_per_second=60

@@ -1,40 +1,69 @@
 extends MeshInstance3D
 
-# 绳子的画面表现：一根有重量、会下垂、会甩动的细麻绳。
-# 规则（长度上限、绕柱、受阻）仍完全由 rope_solver / road_run 决定，这里只把它画得像真绳子：
-# 两端钉在两人腰间，中间是一串质点，按 Verlet 积分加重力，再反复把相邻质点拉回固定段长（总长 = 生产绳长）。
-# 两人靠近时绳子自然垂下、拖地；拉满时绷直；绕住柱子或滚球时沿求解出的绕障路径贴紧。
+# 麻绳网格只读取生产物理质点。没有独立的显示层绳长、重力或空气地板。
 const SEGMENTS := 32
-const RADIUS := 0.045
-const SIDES := 7
+# 加粗到 11 厘米：固定纵深镜头下角色约 90 像素高，绳子要一眼可见。只影响表现，不改物理绳长或碰撞。
+const RADIUS := 0.11
+const SIDES := 12
 const GRAVITY := Vector3(0, -14.0, 0)
 const ITERATIONS := 18
 # 道路在跑，空气迎面吹来：给绳子一点向后（朝镜头）的风。
 const WIND := Vector3(0, 0, 2.2)
 var points := PackedVector3Array()
 var previous := PackedVector3Array()
-var immediate := ImmediateMesh.new()
+var surface := ArrayMesh.new()
+var vertex_data := PackedByteArray()
+var attribute_data := PackedByteArray()
+var vertex_count := 0
+var vertex_stride := 0
+var normal_stride := 0
+var normal_offset := 0
+var tangent_offset := 0
+var uv_stride := 0
+var uv_offset := 0
 var rope_material := StandardMaterial3D.new()
+# 能量外壳作为麻绳材质的 next_pass，复用同一网格与缓冲区，不增加拓扑。
+var energy_material := ShaderMaterial.new()
+var energy_level := 1.0
 var length := 7.33
+# 张力反馈：0 为松弛，1 为达到绳长上限。麻绳本体压暗作为能量外壳的芯，
+# 亮度与配色交给 rope_energy 外壳（青→橙渐变、能量包、受阻红闪）。
+var tension := 0.0
+var blocked := false
+var pulse_clock := 0.0
+const SLACK_COLOR := Color("5a2a22")
+const TAUT_COLOR := Color("8a4a2a")
+const BLOCKED_COLOR := Color("e0302a")
+
+func set_tension(value: float, status: String, delta: float) -> void:
+	tension = clampf(value, 0.0, 1.2)
+	blocked = status in ["blocked", "unwinding", "failed"]
+	pulse_clock += delta
 
 func _ready() -> void:
-	mesh = immediate
+	mesh = surface
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	rope_material.albedo_texture = braid_texture()
 	rope_material.albedo_color = Color("d8b07a")
-	rope_material.roughness = 0.9
+	rope_material.roughness = 0.98
+	rope_material.normal_enabled = true
+	rope_material.normal_texture = fiber_normal()
+	rope_material.normal_scale = 0.55
 	rope_material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	rope_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	energy_material.shader = preload("res://scripts/rope_energy.gdshader")
+	rope_material.next_pass = energy_material
 	material_override = rope_material
 
-# 两股麻绳拧在一起的斜纹：深浅交替的斜条带，沿绳子方向重复。
+# 三股捻绳和细纤维由确定性纹理生成，无外部素材依赖。
 static func braid_texture() -> ImageTexture:
-	var image := Image.create(32, 32, true, Image.FORMAT_RGB8)
-	for x in range(32):
-		for y in range(32):
-			var stripe := fposmod((x + y) / 16.0, 1.0)
-			var shade := 0.62 + 0.38 * smoothstep(0.0, 0.25, stripe) * smoothstep(0.75, 0.5, stripe)
-			image.set_pixel(x, y, Color(shade, shade * 0.93, shade * 0.82))
+	var image := Image.create(128, 128, true, Image.FORMAT_RGB8)
+	for x in range(128):
+		for y in range(128):
+			var strand := 0.72 + 0.20 * cos(TAU * (3.0*x/128.0 + y/64.0))
+			var fiber := 0.05 * sin(x*2.1+y*0.7) + 0.03 * sin(x*4.3-y*0.27)
+			var shade := strand + fiber
+			image.set_pixel(x, y, Color(shade, shade*0.87, shade*0.65))
 	image.generate_mipmaps()
 	return ImageTexture.create_from_image(image)
 
@@ -45,50 +74,18 @@ func reset(start: Vector3, finish: Vector3) -> void:
 		points[n] = start.lerp(finish, float(n) / SEGMENTS)
 		previous[n] = points[n]
 
-# path：从 01 到 02 的折线（视图坐标）。只有两个点时绳子自由下垂；有中间点说明绕住了障碍，沿折线贴紧。
-func simulate(path: Array[Vector3], delta: float, tint: Color, glow: float) -> void:
-	var start: Vector3 = path[0]
-	var finish: Vector3 = path[path.size() - 1]
-	if points.size() != SEGMENTS + 1 or points[0].distance_to(start) > 3.0 or points[SEGMENTS].distance_to(finish) > 3.0:
-		reset(start, finish)
-	rope_material.albedo_color = tint
-	rope_material.emission_enabled = glow > 0.0
-	rope_material.emission = tint
-	rope_material.emission_energy_multiplier = glow
-	if path.size() > 2:
-		# 绕障时贴着求解路径：按弧长把质点均匀铺上去，速度清零，脱开后再从这里自然落下。
-		var total := 0.0
-		for n in range(1, path.size()): total += path[n - 1].distance_to(path[n])
-		for n in range(SEGMENTS + 1):
-			points[n] = along(path, total * n / SEGMENTS)
-			previous[n] = points[n]
-		draw()
-		return
-	var span := start.distance_to(finish)
-	# 规则绳长 7.33 米，两人靠近时整段余量全垂下来会拖在地上看不见；画面上只放出有限余量，
-	# 让绳子在两人之间弯成一道明显的弧，拉开到接近上限时自然绷直。
-	var slack := clampf(length - span, 0.0, 0.45 + 0.1 * span)
-	var rest := (span + slack) / SEGMENTS
-	var dt := clampf(delta, 0.0, 1.0 / 30.0)
-	for n in range(1, SEGMENTS):
-		var velocity := (points[n] - previous[n]) * 0.985
-		previous[n] = points[n]
-		points[n] += velocity + (GRAVITY + WIND) * dt * dt
-	for iteration in range(ITERATIONS):
-		points[0] = start
-		points[SEGMENTS] = finish
-		for n in range(SEGMENTS):
-			var offset := points[n + 1] - points[n]
-			var distance := offset.length()
-			if distance < 0.00001: continue
-			var correction := offset * (1.0 - rest / distance) * 0.5
-			if n > 0: points[n] += correction
-			if n + 1 < SEGMENTS: points[n + 1] -= correction
-		# 拖地的部分躺在路面上，不穿进地里。
-		for n in range(1, SEGMENTS):
-			if points[n].y < RADIUS: points[n].y = RADIUS
-	points[0] = start
-	points[SEGMENTS] = finish
+# 兼容旧调用入口；物理推进由 road_run 完成，画面不再使用 delta 改变绳形。
+func simulate(path: Array[Vector3], _delta: float, _tint: Color, _glow: float) -> void:
+	points = PackedVector3Array(path)
+	# 松弛为深红棕，接近上限逐渐转为亮橙，受阻时在红色间闪动提示。
+	var color := SLACK_COLOR.lerp(TAUT_COLOR, smoothstep(0.7, 1.0, tension))
+	if blocked: color = color.lerp(BLOCKED_COLOR, 0.55 + 0.45 * sin(pulse_clock * TAU * 3.0))
+	rope_material.albedo_color = color
+	rope_material.emission_enabled = false
+	energy_material.set_shader_parameter("tension", clampf(tension, 0.0, 1.0))
+	energy_material.set_shader_parameter("alarm_mix", (0.55 + 0.45 * sin(pulse_clock * TAU * 3.0)) if blocked else 0.0)
+	energy_material.set_shader_parameter("clock", pulse_clock)
+	energy_material.set_shader_parameter("energy", energy_level)
 	draw()
 
 static func along(path: Array[Vector3], distance: float) -> Vector3:
@@ -101,29 +98,106 @@ static func along(path: Array[Vector3], distance: float) -> Vector3:
 
 # 沿质点链生成一根细圆管；纹理 u 沿周向，v 沿长度，按实际长度重复，斜纹不会被拉伸。
 func draw() -> void:
-	immediate.clear_surfaces()
-	immediate.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rings: Array = []
+	if points.size() < 2:
+		visible=false
+		return
+	for point in points:
+		if not point.is_finite():
+			visible=false
+			return
+	visible=true
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var tangents := PackedFloat32Array()
+	var uvs := PackedVector2Array()
+	# reset 的两端点与模拟的 25 个质点共用固定容量；多余环收在末端。
+	# 保留原质点和原线段，不重采样或改变碰撞绳形。
+	var ring_count:=maxi(maxi(SEGMENTS+1,points.size()),vertex_count/(SIDES+1))
+	var count := ring_count*(SIDES+1)
+	vertices.resize(count);normals.resize(count);tangents.resize(count*4);uvs.resize(count)
+	var bounds := AABB(points[0],Vector3.ZERO)
 	var travelled := 0.0
 	var normal_hint := Vector3.UP
-	for n in range(SEGMENTS + 1):
-		var forward := (points[mini(n + 1, SEGMENTS)] - points[maxi(n - 1, 0)]).normalized()
+	for ring_index in range(ring_count):
+		var n:=mini(ring_index,points.size()-1)
+		var forward := (points[mini(n + 1, points.size()-1)] - points[maxi(n - 1, 0)]).normalized()
 		if forward.length() < 0.5: forward = Vector3.RIGHT
-		if absf(forward.dot(normal_hint)) > 0.95: normal_hint = Vector3.FORWARD
+		if absf(forward.dot(normal_hint)) > 0.95:
+			normal_hint=Vector3.UP if absf(forward.y)<0.95 else Vector3.FORWARD
 		var side := forward.cross(normal_hint).normalized()
 		var up := side.cross(forward).normalized()
-		if n > 0: travelled += points[n - 1].distance_to(points[n])
-		var ring: Array = []
+		if ring_index > 0 and ring_index < points.size(): travelled += points[n - 1].distance_to(points[n])
+		bounds=bounds.expand(points[n])
 		for k in range(SIDES + 1):
 			var angle := TAU * k / SIDES
 			var normal := side * cos(angle) + up * sin(angle)
-			ring.append([points[n] + normal * RADIUS, normal, Vector2(float(k) / SIDES, travelled / 0.12)])
-		rings.append(ring)
-	for n in range(SEGMENTS):
+			var braid := 1.0 + 0.09 * cos(3.0 * angle + travelled * TAU / 0.18)
+			var index:=ring_index*(SIDES+1)+k
+			var tangent:=-side*sin(angle)+up*cos(angle)
+			vertices[index]=points[n]+normal*RADIUS*braid
+			normals[index]=normal
+			uvs[index]=Vector2(float(k)/SIDES,travelled/0.18)
+			tangents[index*4]=tangent.x;tangents[index*4+1]=tangent.y
+			tangents[index*4+2]=tangent.z;tangents[index*4+3]=1.0
+	if count!=vertex_count:
+		build_surface(vertices,normals,tangents,uvs)
+	else:
+		# 拓扑不变时只更新缓冲区，不销毁正在使用的渲染表面缓存。
+		for index in range(count):
+			var vertex:=vertices[index]
+			vertex_data.encode_float(index*vertex_stride,vertex.x)
+			vertex_data.encode_float(index*vertex_stride+4,vertex.y)
+			vertex_data.encode_float(index*vertex_stride+8,vertex.z)
+			encode_direction(normal_offset+index*normal_stride,normals[index].octahedron_encode())
+			var tangent:=Vector3(tangents[index*4],tangents[index*4+1],tangents[index*4+2]).octahedron_encode()
+			# 与 Godot 的正手性切线打包规则一致（UNORM16 八面体编码）。
+			tangent.y=maxf(tangent.y,1.0/32767.0)*0.5+0.5
+			if int(tangent.x*65535)==0 and int(tangent.y*65535)==65535:tangent.x=1.0
+			encode_direction(tangent_offset+index*normal_stride,tangent)
+			attribute_data.encode_float(uv_offset+index*uv_stride,uvs[index].x)
+			attribute_data.encode_float(uv_offset+index*uv_stride+4,uvs[index].y)
+		RenderingServer.mesh_surface_update_vertex_region(surface.get_rid(),0,0,vertex_data)
+		RenderingServer.mesh_surface_update_attribute_region(surface.get_rid(),0,0,attribute_data)
+	energy_material.set_shader_parameter("span", travelled / 0.18)
+	# 缓冲区更新不会自动重算包围盒，救援下坠和镜头切换都必须覆盖。
+	custom_aabb=bounds.grow(RADIUS*1.1+0.08)
+
+func encode_direction(offset:int,value:Vector2)->void:
+	vertex_data.encode_u16(offset,clampi(int(value.x*65535),0,65535))
+	vertex_data.encode_u16(offset+2,clampi(int(value.y*65535),0,65535))
+
+func build_surface(vertices:PackedVector3Array,normals:PackedVector3Array,tangents:PackedFloat32Array,uvs:PackedVector2Array)->void:
+	var indices:=PackedInt32Array()
+	for n in range(vertices.size()/(SIDES+1)-1):
 		for k in range(SIDES):
-			for corner in [[n, k], [n + 1, k], [n + 1, k + 1], [n, k], [n + 1, k + 1], [n, k + 1]]:
-				var vertex: Array = rings[corner[0]][corner[1]]
-				immediate.surface_set_normal(vertex[1])
-				immediate.surface_set_uv(vertex[2])
-				immediate.surface_add_vertex(vertex[0])
-	immediate.surface_end()
+			var a:=n*(SIDES+1)+k
+			var b:=a+SIDES+1
+			indices.append_array(PackedInt32Array([a,b,b+1,a,b+1,a+1]))
+	var arrays:=[]
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX]=vertices;arrays[Mesh.ARRAY_NORMAL]=normals
+	arrays[Mesh.ARRAY_TANGENT]=tangents;arrays[Mesh.ARRAY_TEX_UV]=uvs;arrays[Mesh.ARRAY_INDEX]=indices
+	# 点数变化才建立新网格；旧网格交由引擎管理引用释放，不清空活动网格。
+	surface=ArrayMesh.new()
+	surface.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES,arrays,[],{},Mesh.ARRAY_FLAG_USE_DYNAMIC_UPDATE)
+	mesh=surface
+	vertex_count=vertices.size()
+	var format:=surface.surface_get_format(0)
+	vertex_stride=RenderingServer.mesh_surface_get_format_vertex_stride(format,vertex_count)
+	normal_stride=RenderingServer.mesh_surface_get_format_normal_tangent_stride(format,vertex_count)
+	normal_offset=RenderingServer.mesh_surface_get_format_offset(format,vertex_count,Mesh.ARRAY_NORMAL)
+	tangent_offset=RenderingServer.mesh_surface_get_format_offset(format,vertex_count,Mesh.ARRAY_TANGENT)
+	uv_stride=RenderingServer.mesh_surface_get_format_attribute_stride(format,vertex_count)
+	uv_offset=RenderingServer.mesh_surface_get_format_offset(format,vertex_count,Mesh.ARRAY_TEX_UV)
+	vertex_data.resize(vertex_count*(vertex_stride+normal_stride))
+	attribute_data.resize(vertex_count*uv_stride)
+
+static func fiber_normal() -> ImageTexture:
+	var image := Image.create(128, 128, true, Image.FORMAT_RGB8)
+	for x in range(128):
+		for y in range(128):
+			var slope := sin(TAU * (3.0*x/128.0 + y/64.0)) * 0.35
+			var normal := Vector3(slope, slope*0.5 + sin(x*2.1+y*0.7)*0.12, 1).normalized()
+			image.set_pixel(x,y,Color(normal.x*0.5+0.5,normal.y*0.5+0.5,normal.z*0.5+0.5))
+	image.generate_mipmaps()
+	return ImageTexture.create_from_image(image)

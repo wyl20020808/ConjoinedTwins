@@ -29,7 +29,7 @@ func rules(Plates) -> void:
 		var invalid_b := right
 		if invalid == "single": invalid_b = Vector2.ZERO
 		if invalid == "same": invalid_b = left
-		if invalid in ["edge", "leave"]: invalid_b = right + Vector2(18.01 if invalid == "edge" else 40, 0)
+		if invalid in ["edge", "leave"]: invalid_b = right + Vector2(Plates.PLATE_RADIUS + 0.01 if invalid == "edge" else 40, 0)
 		Plates.advance(gate, left, invalid_b, true, invalid != "air", Run.FIXED_STEP)
 		check("失效归零 " + invalid, not gate.open and gate.charge == 0)
 		for tick in range(41): Plates.advance(gate, left, right, true, true, Run.FIXED_STEP)
@@ -140,6 +140,8 @@ func verify_scene() -> void:
 		var axes := Templates.existing_route_input(run)
 		run.step(Run.FIXED_STEP, axes[0], axes[1], axes[2], axes[3])
 		if run.charge_gate.get("kind", "charge") == "sync_plates": break
+	# 扩大的踏板已覆盖充能后的横向位置；先用合法输入离开板边再验证等待。
+	ticks(run, 4, Vector2.LEFT, Vector2.RIGHT)
 	ticks(run, 240)
 	check("踏板等待停止推进且不安装危险", run.distance == 290.0 and run.obstacles.is_empty() and not run.charge_gate.open)
 	# 单独的世界坐标重定位夹具；教学路线与复放不使用坐标赋值。

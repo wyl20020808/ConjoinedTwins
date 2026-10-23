@@ -1,0 +1,79 @@
+[
+  {
+    "path": "assets/journey/house_0.glb",
+    "bytes": 4970208,
+    "sha256": "9165ddec4247c8b1eb44caac562de774457a78285a477843a2cf2ee7ce8f9ead",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/house_1.glb",
+    "bytes": 4970168,
+    "sha256": "51f61c7aa2c38dbb318358d0075b9dc2b9e6f6aad33e376e748aa94c6e3cf9b8",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/house_2.glb",
+    "bytes": 4992840,
+    "sha256": "e9836d63818eb7053e8c89b2326c7d7b5b087a72fcfbc92178152b858b046822",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/cart.glb",
+    "bytes": 3116124,
+    "sha256": "6589de9c3c1eca36e60a295e941f99a48a859414e09d2f4277b5586335817f5a",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/boar.glb",
+    "bytes": 197472,
+    "sha256": "f36213ef603c7be944b03a10ceaddce767ffa1f47aebd18a179417634bc208c0",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/falling_tree.glb",
+    "bytes": 1019160,
+    "sha256": "08b250c64bafe36b8f111ae40d58adc476023ef68190bbfd87fc6346512aef3e",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/waterwheel.glb",
+    "bytes": 3104716,
+    "sha256": "8b435e7537ec67765b5e3dd0baa15000d433340a279455c062ff26908d3033fb",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/gate.glb",
+    "bytes": 2925244,
+    "sha256": "d16379157d5b70294eefeb7cba6e955ac83ee5787772c3da7998e47821cb60d8",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/drawbridge.glb",
+    "bytes": 2169164,
+    "sha256": "539aa96acd6cfd684f70a6b68685e666f8523587fad7296d07fe45043252619e",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/fence.glb",
+    "bytes": 1949516,
+    "sha256": "6f5640e6f93e9db96e7b097fa31db7361b99b09f34886aee67df65a7e5dfb13f",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  },
+  {
+    "path": "assets/journey/sign.glb",
+    "bytes": 1941980,
+    "sha256": "9f6be6a62dfb32fb13b7e2d413488d0795a8146583250176de36add849ed2a10",
+    "source": "build-tools/journey/make_assets.py",
+    "license": "Project-authored geometry; embedded textures retain CC0"
+  }
+]

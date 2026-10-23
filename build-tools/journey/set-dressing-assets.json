@@ -1,0 +1,54 @@
+{
+  "generator": "make_set_dressing.py",
+  "license": "Original project geometry",
+  "assets": [
+    {
+      "file": "assets/landscape/detail_deadwood.glb",
+      "bytes": 38308,
+      "triangles": 542,
+      "sha256": "dc8e7ef4de99ea4c9e08fa0f1c9fd227d828609f54411b5f86007702bd364403"
+    },
+    {
+      "file": "assets/landscape/detail_moss_rocks.glb",
+      "bytes": 16744,
+      "triangles": 216,
+      "sha256": "496dc05483447650f1b072bbc9fbaca168326974f0323755d5dd397b46c48100"
+    },
+    {
+      "file": "assets/landscape/detail_fern_bed.glb",
+      "bytes": 148904,
+      "triangles": 2100,
+      "sha256": "96c828b03fa64bfef7f866afa1fa9e43135fe2b97a970f0e9927508f688737ed"
+    },
+    {
+      "file": "assets/landscape/detail_market.glb",
+      "bytes": 84864,
+      "triangles": 1188,
+      "sha256": "e027d7f5a18175f6289c79e2b430008db2313c1665ff2b4bd7a61a289066e818"
+    },
+    {
+      "file": "assets/landscape/detail_porch.glb",
+      "bytes": 17972,
+      "triangles": 212,
+      "sha256": "81272e96550890beacb100e926edda55a426410b085b5850b7ce592ace9169ea"
+    },
+    {
+      "file": "assets/landscape/detail_garden.glb",
+      "bytes": 24012,
+      "triangles": 300,
+      "sha256": "a8f3a80af47d7d85ff88bd378497d5d393fe7bd23fa338731bc67d1d3cd6e7f3"
+    },
+    {
+      "file": "assets/landscape/detail_lantern.glb",
+      "bytes": 10924,
+      "triangles": 132,
+      "sha256": "41a8c54008b08cb54d904635a69d742731ac1a27940a46d82e19d61c4a4b572d"
+    },
+    {
+      "file": "assets/landscape/detail_contact.glb",
+      "bytes": 1204,
+      "triangles": 2,
+      "sha256": "38462d80f3a80063de1963912cc6def9d3a95ff9570716b2377725c2bd0e13fe"
+    }
+  ]
+}

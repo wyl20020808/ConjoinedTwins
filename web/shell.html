@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, viewport-fit=cover">
+		<meta name="theme-color" content="#0b1117">
+		<title>$GODOT_PROJECT_NAME</title>
+		<!-- 共生连线网页外壳：启动画面 + Service Worker 本地缓存。由 export_presets.cfg 的 custom_html_shell 引用。 -->
+		<style>
+html, body, #canvas { margin: 0; padding: 0; border: 0; }
+body {
+	color: #f2ede0;
+	background: #0b1117;
+	overflow: hidden;
+	touch-action: none;
+	font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+}
+#canvas { display: block; }
+#canvas:focus { outline: none; }
+#boot {
+	position: fixed; inset: 0; z-index: 2;
+	display: flex; flex-direction: column; justify-content: space-between;
+	transition: opacity .6s ease;
+}
+#boot.done { opacity: 0; pointer-events: none; }
+#boot .bg {
+	position: absolute; inset: -4%;
+	background: #0b1117 url("loading_bg.jpg") center / cover no-repeat;
+	animation: drift 40s ease-in-out infinite alternate;
+}
+#boot .shade {
+	position: absolute; inset: 0;
+	background:
+		linear-gradient(90deg, rgba(5,8,10,.86) 0%, rgba(5,8,10,.45) 45%, rgba(5,8,10,.15) 75%),
+		linear-gradient(0deg, rgba(5,8,10,.95) 0%, rgba(5,8,10,.55) 32%, rgba(5,8,10,0) 60%),
+		linear-gradient(180deg, rgba(5,8,10,.55) 0%, rgba(5,8,10,0) 22%);
+}
+@keyframes drift { from { transform: scale(1.02) translateX(0); } to { transform: scale(1.09) translateX(-1.5%); } }
+#boot header, #boot main { position: relative; padding: 0 clamp(20px, 5vw, 64px); }
+#boot header { padding-top: clamp(18px, 5vh, 44px); }
+#boot h1 {
+	margin: 0; font-size: clamp(30px, 5vw, 46px); font-weight: 700; letter-spacing: .08em;
+	text-shadow: 0 3px 16px rgba(0,0,0,.55);
+}
+#boot header p { margin: 6px 0 0 2px; color: #cfd6cc; font-size: 15px; letter-spacing: .12em; }
+#boot main { padding-bottom: clamp(20px, 6vh, 48px); }
+.row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+#stage { font-size: 18px; }
+#detail { font-size: 14px; color: #b9c3bb; text-align: right; flex: 1; }
+#pct { font-size: 30px; font-weight: 600; min-width: 72px; text-align: right; }
+.rope { position: relative; height: 44px; margin: 6px -22px 14px; }
+.rope .track, .rope .fill {
+	position: absolute; left: 22px; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px;
+}
+.rope .track { right: 22px; background: rgba(255,255,255,.12); }
+.rope .fill {
+	width: 0; max-width: calc(100% - 44px);
+	background: linear-gradient(90deg, #4fd8e8, #f4f1e8 50%, #ffa04d);
+	background-size: calc(100vw - 2 * clamp(20px, 5vw, 64px)) 100%;
+	box-shadow: 0 0 10px rgba(79,216,232,.55), 0 0 18px rgba(255,160,77,.25);
+	transition: width .25s ease-out;
+}
+.rope .fill.unknown { animation: flow 1.6s ease-in-out infinite alternate; width: 30%; }
+@keyframes flow { from { margin-left: 0; } to { margin-left: calc(70% - 44px); } }
+.rope .orb {
+	position: absolute; top: 50%; width: 26px; height: 26px; margin-top: -15px;
+	border-radius: 50%; background: rgba(10,13,15,.92); border: 2.5px solid;
+	font-size: 11px; line-height: 26px; text-align: center; font-weight: 600;
+}
+.rope .orb.a { left: 7px; color: #4fd8e8; border-color: #4fd8e8; box-shadow: 0 0 14px rgba(79,216,232,.45); }
+.rope .orb.b { right: 7px; color: rgba(255,160,77,.6); border-color: rgba(255,160,77,.45); }
+.rope .orb.b.lit { color: #ffa04d; border-color: #ffa04d; box-shadow: 0 0 14px rgba(255,160,77,.5); }
+.hint { margin: 0; display: flex; gap: 10px; align-items: baseline; font-size: 14px; color: #dfe5dc; line-height: 1.5; }
+.hint b { flex: none; background: #e8bd7d; color: #211d16; border-radius: 6px; padding: 1px 8px; font-size: 12px; font-weight: 600; }
+#notice {
+	display: none; position: relative; margin: 0 clamp(20px, 5vw, 64px) 18px;
+	padding: 12px 16px; border-radius: 10px; background: rgba(91,57,67,.92); border: 1px solid #9b3943;
+	font-size: 15px; line-height: 1.5;
+}
+#notice button {
+	margin-top: 8px; padding: 6px 18px; border: 0; border-radius: 8px;
+	background: #e8bd7d; color: #211d16; font-size: 15px; font-family: inherit; cursor: pointer;
+}
+		</style>
+		$GODOT_HEAD_INCLUDE
+	</head>
+	<body>
+		<canvas id="canvas">你的浏览器不支持 canvas。</canvas>
+		<noscript>请在浏览器中启用 JavaScript 后再打开游戏。</noscript>
+		<div id="boot">
+			<div class="bg"></div><div class="shade"></div>
+			<header><h1>共生连线</h1><p>双人能量连线 · 合作闯关</p></header>
+			<main>
+				<div id="notice"></div>
+				<div class="row"><div id="stage">正在准备…</div><div id="detail"></div><div id="pct"></div></div>
+				<div class="rope"><div class="track"></div><div class="fill unknown" id="fill"></div><span class="orb a">01</span><span class="orb b" id="orb-b">02</span></div>
+				<p class="hint"><b>提示</b><span id="hint">首次打开只下载游戏引擎和主界面（约 __BOOT_MB__ MB）。章节在你选择后才下载，下载过的内容会保存在本机，刷新页面不必重新下载。</span></p>
+			</main>
+		</div>
+
+		<script src="$GODOT_URL"></script>
+		<script>
+const GODOT_CONFIG = $GODOT_CONFIG;
+const GODOT_THREADS_ENABLED = $GODOT_THREADS_ENABLED;
+const CT_CACHE = 'ct-files-v2';
+const engine = new Engine(GODOT_CONFIG);
+
+// 主界面查询章节包是否已在本机缓存（键与 sw.js 相同：路径 + ?h=内容哈希），结果写到 window.ctCached。
+window.ctCached = {};
+window.ctQueryCache = async function (files) {
+	if (!('caches' in window)) { return; }
+	try {
+		const cache = await caches.open(CT_CACHE);
+		for (const file of files) {
+			const key = new URL(file.file + '?h=' + file.hash, location.href).href;
+			window.ctCached[file.name] = !!(await cache.match(key));
+		}
+	} catch (err) {
+		console.warn('cache query failed', err);
+	}
+};
+
+(function () {
+	const boot = document.getElementById('boot');
+	const stage = document.getElementById('stage');
+	const detail = document.getElementById('detail');
+	const pct = document.getElementById('pct');
+	const fill = document.getElementById('fill');
+	const orbB = document.getElementById('orb-b');
+	const notice = document.getElementById('notice');
+	const MB = 1048576;
+	let started = performance.now();
+
+	function showError(text) {
+		notice.textContent = text;
+		const retry = document.createElement('button');
+		retry.textContent = '重新载入';
+		retry.onclick = () => location.reload();
+		notice.appendChild(document.createElement('br'));
+		notice.appendChild(retry);
+		notice.style.display = 'block';
+	}
+
+	function setProgress(fraction, text, info) {
+		stage.textContent = text;
+		detail.textContent = info || '';
+		if (fraction === null) {
+			fill.classList.add('unknown');
+			pct.textContent = '';
+			return;
+		}
+		fill.classList.remove('unknown');
+		const value = Math.max(0, Math.min(1, fraction));
+		fill.style.width = 'calc((100% - 44px) * ' + value + ')';
+		pct.textContent = Math.round(value * 100) + '%';
+		orbB.classList.toggle('lit', value >= 0.999);
+	}
+
+	// 先确保 Service Worker 接管本页，再启动引擎：引擎与数据包的请求都经过它，命中本机缓存即不再走网络。
+	async function ensureWorker() {
+		if (!('serviceWorker' in navigator) || !window.isSecureContext) { return false; }
+		try {
+			const registration = await navigator.serviceWorker.register('sw.js');
+			await registration.update().catch(() => {});
+			const pending = registration.installing || registration.waiting;
+			if (pending) {
+				await new Promise((resolve) => {
+					pending.addEventListener('statechange', () => {
+						if (pending.state === 'activated' || pending.state === 'redundant') { resolve(); }
+					});
+					setTimeout(resolve, 4000);
+				});
+			}
+			if (!navigator.serviceWorker.controller) {
+				await new Promise((resolve) => {
+					navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true });
+					setTimeout(resolve, 3000);
+				});
+			}
+			return !!navigator.serviceWorker.controller;
+		} catch (err) {
+			console.warn('service worker unavailable', err);
+			return false;
+		}
+	}
+
+	async function cachedCore() {
+		if (!('caches' in window)) { return false; }
+		try {
+			const cache = await caches.open(CT_CACHE);
+			const keys = await cache.keys();
+			return keys.some((request) => new URL(request.url).pathname.endsWith('/index.pck'));
+		} catch (err) {
+			return false;
+		}
+	}
+
+	async function start() {
+		const missing = Engine.getMissingFeatures({ threads: GODOT_THREADS_ENABLED });
+		if (missing.length !== 0) {
+			showError('当前浏览器缺少运行游戏所需的功能：' + missing.join('、') + '。请换用新版 Chrome、Edge 或 Safari。');
+			return;
+		}
+		setProgress(null, '正在检查本机缓存…');
+		const worker = await ensureWorker();
+		const fromCache = worker && await cachedCore();
+		if (!worker) {
+			document.getElementById('hint').textContent = '当前浏览器未启用离线缓存（需要 https 访问），下载过的内容仍可能由浏览器缓存复用。';
+		}
+		started = performance.now();
+		engine.startGame({
+			onProgress: function (current, total) {
+				if (current > 0 && total > 0) {
+					const seconds = (performance.now() - started) / 1000;
+					const speed = current / Math.max(seconds, 0.1);
+					let info = (current / MB).toFixed(1) + ' / ' + (total / MB).toFixed(1) + ' MB';
+					if (!fromCache && current < total && seconds > 1) {
+						info += '　' + (speed / MB).toFixed(1) + ' MB/秒 · 约 ' + Math.ceil((total - current) / speed) + ' 秒';
+					}
+					setProgress(current / total, fromCache ? '正在从本机缓存载入' : '正在下载游戏引擎与主界面', info);
+				} else {
+					setProgress(null, fromCache ? '正在从本机缓存载入' : '正在下载游戏引擎与主界面');
+				}
+			},
+		}).then(() => {
+			setProgress(1, '准备就绪');
+			boot.classList.add('done');
+			setTimeout(() => boot.remove(), 700);
+		}, (err) => {
+			console.error(err);
+			showError('游戏启动失败：' + (err && err.message ? err.message : err) + '。请检查网络后重新载入。');
+		});
+	}
+
+	start();
+}());
+		</script>
+	</body>
+</html>

@@ -140,6 +140,8 @@ def main():
             previous["preserved_at"] = str(backup)
             report["previous_package"] = previous
             save(evidence_dir / "run.json", report)
+        from network_manifest import generate
+        generate()
         run([args.engine, "--headless", "--path", str(ROOT), "--editor", "--import"], evidence_dir / "import.log", 120, report["commands"])
         run([args.engine, "--headless", "--path", str(ROOT), "--export-release", "macOS Universal", str(target)], evidence_dir / "export.log", 180, report["commands"])
         run([sys.executable, str(ROOT / "build-tools/verify_macos.py"), str(target), str(evidence_dir / "validation.json")], evidence_dir / "validation.log", 120, report["commands"])

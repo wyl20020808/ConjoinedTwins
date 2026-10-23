@@ -20,15 +20,15 @@
 
 ## Git 分支与提交规则
 
-- 长期分支：`main` 为稳定分支，只接收经用户确认的 `dev` 合并；`dev` 为 Claude 开发集成分支；`test` 为 PersonalAgent 开发集成分支，从 `dev` 复制创建。三者均不直接提交日常开发改动。
-- 每项开发任务（PersonalAgent 除外，见下条）从最新 `dev` 新建分支：`git switch dev` 后执行 `git switch -c <类型>/<简短主题>`。类型使用 `feature`（新功能）、`fix`（缺陷修复）、`art`（美术资源）、`docs`（文档）、`chore`（工具与配置），主题使用小写英文和连字符，例如 `feature/rope-tension`。
+- 长期分支：`test` 为所有执行者共用的开发集成分支；`dev` 为验收后的集成分支；`main` 为稳定分支。默认流转为任务分支 → `test` → `dev` → `main`，不再按 Codex、Claude 或 PersonalAgent 区分开发起点。三者均不直接提交日常开发改动。
+- 每项开发任务统一从当前最新的 `test` 新建独立任务分支或 worktree，包括 Codex、Claude、PersonalAgent 及人工委托的其他 Agent。普通工作区使用 `git switch test` 后执行 `git switch -c <类型>/<简短主题>`；独立 worktree 显式以 `test` 为起点。类型使用 `feature`（新功能）、`fix`（缺陷修复）、`art`（美术资源）、`docs`（文档）、`chore`（工具与配置），主题使用小写英文和连字符，例如 `feature/rope-tension`。开工前确认 `test` 分支存在；不存在时停止并请求用户决定，不得自行创建或改用 `dev`、`main`。
 - 开工前运行 `git status` 与 `git branch --show-current`，确认位于本任务分支且工作区无他人未提交改动；发现无关改动时保留并报告，不得覆盖、暂存或回退。
 - 只在本任务分支提交。提交前运行与改动相符的检查；提交信息使用中文，首行概括改动（50 字以内），必要时空行后写原因与验证结果。只暂存本任务相关文件，禁止 `git add -A` 混入无关文件。
-- 合并到 `dev`、从 `dev` 合并到 `main`、推送远端、打标签、删除分支、`reset --hard`、`push --force`、改写已共享历史，均须用户在对话中明确授权。
+- 任务成果默认先申请合并到 `test`。合并到 `test`、`test` 与 `dev` 之间的同步、合并到 `dev`、从 `dev` 合并到 `main`、推送远端、打标签、删除分支、`reset --hard`、`push --force`、改写已共享历史，均须用户在对话中明确授权。不得为了让起点一致而自动同步 `test`、`dev`；存在正在开发的任务时保留其分支和 worktree，不擅自切换、重置或改基。用户明确要求暂不同步时，只修改获授权的规则或任务内容。
 - 不将构建产物、模板缓存、`.godot/`、大体积 Run 证据和测试日志入库，遵守 `.gitignore`；新增大文件（>5MB）前先说明用途与体积并取得确认。
 - 完成后报告：任务分支名、提交哈希（如已提交）、检查结果及待合并事项。
 - 用户指定 PersonalAgent 执行时，使用其真实服务/CLI/Controller 流程，保留审计与恢复机制，不以当前会话代写成果冒充该流程。沿用现有会话和 Run，避免重复启动。模型默认沿用用户已选配置：Codex `gpt-6.1-sol / high` 决策，OpenCode `gpt-6.1-sol / medium` 执行；用户另行指定时按新指令调整。
-- PersonalAgent 开发本项目时，默认从最新 `test` 新建独立工作分支或 worktree 开发（命名同上），成果只能提交并合并到 `test`，不得提交或合并到 `dev`、`main`。开工前先确认 `test` 分支存在；不存在时停止并返回用户决策是否新建，不得自行创建或改用其他分支。
+- PersonalAgent 同样遵循上述统一流程，成果先交付任务分支，再按用户授权集成到 `test`；不得自行提交或合并到 `dev`、`main`。
 
 ## macOS 导出：必须复用现有准备
 
@@ -39,6 +39,8 @@
 - Mac 使用说明见 [Mac 测试说明](docs/MAC_TEST.md)。历史打包与审查报告只提供当次证据，不能当作后续新包的验收结果。
 
 ## 验证与报告
+
+- 连续旅程涉及 NPC、机关密度、移动速度、碰撞/绳索、资源加载或展示循环的迭代，交付前必须串行运行 `python build-tools/check_journey_performance.py`。退出码非零、引擎错误或资源泄漏日志不能当作通过；不得放宽门槛掩盖退化。报告绑定源码哈希并保存在工程外。CPU 门槛与资源巡检不能替代真实渲染帧率和玩家试玩，详见 `docs/JOURNEY_PERFORMANCE_GUARD.md`。
 
 - 修改后运行与变更相符的检查，优先复用生产场景和既有验证入口；不要修改可信检查来掩盖失败，也不要无故扩展为重复全量测试。
 - 分别记录执行者自测、决策者审查、Controller 独立测试和用户试玩。`tests=[]` 表示 Controller 独立测试未运行；headless 或静态包检查不代表可见 GUI、真实设备输入或 Mac 实机验收通过。

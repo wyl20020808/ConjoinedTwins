@@ -1,0 +1,115 @@
+{
+  "generator": "make_landscape.py",
+  "license": "Project-generated for ConjoinedTwins",
+  "assets": [
+    {
+      "name": "oak_7",
+      "bytes": 881260,
+      "vertices": 25650,
+      "faces": 7965,
+      "sha256": "cbb8e4f4cd98fa17f94fdf4930b82bcb79a1bf97bdaccf7c33824a12b8b684b4"
+    },
+    {
+      "name": "oak_17",
+      "bytes": 881264,
+      "vertices": 25650,
+      "faces": 7965,
+      "sha256": "b343224f5ec9aab8019a1be04330a5198fbde7d2d826036608712499c63e699d"
+    },
+    {
+      "name": "birch",
+      "bytes": 652784,
+      "vertices": 18978,
+      "faces": 5877,
+      "sha256": "c647211e6416c5e07208a5d01aa845e3a77d0ad9b3d8488375d6fcf4b61850ee"
+    },
+    {
+      "name": "fern",
+      "bytes": 101120,
+      "vertices": 2904,
+      "faces": 946,
+      "sha256": "575d601ceb5c135fd1cebd6f9bf27d8a6a23be36f51a3c9aac8708bd1b569c3b"
+    },
+    {
+      "name": "grass",
+      "bytes": 4460,
+      "vertices": 96,
+      "faces": 32,
+      "sha256": "29f27952cbc20bf6272cc823886f021623ed8fdc787462104d0714dc52d19d51"
+    },
+    {
+      "name": "shrub",
+      "bytes": 96688,
+      "vertices": 2760,
+      "faces": 860,
+      "sha256": "e6c1c8c8db0305914a391d06f97347ea1f20ee2aaf738d572e5734db9754fa0c"
+    },
+    {
+      "name": "well",
+      "bytes": 37940,
+      "vertices": 996,
+      "faces": 246,
+      "sha256": "42d2c2f850a6b12c634ab372ccf12eac2ee407214325457ce8f57cf13885bb5d"
+    },
+    {
+      "name": "woodpile",
+      "bytes": 11432,
+      "vertices": 288,
+      "faces": 60,
+      "sha256": "4d667ce4d70f79b70f24f78d921d8c9ed9311d77639cced4bf9e46f8a18f4283"
+    },
+    {
+      "name": "barrel",
+      "bytes": 34904,
+      "vertices": 936,
+      "faces": 230,
+      "sha256": "dfeeeca54ab063f6cf201ce98e0f2b4772d3de25eac81df41a9a6c2d5174f2d8"
+    },
+    {
+      "name": "washing_line",
+      "bytes": 6596,
+      "vertices": 128,
+      "faces": 29,
+      "sha256": "ec21a61d9dda478483aa47c43269bbc7e026044bbc8f08b6bc858818b776900e"
+    },
+    {
+      "name": "house_0",
+      "bytes": 1319172,
+      "source": "assets/journey/house_0.glb",
+      "sha256": "a2fa606a313598b09994b7782289a8671773ae1d3c1d6c7faa4bc3e87d296646"
+    },
+    {
+      "name": "house_1",
+      "bytes": 1346380,
+      "source": "assets/journey/house_1.glb",
+      "sha256": "2506e1c691c1ae00565d95dbb4aa82799fadc46ef2a857d59e2e0be196b01181"
+    },
+    {
+      "name": "house_2",
+      "bytes": 1355632,
+      "source": "assets/journey/house_2.glb",
+      "sha256": "4f622970fadee92eb46bb63919aedb8437d3cc7bc1a2c6586ce8a1be2178cf9d"
+    },
+    {
+      "name": "fence",
+      "bytes": 31652,
+      "source": "assets/journey/fence.glb",
+      "sha256": "c2830e4a2e749a61365d265dcfe2f03f7cbf81c5e209222f0dd819dfe5960a9f"
+    },
+    {
+      "name": "oak_7_lod",
+      "bytes": 233348,
+      "sha256": "72e5e146a794e4998f65ba27f8889d7c23e063e65dc5727a866269a53d6e33ac"
+    },
+    {
+      "name": "oak_17_lod",
+      "bytes": 233156,
+      "sha256": "2c69e99fad190bcd6388d0a94c09ea38d240ff600bad891fbdce108c2063c2c8"
+    },
+    {
+      "name": "birch_lod",
+      "bytes": 176532,
+      "sha256": "ca050c917770835becbfb729eae36dbdd157d47bad92e54dc01827128086e24a"
+    }
+  ]
+}

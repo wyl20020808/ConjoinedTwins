@@ -16,9 +16,24 @@ tests/*.log
 tests/short-rope-t05-batch-*.json
 tests/short-rope-t05-catalog.json
 tests/short-rope-t05-result.json
+tests/short-rope-t03-result.json
+tests/short-rope-t04-result.json
+tests/checkpoint-result.json
+
+# 已删除临时动画探针的本地 UID 残留。
+tests/_anim_probe.gd.uid
 
 # 本地工具与系统文件
 .serena/cache/
 .claude/settings.local.json
 Thumbs.db
 .DS_Store
+
+# 本轮实际渲染、键盘、回放与历史基线诊断证据，仅保留本地。
+build-tools/rope-terrain-evidence/
+
+# 连续旅程的本地验证日志和资源预览不入库。
+build-tools/journey/evidence/
+
+# Windows 导出时生成的版本号（云更新用）。
+ct_release.txt

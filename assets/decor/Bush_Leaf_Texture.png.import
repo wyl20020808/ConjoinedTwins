@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://7kaxb1cc003y"
-path="res://.godot/imported/Bush_Leaf_Texture.png-10a833637ff0fb8c0902d059a19f1c8e.ctex"
+path.s3tc="res://.godot/imported/Bush_Leaf_Texture.png-10a833637ff0fb8c0902d059a19f1c8e.s3tc.ctex"
+path.etc2="res://.godot/imported/Bush_Leaf_Texture.png-10a833637ff0fb8c0902d059a19f1c8e.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "d69de2d5e49fc1430f3ec497ea02dab8"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/decor/Bush_Leaf_Texture.png"
-dest_files=["res://.godot/imported/Bush_Leaf_Texture.png-10a833637ff0fb8c0902d059a19f1c8e.ctex"]
+dest_files=["res://.godot/imported/Bush_Leaf_Texture.png-10a833637ff0fb8c0902d059a19f1c8e.s3tc.ctex", "res://.godot/imported/Bush_Leaf_Texture.png-10a833637ff0fb8c0902d059a19f1c8e.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -1,0 +1,946 @@
+{
+  "date": "2026-10-19",
+  "count": 20,
+  "model": "H3.1",
+  "method": "Tripo Studio 国际版文生 3D，并发生成，2K、去光、PBR、三角面、关闭超清几何",
+  "credits_spent": 600,
+  "total_triangles": 100678,
+  "original_bytes": 56913704,
+  "prepared_bytes": 56915248,
+  "assets": [
+    {
+      "number": 1,
+      "key": "roadside_inn",
+      "name": "双层路边旅店",
+      "category": "building",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/two-story-village-roadside-inn-broad-asymmetric-main-building-tall-p-0ac66db6-ef08-496c-a42d-3c2b58d816b0",
+      "requested_triangles": 10000,
+      "triangles": 9316,
+      "file": "roadside_inn.glb",
+      "bytes": 3114652,
+      "sha256": "9b2f522a8f365b5d92726d8c53ddb4afc022f973640fdd024f60dcbf7bc05757",
+      "prepared_file": "prepared/roadside_inn.glb",
+      "prepared_bytes": 3114736,
+      "prepared_sha256": "f83f4e01a37de7875e24e164f93d239cc2184c30046a333fd01bdf4246abc584",
+      "prepared_size_m": [
+        11.8459,
+        10.0,
+        9.88
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "roadside_inn_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_roadside_inn.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "18214df13d2f26f2f7a74b1a403e22c254eedc2d96e0695246fa5ca20c1bb3f3",
+      "runtime_bytes": 1069720
+    },
+    {
+      "number": 2,
+      "key": "corner_townhouse",
+      "name": "转角木骨架住宅",
+      "category": "building",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/corner-timber-village-townhouse-compact-l-shaped-two-story-house-pro-4c615482-9641-4ff2-a15c-df73e1a30c00",
+      "requested_triangles": 10000,
+      "triangles": 9413,
+      "file": "corner_townhouse.glb",
+      "bytes": 3536928,
+      "sha256": "260dbc03b9121d793b6f7f5fc240bf21766792e3e11bcb00ee2dca4ef96113b2",
+      "prepared_file": "prepared/corner_townhouse.glb",
+      "prepared_bytes": 3537016,
+      "prepared_sha256": "99cd731b84cbe5ca95c15918020bff552abf2acf33e2c817ffbda8dc7160f966",
+      "prepared_size_m": [
+        10.8607,
+        9.0,
+        8.6752
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "corner_townhouse_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_corner_townhouse.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ec2d1d7c37622b98b54937cd049817a35f5cd3d49b90a715d29f1b8b818610be",
+      "runtime_bytes": 1240360
+    },
+    {
+      "number": 3,
+      "key": "thatched_farmhouse",
+      "name": "茅草农舍",
+      "category": "building",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/thatched-village-farmhouse-low-wide-single-story-plaster-cottage-thi-e60ca973-0829-4c8e-bc81-b63186a968ee",
+      "requested_triangles": 8000,
+      "triangles": 7627,
+      "file": "thatched_farmhouse.glb",
+      "bytes": 3304592,
+      "sha256": "2ba3277a48baec2a1a0dda6820e959376ddc0804da236fd051a0dabe3d31ddf3",
+      "prepared_file": "prepared/thatched_farmhouse.glb",
+      "prepared_bytes": 3304684,
+      "prepared_sha256": "87ffbe3c88bbdbc2c0633a500f218e12b2a8148f330ba0ff26a6c9974f282f77",
+      "prepared_size_m": [
+        9.2052,
+        7.0,
+        10.9718
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "thatched_farmhouse_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_thatched_farmhouse.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ae5db3aabce2dbe6750fac0d879beb850b5be2bc6d995e3282d6b6d9aec62846",
+      "runtime_bytes": 1110860
+    },
+    {
+      "number": 4,
+      "key": "stone_cottage",
+      "name": "灰石小屋",
+      "category": "building",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/fieldstone-village-cottage-compact-single-story-house-with-warm-grey-81690393-658a-46a2-b234-45a31616a492",
+      "requested_triangles": 8000,
+      "triangles": 7476,
+      "file": "stone_cottage.glb",
+      "bytes": 3508800,
+      "sha256": "b2cfc3bea16d2042eae6a654f9d1674eafe075ab29038adf6a0ec23c2fcd4525",
+      "prepared_file": "prepared/stone_cottage.glb",
+      "prepared_bytes": 3508844,
+      "prepared_sha256": "d7a14f4db6109eb2d63fff57c7eb585657acdb7195a5a471cc40fbbee718c40d",
+      "prepared_size_m": [
+        7.0859,
+        7.8,
+        6.935
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "stone_cottage_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_stone_cottage.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "4604abbc8bf63d260f7cd17897d049d28ad93e9069e3c5ff8d37b61cd41d354a",
+      "runtime_bytes": 1143808
+    },
+    {
+      "number": 5,
+      "key": "forester_cabin",
+      "name": "林务员木屋",
+      "category": "building",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/forester-timber-cabin-small-dark-oak-log-house-steep-overlapping-woo-fbc62462-3a4d-42b8-b878-9e53783b07cf",
+      "requested_triangles": 8000,
+      "triangles": 7231,
+      "file": "forester_cabin.glb",
+      "bytes": 3270492,
+      "sha256": "0c7f68a63ac579e7364383c081ee7a094687211a42b3151a26ad4232a543aee9",
+      "prepared_file": "prepared/forester_cabin.glb",
+      "prepared_bytes": 3270576,
+      "prepared_sha256": "32da47e5d27f8f6d7154623a004180cf2f6e9364f389365eaae989f858a4cea5",
+      "prepared_size_m": [
+        9.5773,
+        7.0,
+        7.3852
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "forester_cabin_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_forester_cabin.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "833416e1e2f3b4b145e23621af18f8319235b9dce36e4556e19a1edcb9743d1c",
+      "runtime_bytes": 1062840
+    },
+    {
+      "number": 6,
+      "key": "riverside_house",
+      "name": "河畔高基住宅",
+      "category": "building",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/riverside-village-house-slender-plaster-and-timber-house-on-a-raised-5f1bfc97-1d46-4cec-9cee-d1424dc4413d",
+      "requested_triangles": 8000,
+      "triangles": 7654,
+      "file": "riverside_house.glb",
+      "bytes": 2747036,
+      "sha256": "9345e362fb952f9dfc7587669157875734b6519967bb3c8e50ca562d5e4ea7a4",
+      "prepared_file": "prepared/riverside_house.glb",
+      "prepared_bytes": 2747124,
+      "prepared_sha256": "23d131e7dafd781c9799f371ba4899d0afbf21e1a355266209c49d02761d06d4",
+      "prepared_size_m": [
+        9.4931,
+        9.0,
+        9.4479
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "riverside_house_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_riverside_house.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "0247b1114cdcf8c2c04c6d89c3ca8ddb6ceff6beddbd9b5f9aab22351f3fb433",
+      "runtime_bytes": 906224
+    },
+    {
+      "number": 7,
+      "key": "village_windmill",
+      "name": "村庄风车磨坊",
+      "category": "facility",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/village-windmill-squat-tapered-grey-stone-mill-tower-small-dark-timb-e1188899-d240-438f-afcd-d30c0e2ee449",
+      "requested_triangles": 8000,
+      "triangles": 7964,
+      "file": "village_windmill.glb",
+      "bytes": 3602600,
+      "sha256": "3fe8d96109810b10e7bdd3de28ca6018ef36e2b6f4b9699aa060cac191825251",
+      "prepared_file": "prepared/village_windmill.glb",
+      "prepared_bytes": 3602648,
+      "prepared_sha256": "2448bddaa8bccad5b616b746b88e9805a478b53564a56af415e28c5079454111",
+      "prepared_size_m": [
+        10.2825,
+        12.0,
+        7.0554
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "village_windmill_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "review_notes": "当前为静态完整模型；风车转动需要后续拆分叶片及设置转轴。",
+      "path": "assets/landscape/tripo_village_windmill.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "eae8c8c62292d51ff821a22a2229250fa391ff09c1e5a70fc8d4ab1b2448f624",
+      "runtime_bytes": 1220596
+    },
+    {
+      "number": 8,
+      "key": "storage_barn",
+      "name": "农用仓房",
+      "category": "facility",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/village-storage-barn-broad-low-weathered-oak-plank-barn-large-closed-f8d22a0f-d5fc-4f50-a682-12e810377c37",
+      "requested_triangles": 8000,
+      "triangles": 7496,
+      "file": "storage_barn.glb",
+      "bytes": 3744068,
+      "sha256": "a443f9f5ee0ccaf02aa84bdceebf6b97b00603d544c887c29ed25e9c15967ea7",
+      "prepared_file": "prepared/storage_barn.glb",
+      "prepared_bytes": 3744152,
+      "prepared_sha256": "de1ac50fa9043359cd5b15e0e52c2c716a11b61154780e34eed2fac43a49f903",
+      "prepared_size_m": [
+        10.4139,
+        7.0,
+        9.7954
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "storage_barn_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_storage_barn.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "5930317bb271efeaf9bc8e8fdfb7252decae5119488e2292b320a065fd008128",
+      "runtime_bytes": 1212488
+    },
+    {
+      "number": 9,
+      "key": "covered_well",
+      "name": "有顶石井",
+      "category": "facility",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/covered-village-well-low-circular-rough-grey-fieldstone-well-rim-two-482e0076-7b61-422a-83b7-362758fdd613",
+      "requested_triangles": 4000,
+      "triangles": 3800,
+      "file": "covered_well.glb",
+      "bytes": 1988088,
+      "sha256": "097165dd778ecb5ddeac56a0174df1a73dedbc6185eb0d2bc014749229261870",
+      "prepared_file": "prepared/covered_well.glb",
+      "prepared_bytes": 1988172,
+      "prepared_sha256": "27518ac568f2e42deb41e0faabc094dcb7d24920f7a9b6b326c9fbf8a5391a11",
+      "prepared_size_m": [
+        3.5064,
+        3.5,
+        2.7841
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "covered_well_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_covered_well.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "2fe6a181ab1d6028690713d8b9c58e43a9ec23c6c147b85cc588df7594dc1b64",
+      "runtime_bytes": 583320
+    },
+    {
+      "number": 10,
+      "key": "produce_stall",
+      "name": "蔬果摊位",
+      "category": "facility",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/village-produce-market-stall-sturdy-dark-oak-counter-under-a-simple-m-3a7c9ddd-312e-4e8e-bbe1-b7edaa0122f9",
+      "requested_triangles": 4000,
+      "triangles": 3686,
+      "file": "produce_stall.glb",
+      "bytes": 2227316,
+      "sha256": "467323c8a9d5f83d93890f1ab0a11934bdd5a8e8948d6291bd55420cb9380044",
+      "prepared_file": "prepared/produce_stall.glb",
+      "prepared_bytes": 2227400,
+      "prepared_sha256": "1ddd040e2ab1fe7a04990e6db9a96a5bb9f393f84962b8d82abf8d53a6f7ea28",
+      "prepared_size_m": [
+        3.3278,
+        3.3,
+        1.8591
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "produce_stall_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_produce_stall.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "9184098cb413433bd9db06bce4193c97a12d74edec6fd5c0ac451f95d0390299",
+      "runtime_bytes": 658340
+    },
+    {
+      "number": 11,
+      "key": "bread_oven",
+      "name": "村庄面包炉",
+      "category": "facility",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/village-communal-bread-oven-low-warm-grey-stone-base-round-off-white-fb6305cc-457d-4494-80c2-f0bef16ee314",
+      "requested_triangles": 4000,
+      "triangles": 3879,
+      "file": "bread_oven.glb",
+      "bytes": 1982400,
+      "sha256": "955ed7ecec66c2bf88d5daa0901378a15d92912f1838fa59c1b47698f86ef2f6",
+      "prepared_file": "prepared/bread_oven.glb",
+      "prepared_bytes": 1982476,
+      "prepared_sha256": "d97af1f4d4207e15c7d5274388ad0d36bd35731f654ce8043f703547fd77d092",
+      "prepared_size_m": [
+        3.0405,
+        2.8,
+        2.3561
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "bread_oven_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_bread_oven.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "dd6fe8bbc9e87dc3262c1703b7a36d0aa44d4efe4c64f5f9e6e8b237dac11416",
+      "runtime_bytes": 578784
+    },
+    {
+      "number": 12,
+      "key": "stone_fountain",
+      "name": "石砌饮水台",
+      "category": "facility",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/village-stone-drinking-fountain-low-rectangular-weathered-grey-fields-1a3429f7-11d9-4d30-8f56-a6b9229b18aa",
+      "requested_triangles": 4000,
+      "triangles": 3849,
+      "file": "stone_fountain.glb",
+      "bytes": 2399232,
+      "sha256": "dd39960be1c8796c211530b23936968f994a9d1ff704d9a9e92fa36b3c1d70e3",
+      "prepared_file": "prepared/stone_fountain.glb",
+      "prepared_bytes": 2399272,
+      "prepared_sha256": "3a095b829324b20e6db334516506d8ac60ec8f9c005e504924a958ea6bb998d8",
+      "prepared_size_m": [
+        2.1561,
+        2.2,
+        1.463
+      ],
+      "prepared_bottom_m": 0.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "stone_fountain_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "path": "assets/landscape/tripo_stone_fountain.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "8c7d1bacd569d7f788ebf5e1a77049351b3b781b774028b536d68a82afc6195a",
+      "runtime_bytes": 710364
+    },
+    {
+      "number": 13,
+      "key": "cobble_road_panel",
+      "name": "卵石路面模块",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/cobbled-road-surface-module-one-flat-rectangular-strip-of-broad-worn-00b3c021-0cff-49a9-8a7c-c6f64994c61c",
+      "requested_triangles": 2500,
+      "triangles": 2372,
+      "file": "cobble_road_panel.glb",
+      "bytes": 2774040,
+      "sha256": "f1c72f85d14e10ee7546162f19053833056c0dfc8cba3e0ce2f2ffc2149d1174",
+      "prepared_file": "prepared/cobble_road_panel.glb",
+      "prepared_bytes": 2774120,
+      "prepared_sha256": "afcc08cb48856b0c1e132c5645471a1548f2b27ea96f2bff2a16da962b9d9e9c",
+      "prepared_size_m": [
+        2.0,
+        0.06,
+        4.0
+      ],
+      "prepared_bottom_m": -0.04,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "cobble_road_panel_preview.webp",
+      "integration_status": "从原 GLB 烘焙连续地面材质，覆盖完整安全路面；源模型保留",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "path": "assets/landscape/tripo_cobble_road_panel.glb",
+      "runtime_texture_size": 2048,
+      "excluded_from_export": true,
+      "runtime_note": "仅供 bake_tripo_ground.gd 顶视烘焙，运行时不实例化，导出预设已排除；保留 2K 原件以便重新烘焙"
+    },
+    {
+      "number": 14,
+      "key": "flagstone_road_panel",
+      "name": "旧石板路面模块",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/worn-flagstone-path-surface-module-one-flat-rectangular-strip-of-larg-09989aef-8979-4101-a8ad-dbb13e598de9",
+      "requested_triangles": 2500,
+      "triangles": 2365,
+      "file": "flagstone_road_panel.glb",
+      "bytes": 3564932,
+      "sha256": "8d63e6becc8c9a3552fe57ae05efc6cdf3549acf0f9d03cb37f80aca871911a7",
+      "prepared_file": "prepared/flagstone_road_panel.glb",
+      "prepared_bytes": 3565044,
+      "prepared_sha256": "05711571c5bfb5534ee161b2ec6586417bdc0a9e7697d591555bd267821084b0",
+      "prepared_size_m": [
+        2.0,
+        0.06,
+        4.0
+      ],
+      "prepared_bottom_m": -0.04,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "flagstone_road_panel_preview.webp",
+      "integration_status": "从原 GLB 烘焙连续地面材质，覆盖完整安全路面；源模型保留",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "path": "assets/landscape/tripo_flagstone_road_panel.glb",
+      "runtime_texture_size": 2048,
+      "excluded_from_export": true,
+      "runtime_note": "仅供 bake_tripo_ground.gd 顶视烘焙，运行时不实例化，导出预设已排除；保留 2K 原件以便重新烘焙"
+    },
+    {
+      "number": 15,
+      "key": "muddy_wheel_ruts",
+      "name": "泥路车辙",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/muddy-wheel-rut-ground-patch-one-elongated-very-thin-irregular-patch-429ad2a5-484f-4415-9221-2c48ef36673f",
+      "requested_triangles": 2500,
+      "triangles": 2461,
+      "file": "muddy_wheel_ruts.glb",
+      "bytes": 2209636,
+      "sha256": "2da254aad7f0bc02255e39f8db055158b8055dcd0d36f653d2def76131e02444",
+      "prepared_file": "prepared/muddy_wheel_ruts.glb",
+      "prepared_bytes": 2209716,
+      "prepared_sha256": "53efdb1137267fc14222a82c17e3dc4eadd27906b11e73c5f85bdfa34d5ea413",
+      "prepared_size_m": [
+        2.2,
+        0.05,
+        4.0
+      ],
+      "prepared_bottom_m": -0.035,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "muddy_wheel_ruts_preview.webp",
+      "integration_status": "从原 GLB 烘焙连续地面材质，覆盖完整安全路面；源模型保留",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "review_notes": "主要表现泥土起伏；车辙清晰度仍需游戏内俯视角验收，可配合地面贴图表达。",
+      "path": "assets/landscape/tripo_muddy_wheel_ruts.glb",
+      "runtime_texture_size": 2048,
+      "excluded_from_export": true,
+      "runtime_note": "仅供 bake_tripo_ground.gd 顶视烘焙，运行时不实例化，导出预设已排除；保留 2K 原件以便重新烘焙"
+    },
+    {
+      "number": 16,
+      "key": "grass_soil_border",
+      "name": "草土过渡路肩",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/grass-to-soil-roadside-border-module-long-low-irregular-strip-one-si-73a07512-f6fe-4de7-b26c-4d9536e36f71",
+      "requested_triangles": 2500,
+      "triangles": 2468,
+      "file": "grass_soil_border.glb",
+      "bytes": 2698252,
+      "sha256": "39d1b2da50bfa2a849d939357314f028cf372f1c95436de89794a488ec3e9686",
+      "prepared_file": "prepared/grass_soil_border.glb",
+      "prepared_bytes": 2698328,
+      "prepared_sha256": "eef9a8abb22ee4628a4092b0a016e02043de22be325edca92f3465ef4157f202",
+      "prepared_size_m": [
+        0.9,
+        0.18,
+        4.0
+      ],
+      "prepared_bottom_m": -0.06,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "grass_soil_border_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "path": "assets/landscape/tripo_grass_soil_border.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "5c2deb4e7dcc93ba2d941a92b798c0c702e509630f94885be0a5e46b7d862243",
+      "runtime_bytes": 902180
+    },
+    {
+      "number": 17,
+      "key": "leaf_litter_patch",
+      "name": "落叶碎石地表",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/forest-leaf-litter-ground-patch-one-broad-very-thin-irregular-scatter-de536b01-1351-4ac4-8718-b9e6f1b015cc",
+      "requested_triangles": 2500,
+      "triangles": 2428,
+      "file": "leaf_litter_patch.glb",
+      "bytes": 2033948,
+      "sha256": "d7a1d5641f146facd61d46951bbe1a4e7344eb8fd332a7955e56555bdd28101f",
+      "prepared_file": "prepared/leaf_litter_patch.glb",
+      "prepared_bytes": 2034024,
+      "prepared_sha256": "b4653f256d402fa37510342ba6793703d9bd1cf1854d5a44dba268288e663985",
+      "prepared_size_m": [
+        2.5,
+        0.04,
+        2.5
+      ],
+      "prepared_bottom_m": -0.025,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "leaf_litter_patch_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "path": "assets/landscape/tripo_leaf_litter_patch.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "d9653d5130e5d7f5c581f4e7def9799f66940faaf839855f988e3df65147fa43",
+      "runtime_bytes": 574516
+    },
+    {
+      "number": 18,
+      "key": "stone_road_curb",
+      "name": "石砌路缘",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/village-stone-road-curb-module-one-long-straight-low-row-of-five-broa-51dfeadc-36d3-49dc-8ef7-a48daea7f00f",
+      "requested_triangles": 2500,
+      "triangles": 2401,
+      "file": "stone_road_curb.glb",
+      "bytes": 2540956,
+      "sha256": "fb32b7b96c7d781d15bb6f669c2d6dc22fa812c27866246bad4e6e67ebb6aba0",
+      "prepared_file": "prepared/stone_road_curb.glb",
+      "prepared_bytes": 2541028,
+      "prepared_sha256": "7ff82c2ebe4de309607ca459e47a047a3dabd82e8de62bdc6a0b6e0969e7aaee",
+      "prepared_size_m": [
+        4.0,
+        0.22,
+        0.5
+      ],
+      "prepared_bottom_m": 0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "stone_road_curb_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "path": "assets/landscape/tripo_stone_road_curb.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "275a460bd7929087999378999e7d28cb19c658d00315b7be509150e01322ef28",
+      "runtime_bytes": 798148
+    },
+    {
+      "number": 19,
+      "key": "crumbled_pit_rim",
+      "name": "破损坑沿岩土",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/crumbled-stone-road-pit-rim-module-one-low-l-shaped-corner-of-broken-536b8fe6-6537-439d-8a24-239c05ba94f6",
+      "requested_triangles": 3500,
+      "triangles": 3354,
+      "file": "crumbled_pit_rim.glb",
+      "bytes": 2592088,
+      "sha256": "c4f53521dbe45382b7cb311a9d8a8967dbb30f36d192e1a6b5e31ad4920dec67",
+      "prepared_file": "prepared/crumbled_pit_rim.glb",
+      "prepared_bytes": 2592164,
+      "prepared_sha256": "446aba04efd5a6dcd068a6992ce9aa1793944ae9387a693fb4af081927b21c76",
+      "prepared_size_m": [
+        4.0,
+        0.7,
+        3.3
+      ],
+      "prepared_bottom_m": -0.65,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "crumbled_pit_rim_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "review_notes": "生成结果更接近破损坑壁，适合组合成坑沿侧壁；不是可直接覆盖道路的完整 L 形地块。",
+      "path": "assets/landscape/tripo_crumbled_pit_rim.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "ed5101315c32eb48222a8ebd45707824bb094bd74a8942cb2be7ea3ac85b29f3",
+      "runtime_bytes": 794628
+    },
+    {
+      "number": 20,
+      "key": "layered_cliff_face",
+      "name": "层叠岩壁模块",
+      "category": "ground",
+      "source_url": "https://studio.tripo3d.ai/zh/workspace/generate/layered-roadside-cliff-face-module-one-broad-vertical-section-of-weat-d562e2e3-12ee-4f59-be4b-c9dbc871ee62",
+      "requested_triangles": 3500,
+      "triangles": 3438,
+      "file": "layered_cliff_face.glb",
+      "bytes": 3073648,
+      "sha256": "d2bd002af1f3660755baa58885a92fe539162ded90901d4431b11da852529504",
+      "prepared_file": "prepared/layered_cliff_face.glb",
+      "prepared_bytes": 3073724,
+      "prepared_sha256": "0b99a9eaed153eb90b478b787091bdb23b01541433b3be14323770e512ab7e56",
+      "prepared_size_m": [
+        6.0,
+        4.0,
+        2.5
+      ],
+      "prepared_bottom_m": -4.0,
+      "materials": 1,
+      "complete_pbr": true,
+      "texture_sizes": [
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ],
+        [
+          2048,
+          2048
+        ]
+      ],
+      "geometry_and_textures_unchanged": true,
+      "preview": "layered_cliff_face_preview.webp",
+      "integration_status": "已接入生产场景区块与地面安全切片",
+      "use_notes": "只作路面表层或边缘布景，不新增碰撞；不保证自动无缝拼接。厚底座和起伏已按目标高度压平，仍需真实游戏镜头下确认接缝、下埋与材质混合。",
+      "path": "assets/landscape/tripo_layered_cliff_face.glb",
+      "runtime_texture_size": 1024,
+      "runtime_sha256": "6fc9bdf704ca0c2040a63e8047348853884a01213675300eaac58555d01eed62",
+      "runtime_bytes": 949728
+    }
+  ],
+  "validation": "20 件逐项核验面数、单材质、完整 PBR、2K 纹理、法线和 UV；整理版仅改根节点变换，网格与纹理二进制未变。",
+  "limits": "尚未接入游戏或测试游戏内帧率。地面整理版是有尺度的候选模块，仍需真实地形的接缝、平整度、下埋及可读性验收。",
+  "ground_bakes": {
+    "method": "Godot 原生顶视烘焙，取模型内部区域；1024×2048，颜色与世界 X/Z 法线/粗糙度双纹理；运行时镜像与双采样混合连续平铺",
+    "command": "/Applications/Godot.app/Contents/MacOS/Godot --path /Users/apple/ConjoinedTwins --script res://build-tools/journey/bake_tripo_ground.gd",
+    "files": [
+      {
+        "path": "assets/landscape/ground/cobble_road_panel_color.png",
+        "bytes": 1452221,
+        "sha256": "042cc29b3649e28d83f2d34268d7e8b2ed70b54128a9a8af6ac56cc57cf9e5a5"
+      },
+      {
+        "path": "assets/landscape/ground/cobble_road_panel_normal_rough.png",
+        "bytes": 1108419,
+        "sha256": "a8edfd79b3a3309ba9595365de63050153705b508ebd2aad046d8ea962a0098e"
+      },
+      {
+        "path": "assets/landscape/ground/flagstone_road_panel_color.png",
+        "bytes": 1653969,
+        "sha256": "507de084eb49231c0572c0ceaad96c93d4fce999b66d9c05f4db78f91c0edac7"
+      },
+      {
+        "path": "assets/landscape/ground/flagstone_road_panel_normal_rough.png",
+        "bytes": 1608329,
+        "sha256": "bf0b6c4f7f7bf0aa10ed1cd900ee9653cd7f18dabdd970c2cc059dec25ef13c7"
+      },
+      {
+        "path": "assets/landscape/ground/muddy_wheel_ruts_color.png",
+        "bytes": 995013,
+        "sha256": "8c668dc580bc8f6709691131eff301db35f6beae9eaa87a836fc23a3d3ab23ed"
+      },
+      {
+        "path": "assets/landscape/ground/muddy_wheel_ruts_normal_rough.png",
+        "bytes": 614432,
+        "sha256": "b2e27bccccd1ea033c698025adc78603628e6f7ad8306f9afb6e8aa129e74a4e"
+      }
+    ]
+  },
+  "asset_diet": {
+    "date": "2026-10-19",
+    "tool": "build-tools/shrink_glb.py <glb> <glb> 1024",
+    "note": "运行时 GLB 的颜色、法线、金属粗糙度贴图由 2048 缩至 1024（JPEG 保持 JPEG q88，PNG 保持 PNG），网格、材质与根变换不变；sha256/bytes 字段仍为 2K 来源版本。"
+  }
+}

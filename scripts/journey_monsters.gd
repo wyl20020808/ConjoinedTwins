@@ -1,0 +1,374 @@
+extends RefCounted
+
+# 固定步追击、绕障和落点攻击。导航路径也保存在事件中，存档与联机完整复现。
+const RandomLayout=preload("res://scripts/journey_random.gd")
+const WINDUP := 0.75
+const FLIGHT := 0.5
+const CYCLE := 2.8
+const ATTACK_RANGE := 300.0
+const NOTICE_RANGE := 900.0
+const BODY_RADIUS := 16.0
+const GRID := 40.0
+# 未警觉时在出生点附近巡逻：直线走向随机航点，到达后停顿再选下一个；
+# 远处（展示窗口内）也巡逻，只做一次航点直线检查，不建寻路网格。
+const PATROL_RANGE := 2800.0
+const PATROL_SPEED := 70.0
+const PATROL_SPAN := Vector2(150,100)
+const SPEEDS := {"briar":210.0,"raider":240.0,"sentinel":170.0,"archer":185.0,"dasher":260.0,"wolf":270.0,
+	"root_spider":290.0,"goblin_bomber":200.0,"river_crab_knight":150.0}
+const NAMES := {"briar":"树皮小怪", "raider":"村庄掠袭者", "sentinel":"矿道石卫", "archer":"林地弓手", "dasher":"破阵冲锋者", "wolf":"灰鬃狼",
+	"root_spider":"根须蛛", "goblin_bomber":"矿灯地精", "river_crab_knight":"河岸钳甲兵"}
+const HP := {"briar":30,"raider":40,"sentinel":50,"archer":40,"dasher":60,"wolf":40,"root_spider":30,"goblin_bomber":35,"river_crab_knight":90}
+# 攻击方式：远程（直线飞行物）、冲锋（沿锁定方向扑咬）、近战（向落点砸下）。新怪物按方式复用既有攻击逻辑。
+const RANGED := ["archer","goblin_bomber"]
+const CHARGERS := ["dasher","wolf","root_spider"]
+# 全部种类每章都可能出现，敌群之间轮流换主力，避免长时间同几种。
+const ROSTER := ["briar","raider","sentinel","archer","dasher","wolf","root_spider","goblin_bomber","river_crab_knight"]
+const PROFILES := {
+	"archer":{"windup":0.65,"active":1.15,"cycle":2.1,"range":740.0,"damage":34,"speed":720.0},
+	"dasher":{"windup":0.65,"active":0.65,"cycle":2.8,"range":420.0,"damage":45,"speed":680.0},
+	"wolf":{"windup":0.45,"active":0.45,"cycle":1.8,"range":230.0,"damage":28,"speed":430.0},
+	# 根须蛛：更短更快的扑咬；地精：飞得更慢、预警更长的炸药包。
+	"root_spider":{"windup":0.4,"active":0.4,"cycle":1.6,"range":220.0,"damage":22,"speed":460.0},
+	"goblin_bomber":{"windup":0.8,"active":1.3,"cycle":2.6,"range":620.0,"damage":38,"speed":520.0}}
+const MELEE := {"windup":WINDUP,"active":FLIGHT,"cycle":CYCLE,"range":ATTACK_RANGE,"damage":32,"speed":0.0}
+
+static func ranged(event:Dictionary)->bool:
+	return event.get("archetype","") in RANGED
+
+static func charges(event:Dictionary)->bool:
+	return event.get("archetype","") in CHARGERS
+
+static func profile(event:Dictionary)->Dictionary:
+	return PROFILES.get(event.archetype,MELEE)
+
+static func safe_spawn(run, point: Vector2) -> bool:
+	if absf(point.x)>run.EDGE-50 or not run.has_ground_support(point): return false
+	for gate in run.charge_gates:
+		if absf(point.y-gate.receiver.y)<800: return false
+	for rect in run.obstacles:
+		if rect.grow(48).has_point(point): return false
+	for event in run.journey_events:
+		if event.kind!="monster" and event.rect.grow(55).has_point(point): return false
+	return true
+
+static func safe_supply(run,point:Vector2)->bool:
+	# 拾取物按玩家脚底检查；不能套用怪物出生区的 48 单位留白，
+	# 否则窄通道虽然可走，弹药仍会全部被拒绝生成。
+	if absf(point.x)>run.EDGE-run.Motion.RADIUS or not run.ground_sweep_supported(point,point,run.elapsed):return false
+	for gate in run.charge_gates:
+		if absf(point.y-gate.receiver.y)<800:return false
+	# 地图仍在构造时不建立运行期索引；重试完成后由第一步按最终布局建表。
+	for i in range(run.obstacles.size()):
+		if run.kinds[i] in ["cargo","pillar","rail","sweeper"] and run.obstacles[i].grow(run.Motion.RADIUS).has_point(point):return false
+	return true
+
+# 机关段只在组间换侧空地放 1~3 只的零星小队，横排对齐；成规模的敌群集中到怪物潮专区。
+const PACK_LANES := {1:[0.0],2:[-90.0,90.0],3:[-150.0,0.0,150.0]}
+# 专区内三波：前中后三行等距排开，波间留出补给与喘息距离。
+const WAVES := [900.0,1500.0,2100.0]
+const WAVE_ROW := 440.0
+const WAVE_ROWS := 3
+# 怪物潮：玩家踏进专区入口后，整片专区的怪物一齐警觉、一起压上来，不再等镜头靠近才逐只苏醒。
+const HORDE_ENTRY := 500.0
+
+static func populate(run) -> void:
+	var layout=RandomLayout.new(run.seed_value,run.level_index,2)
+	var packs:=0
+	# 全部种类轮换：每群一主一辅交替站位，主力从全部种类抽取，相邻两群（含怪物潮各波）主力不同。
+	# 零星小队与专区各波按道路位置排成一条序列再分配主力，专区前后相邻的两群也不重复。
+	var rotation:={"previous":""}
+	var groups:Array=[]
+	for slot in run.pack_slots:groups.append({"y":slot})
+	for arena in run.arenas:
+		arena_supply(run,arena,layout)
+		for wave in range(WAVES.size()):groups.append({"y":arena.start+WAVES[wave],"last_wave":wave==WAVES.size()-1,"arena":arena.start})
+	groups.sort_custom(func(p,q):return p.y<q.y)
+	for group in groups:
+		if group.has("last_wave"):
+			arena_wave(run,group.y,group.last_wave,layout,rotation,group.arena)
+			continue
+		var slot:float=group.y
+		var count:int=layout.draw("pack_size",[2,2,3,3])
+		var pair:=draw_pair(layout,rotation)
+		var placed:=0
+		for x in PACK_LANES[count]:
+			for dy in [0.0,-30.0,30.0]:
+				var point:=Vector2(x,slot+dy)
+				if safe_spawn(run,point):
+					add(run,point,run.theme_at(point.y),pair[placed%2]).pack=slot
+					placed+=1
+					break
+		if placed==0:continue
+		rotation.previous=pair[0]
+		packs+=1
+		pack_supply(run,slot+260,packs%2==0)
+
+static func draw_pair(layout,rotation:Dictionary)->Array:
+	var lead:String=layout.draw("pack_lead",ROSTER)
+	if lead==rotation.previous: lead=layout.draw("pack_lead",ROSTER)
+	if lead==rotation.previous: lead=ROSTER[(ROSTER.find(lead)+1)%ROSTER.size()]
+	var support:String=layout.draw("pack_support",ROSTER)
+	if support==lead: support=layout.draw("pack_support",ROSTER)
+	return [lead,support]
+
+# 小队后方的补给：放在下一组机关的空侧，避开实体与门；隔一队再补一对医疗包，两侧角色都要走近拾取。
+static func pack_supply(run,supply_y:float,with_medkit:bool)->void:
+	var center:=0.0
+	for marker in run.encounter_markers:
+		if marker.y+110<supply_y or marker.get("kind","")=="arena":continue
+		center=-marker.blocked*245;break
+	for offset in [0,-60,60,-120,120]:
+		var point:=Vector2(center-28,supply_y+offset)
+		if not safe_supply(run,point):continue
+		run.Combat.add_pickup(run,"ammo",point)
+		if with_medkit:
+			for x in [center-28,center+28]:
+				var recovery:=Vector2(x,point.y+35)
+				if safe_supply(run,recovery):run.Combat.add_pickup(run,"medkit",recovery)
+		return
+
+static func arena_supply(run,arena:Dictionary,layout)->void:
+	var start:float=arena.start
+	# 入口先补给，前 40 米不放怪，两人整理站位、拾取后再迎战。
+	for x in [-90.0,0.0,90.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,start+260))
+	for x in [-60.0,60.0]:run.Combat.add_pickup(run,"medkit",Vector2(x,start+330))
+	run.Combat.add_pickup(run,"gun",Vector2(0,start+200),{},layout.draw("arena_weapon",run.ZONE_WEAPONS))
+
+static func arena_wave(run,front:float,last_wave:bool,layout,rotation:Dictionary,arena_start:float)->void:
+	var count:int=layout.draw("wave_size",[10,11,11,12])
+	var rows:Array=[]
+	for row in range(WAVE_ROWS):rows.append(ceili(float(count-rows.reduce(func(a,b):return a+b,0))/(WAVE_ROWS-row)))
+	var pair:=draw_pair(layout,rotation)
+	var placed:=0
+	for row in range(WAVE_ROWS):
+		var members:int=rows[row]
+		for member in range(members):
+			var x:=-WAVE_ROW/2+WAVE_ROW*(member+.5)/members
+			var point:=Vector2(x,front+row*90)
+			if safe_spawn(run,point):
+				# 首只与偶数位为本波主力，其余从全部种类混抽，避免大波次让少数种类占比过高。
+				var variant:String=pair[0] if placed%2==0 else layout.draw("wave_mix",ROSTER)
+				var monster:=add(run,point,run.theme_at(point.y),variant)
+				monster.pack=front
+				monster.horde=arena_start
+				placed+=1
+	if placed>0:rotation.previous=pair[0]
+	# 每波打完后的回复点，位于下一波前方 300 单位以外。
+	if not last_wave:
+		var supply:=front+330
+		run.Combat.add_pickup(run,"medkit",Vector2(-60,supply))
+		for x in [0.0,60.0]:run.Combat.add_pickup(run,"ammo",Vector2(x,supply))
+
+static func add(run, position: Vector2, theme: String, variant:String="") -> Dictionary:
+	var archetype := variant if not variant.is_empty() else ("briar" if theme in ["forest","broken","edge","meadow","river","ridge"] else ("sentinel" if theme in ["mine","ruins","facility"] else "raider"))
+	var hp: int=HP[archetype]
+	var rect := Rect2(position-Vector2(28,28),Vector2(56,56))
+	var event := {"id":run.event_serial,"kind":"monster","archetype":archetype,"origin":position,
+		"y":position.y,"side":signf(position.x),"rect":rect,"sample":rect,"previous":rect,
+		"bottom":0.0,"top":18.0,"trigger":-1.0,"phase":"ready","locked_x":position.x,
+		"landing":position,"hp":hp,"max_hp":hp,"attack_seq":0,"combined":false,"obstacle":-1,
+		"spawn":position,"alert":false,"velocity":Vector2.ZERO,"stride":0.0,
+		"launch":position,"attack_direction":Vector2(0,-1),"attack_blocked":false,"ground_height":0.0,
+		"route":PackedVector2Array(),"repath_at":run.elapsed+float(run.event_serial%17)*run.FIXED_STEP,"facing":Vector2(0,-1)}
+	run.event_serial+=1
+	event.ground_height=run.surface_at(position,run.elapsed).height
+	run.journey_events.append(event)
+	return event
+
+static func sample(event: Dictionary, time: float) -> Dictionary:
+	var data:=profile(event)
+	var age: float=time-event.trigger
+	var phase := "ready"
+	var bottom := 0.0
+	if event.trigger>=0:
+		phase="warning" if age<data.windup else ("active" if age<data.windup+data.active else "recovery")
+	var center:Vector2=event.landing
+	var size:=Vector2(56,56)
+	var height:=18.0
+	if ranged(event):
+		center=event.launch+event.attack_direction*maxf(0,age-data.windup)*data.speed
+		bottom=event.get("launch_height",0.0)+24.0;size=Vector2(12,12);height=8.0
+	elif charges(event):
+		center=event.origin;bottom=event.get("ground_height",0.0);height={"dasher":42.0,"root_spider":22.0}.get(event.archetype,26.0)
+	elif phase=="active": bottom=event.get("ground_height",0.0)+maxf(0,70-(age-WINDUP)*180)
+	if event.get("attack_blocked",false) and phase=="active":phase="recovery"
+	return {"rect":Rect2(center-size/2,size),"phase":phase,"bottom":bottom,"top":bottom+height}
+
+static func advance(run, event: Dictionary) -> void:
+	# 只更新附近敌人；远处保持出生数据，不把全地图寻路塞进每个固定步。
+	event.velocity=Vector2.ZERO
+	var horde:=in_horde(run,event)
+	if horde: event.alert=true
+	elif absf(event.y-run.distance)>NOTICE_RANGE+200:
+		if absf(event.y-run.distance)<PATROL_RANGE and event.hp>0: patrol(run,event)
+		return
+	var target:Vector2=run.a.position if event.id%2==0 else run.b.position
+	if event.origin.distance_to(target)<NOTICE_RANGE: event.alert=true
+	# 远处成群追来时把目标前移到玩家附近再分散，避免几十只挤成一条线。
+	if horde and event.origin.distance_to(target)>NOTICE_RANGE:
+		target.x=clampf(target.x+float(event.id%5-2)*60.0,-run.EDGE+40,run.EDGE-40)
+	# 门的站位区保留合作空间，附近追兵仍会在外围行走。
+	var protected:bool=run.charge_gates.any(func(g):return absf(target.y-g.receiver.y)<180)
+	var data:=profile(event)
+	var age:float=run.elapsed-event.trigger if event.trigger>=0 else -1.0
+	var patrolling:bool=not event.alert or protected
+	if patrolling: target=event.origin
+	elif event.origin.distance_to(target)>200:
+		target.x=clampf(target.x+(-90 if event.id%2==0 else 90),-run.EDGE+40,run.EDGE-40)
+	if charges(event) and age>=0 and age<data.windup+data.active:
+		if age>=data.windup and not event.attack_blocked:
+			var destination:Vector2=event.origin+event.attack_direction*data.speed*run.FIXED_STEP
+			if clear_path(run,event.origin,destination,blockers(run,event.origin,destination)):
+				place(run,event,destination)
+			else:event.attack_blocked=true
+	elif patrolling and age<0: patrol(run,event)
+	elif not ranged(event) or age<0 or age>=data.windup+data.active:
+		move(run,event,target)
+	if event.trigger>=0 and age>=data.cycle: event.trigger=-1.0
+	if event.trigger<0 and not protected and absf(event.y-run.distance)<NOTICE_RANGE:
+		var nearest := -1
+		var distance:float=data.range
+		for role in range(2):
+			var point: Vector2=run.a.position if role==0 else run.b.position
+			var d: float=point.distance_to(event.origin)
+			if d<distance and run.Combat.line_of_sight(run,event.origin,point,run.Combat.enemy_height(event),run.foot_height(role)+24):
+				nearest=role;distance=d
+		if nearest>=0:
+			event.trigger=run.elapsed
+			event.attack_seq+=1
+			event.landing=run.a.position if nearest==0 else run.b.position
+			event.locked_x=event.landing.x
+			event.launch=event.origin
+			event.launch_height=run.surface_at(event.origin,run.elapsed).height
+			event.attack_direction=(event.landing-event.origin).normalized()
+			event.facing=event.attack_direction
+			event.attack_blocked=false
+			for role in range(2): run.combat.hits.erase("monster:%d:%d"%[event.id,role])
+	var next := sample(event,run.elapsed+run.FIXED_STEP)
+	if ranged(event) and next.phase=="active":
+		# 箭矢沿锁定方向飞行，实体挡住后本轮停止，不在墙后重新出现。
+		if not run.Combat.line_of_sight(run,event.launch,next.rect.get_center(),next.bottom+4,next.bottom+4):
+			event.attack_blocked=true;next.phase="recovery"
+	if event.phase!="active" and next.phase=="active":event.sample=next.rect
+	event.previous=event.sample
+	event.sample=next.rect
+	event.phase=next.phase
+	event.bottom=next.bottom
+	event.top=next.top
+
+# 怪物潮成员：任一玩家进入专区入口之后、离开专区之前，整片专区一起警觉追击。
+static func in_horde(run,event:Dictionary)->bool:
+	if not event.has("horde") or event.hp<=0: return false
+	var front:float=maxf(run.a.position.y,run.b.position.y)
+	return front>=float(event.horde)+HORDE_ENTRY and front<float(event.horde)+run.Encounters.ARENA+200.0
+
+# 局部实体集合：低栏、树干和缺口都不能被追兵穿过，开门后可正常追入下一段。
+static func blockers(run, from:Vector2, to:Vector2) -> Array[Rect2]:
+	var result:Array[Rect2]=[]
+	var low:float=minf(from.y,to.y)-120
+	var high:float=maxf(from.y,to.y)+120
+	for i in run.obstacles_in_bounds(Rect2(Vector2(-run.EDGE,low),Vector2(run.EDGE*2,high-low))):
+		var rect:Rect2=run.obstacles[i]
+		if rect.end.y<low or rect.position.y>high: continue
+		if run.kinds[i] in ["cargo","pillar","rail","sweeper"]:
+			result.append(rect.grow(BODY_RADIUS))
+	for gate in run.charge_gates:
+		if not gate.open: result.append(gate.door.grow(BODY_RADIUS))
+	return result
+
+static func clear_path(run, from:Vector2, to:Vector2, solids:Array[Rect2]) -> bool:
+	if absf(to.x)>run.EDGE-BODY_RADIUS: return false
+	for rect in solids:
+		if run.segment_hits(from,to,rect): return false
+	# 间距小于身体半径，覆盖整条行走路径，避免跨过细缺口。
+	var steps:=maxi(1,ceili(from.distance_to(to)/12.0))
+	# 网格格心的起终点相同时，只检查一次同样的五个脚底采样。
+	for n in range(1 if from==to else steps+1):
+		var point:=from.lerp(to,float(n)/steps)
+		for offset in [Vector2.ZERO,Vector2(BODY_RADIUS,0),Vector2(-BODY_RADIUS,0),Vector2(0,BODY_RADIUS),Vector2(0,-BODY_RADIUS)]:
+			if not run.has_ground_support(point+offset): return false
+	return true
+
+static func route(run, from:Vector2, target:Vector2, solids:Array[Rect2]) -> PackedVector2Array:
+	if clear_path(run,from,target,solids): return PackedVector2Array([target])
+	# 有障碍才创建小型确定性网格；每只怪物最多每 0.6 秒重算，禁止穿角。
+	var grid:=AStarGrid2D.new()
+	var low:=floori((minf(from.y,target.y)-120)/GRID)
+	var high:=ceili((maxf(from.y,target.y)+120)/GRID)
+	var edge:=floori((run.EDGE-BODY_RADIUS)/GRID)
+	grid.region=Rect2i(-edge,low,edge*2+1,high-low+1)
+	grid.cell_size=Vector2.ONE*GRID
+	grid.diagonal_mode=AStarGrid2D.DIAGONAL_MODE_NEVER
+	grid.update()
+	for y in range(low,high+1):
+		for x in range(-edge,edge+1):
+			var point:=Vector2(x,y)*GRID
+			grid.set_point_solid(Vector2i(x,y),not clear_path(run,point,point,solids))
+	var start:=Vector2i((from/GRID).round())
+	var end:=Vector2i((target/GRID).round())
+	if not grid.is_in_boundsv(start) or not grid.is_in_boundsv(end): return PackedVector2Array()
+	# 起终点取附近可走且能实际连接的位置，不强行清除实体格。
+	start=nearest_cell(run,grid,start,from,solids)
+	end=nearest_cell(run,grid,end,target,solids)
+	if start==Vector2i(99999,99999) or end==Vector2i(99999,99999): return PackedVector2Array()
+	return grid.get_point_path(start,end)
+
+static func nearest_cell(run, grid:AStarGrid2D, cell:Vector2i, point:Vector2, solids:Array[Rect2]) -> Vector2i:
+	var best:=Vector2i(99999,99999)
+	var distance:=INF
+	for y in range(cell.y-2,cell.y+3):
+		for x in range(cell.x-2,cell.x+3):
+			var candidate:=Vector2i(x,y)
+			if not grid.is_in_boundsv(candidate) or grid.is_point_solid(candidate): continue
+			var position:=Vector2(candidate)*GRID
+			if point.distance_squared_to(position)<distance and clear_path(run,point,position,solids):
+				best=candidate;distance=point.distance_squared_to(position)
+	return best
+
+static func move(run, event:Dictionary, target:Vector2) -> void:
+	var from:Vector2=event.origin
+	if from.distance_to(target)<36: return
+	var solids:=blockers(run,from,target)
+	if run.elapsed>=event.repath_at:
+		event.route=route(run,from,target,solids)
+		event.repath_at=run.elapsed+.6
+	var path:PackedVector2Array=event.route
+	while not path.is_empty() and from.distance_to(path[0])<4: path.remove_at(0)
+	event.route=path
+	if path.is_empty(): return
+	var speed:float=SPEEDS[event.archetype] if event.alert else 80.0
+	var next:=from.move_toward(path[0],speed*run.FIXED_STEP)
+	if not clear_path(run,from,next,solids):
+		event.repath_at=minf(event.repath_at,run.elapsed+.1)
+		return
+	place(run,event,next)
+
+static func patrol(run,event:Dictionary)->void:
+	if run.elapsed<float(event.get("patrol_wait",0.0)): return
+	var goal:Vector2=event.get("patrol_goal",event.origin)
+	if event.origin.distance_to(goal)<2.0:
+		# 到达或受阻：停顿 0.8–2.6 秒后换航点；航点由事件编号与腿序确定，存档与联机一致。
+		var leg:int=int(event.get("patrol_leg",0))+1
+		var roll:=absi(hash([event.id,leg]))
+		var next_goal:Vector2=event.spawn+Vector2((float(roll%1001)/500.0-1.0)*PATROL_SPAN.x,(float(roll/1001%1001)/500.0-1.0)*PATROL_SPAN.y)
+		next_goal.x=clampf(next_goal.x,-run.EDGE+50,run.EDGE-50)
+		event.patrol_leg=leg
+		event.patrol_wait=run.elapsed+0.8+float(roll/1002001%19)*0.1
+		event.patrol_goal=next_goal if clear_path(run,event.origin,next_goal,blockers(run,event.origin,next_goal)) else event.origin
+		return
+	var next:Vector2=(event.origin as Vector2).move_toward(goal,PATROL_SPEED*run.FIXED_STEP)
+	# 航点整段已验证；途中只复核脚下，塌陷地面出现时原地停下换航点。
+	if not clear_path(run,next,next,[]):
+		event.patrol_goal=event.origin
+		return
+	place(run,event,next)
+
+static func place(run,event:Dictionary,next:Vector2)->void:
+	var from:Vector2=event.origin
+	event.origin=next
+	event.y=next.y
+	event.ground_height=run.surface_at(next,run.elapsed).height
+	event.velocity=(next-from)/run.FIXED_STEP
+	event.facing=event.velocity.normalized()
+	event.stride+=from.distance_to(next)/32.0

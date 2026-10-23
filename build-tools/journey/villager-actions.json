@@ -1,0 +1,11 @@
+{
+  "path": "assets/journey/villager_actions.glb",
+  "source": "assets/humans/Adventurer_B.glb; build-tools/journey/make_villager_actions.py",
+  "license": "CC0; modified animation",
+  "bytes": 898116,
+  "sha256": "67fc99d6420473ca7d2be23a645d808df67bb06f6f4fd03126cc9dbbba5287d5",
+  "clips": [
+    "Throw",
+    "Push"
+  ]
+}

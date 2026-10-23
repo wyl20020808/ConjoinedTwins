@@ -3,9 +3,11 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dvdb51c6uvlh"
-path="res://.godot/imported/TallGrass_Grass.png-32f7ed8c5880ecf45019410df7b605ff.ctex"
+path.s3tc="res://.godot/imported/TallGrass_Grass.png-32f7ed8c5880ecf45019410df7b605ff.s3tc.ctex"
+path.etc2="res://.godot/imported/TallGrass_Grass.png-32f7ed8c5880ecf45019410df7b605ff.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "c140038d5dd43b86d212442f70ad5d7f"
@@ -14,11 +16,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/decor/TallGrass_Grass.png"
-dest_files=["res://.godot/imported/TallGrass_Grass.png-32f7ed8c5880ecf45019410df7b605ff.ctex"]
+dest_files=["res://.godot/imported/TallGrass_Grass.png-32f7ed8c5880ecf45019410df7b605ff.s3tc.ctex", "res://.godot/imported/TallGrass_Grass.png-32f7ed8c5880ecf45019410df7b605ff.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

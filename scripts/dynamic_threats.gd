@@ -2,11 +2,18 @@ extends RefCounted
 
 # 生产动态威胁。地面单位仍为 20/米；轨迹一经预警即锁定，不读取玩家位置修正方向。
 const CONFIG := {
-	"fly_low": {"size": Vector2(56, 24), "velocity": Vector2(0, -300), "bottom": 0.0, "top": 10.0},
-	"fly_body": {"size": Vector2(56, 24), "velocity": Vector2(0, -480), "bottom": 18.0, "top": 38.0},
-	"rocket": {"size": Vector2(40, 64), "velocity": Vector2(0, -860), "bottom": 18.0, "top": 38.0},
+	"fly_low": {"size": Vector2(56, 24), "velocity": Vector2(0, -640), "bottom": 0.0, "top": 10.0},
+	"fly_body": {"size": Vector2(56, 24), "velocity": Vector2(0, -960), "bottom": 18.0, "top": 38.0},
+	"rocket": {"size": Vector2(40, 64), "velocity": Vector2(0, -1500), "bottom": 18.0, "top": 38.0},
 	"stone_ball": {"size": Vector2(90, 90), "velocity": Vector2(0, -350), "bottom": 0.0, "top": 90.0},
-	"iron_ball": {"size": Vector2(80, 80), "velocity": Vector2(0, -400), "bottom": 0.0, "top": 80.0}}
+	"iron_ball": {"size": Vector2(80, 80), "velocity": Vector2(0, -400), "bottom": 0.0, "top": 80.0},
+	# 横滚木桶：宽 4.5 米、顶高超过跳跃高度，跳不过；两人分站两侧（各距中线约 3 米，绳长内）
+	# 拉紧绳子可将其绊倒，身体在桶宽之外不被撞到。
+	"barrel": {"size": Vector2(90, 60), "velocity": Vector2(0, -420), "bottom": 0.0, "top": 44.0}}
+
+# 绊桶条件：绳索已用长度至少达到上限的 75%，且两人分处木桶中线两侧。
+const BARREL_TRIP_TENSION := 0.75
+const BARREL_TRIP_COINS := 3
 
 static func is_ball(kind: String) -> bool:
 	return kind in ["stone_ball", "iron_ball"]

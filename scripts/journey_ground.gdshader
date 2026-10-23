@@ -1,0 +1,105 @@
+shader_type spatial;
+render_mode cull_disabled;
+uniform sampler2D stone : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D soil : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D rock : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D soil_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform sampler2D stone_normal : hint_normal, filter_linear_mipmap, repeat_enable;
+// 从三件 Tripo 模型顶视烘焙，颜色与世界 X/Z 法线、粗糙度分开保存。
+uniform sampler2D paving_color : source_color, filter_linear_mipmap_anisotropic;
+uniform sampler2D paving_detail : filter_linear_mipmap_anisotropic;
+uniform sampler2D cobbles_color : source_color, filter_linear_mipmap_anisotropic;
+uniform sampler2D cobbles_detail : filter_linear_mipmap_anisotropic;
+uniform sampler2D mud_color : source_color, filter_linear_mipmap_anisotropic;
+uniform sampler2D mud_detail : filter_linear_mipmap_anisotropic;
+// 手写程序噪声：R 大尺度色差、G 中尺度细节、B 稀疏水洼。不是颜色贴图，不做 sRGB 转换。
+uniform sampler2D road_macro : filter_linear_mipmap, repeat_enable;
+uniform int chapter=0;
+uniform int road_region=-1;
+uniform int night=0;
+varying vec3 world;
+void vertex(){world=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;}
+float noise2(vec2 p){return sin(p.x*.27+sin(p.y*.18))*sin(p.y*.11+p.x*.13)*.5+.5;}
+vec2 mirrored(vec2 p){return 1.0-abs(fract(p*.5)*2.0-1.0);}
+vec3 surface_color(sampler2D tex,vec2 tile,float weight){
+ return mix(texture(tex,mirrored(tile)).rgb,texture(tex,mirrored(tile+vec2(5.731,3.281))).rgb,weight);
+}
+vec3 surface_detail(sampler2D tex,vec2 tile,float weight){
+ vec2 other=tile+vec2(5.731,3.281);
+ vec3 a=texture(tex,mirrored(tile)).rgb;
+ vec3 b=texture(tex,mirrored(other)).rgb;
+ a.rg=(a.rg*2.0-1.0)*(1.0-2.0*mod(floor(tile),2.0));
+ b.rg=(b.rg*2.0-1.0)*(1.0-2.0*mod(floor(other),2.0));
+ return mix(a,b,weight);
+}
+void fragment(){
+ float meters=-world.z;
+ float land=smoothstep(220.0,420.0,meters);
+ float village=smoothstep(1020.0,1250.0,meters);
+ if(chapter==1){land=1.0;village=.7;}else if(chapter==2){land=.25;village=.05;}
+ if(road_region>=0){land=road_region==1?1.0:0.0;village=road_region==2?1.0:0.0;}
+ float natural=land*(1.0-village);
+ float mottled=noise2(world.xz);
+ // 29×43 米的大尺度变化打散 2×4 米铺装的重复感；水洼只出现在铺装面上。
+ vec3 macro=texture(road_macro,world.xz/vec2(29.0,43.0)+vec2(.371,.197)).rgb;
+ float broad=macro.r;
+ float fine=macro.g;
+ float wet=smoothstep(.12,.82,macro.b);
+ // 镜像重复使每个接边采到相同边缘；法线分量随镜像同步翻转。
+ vec2 tile=world.xz/vec2(2.8,5.6)+vec2(.371,.197);
+ float variation=smoothstep(.3,.7,noise2(world.xz*.9));
+ vec3 flag=surface_color(paving_color,tile,variation)*vec3(.88,.9,.93);
+ vec3 cobble=surface_color(cobbles_color,tile,variation)*vec3(.9,.93,.95);
+ vec3 mud=surface_color(mud_color,tile,variation)*vec3(.62,.59,.53);
+ flag=mix(flag,vec3(dot(flag,vec3(.299,.587,.114))),.3);
+ cobble=mix(cobble,vec3(dot(cobble,vec3(.299,.587,.114))),.25);
+ vec3 road=mix(mix(flag,mud,land),cobble,village);
+ vec3 detail=mix(mix(surface_detail(paving_detail,tile,variation),surface_detail(mud_detail,tile,variation),land),surface_detail(cobbles_detail,tile,variation),village);
+ vec3 leaves=texture(soil,world.xz*.22,1.5).rgb;
+ vec3 dirt=mix(mud,leaves*vec3(.54,.50,.39),.35);
+ vec3 litter=mix(leaves*vec3(.65,.72,.45),vec3(.16,.20,.095),.25);
+ // 路缘不再是一条直线：用中尺度噪声把草地/泥土的侵入边界推拉一到两米。
+ float verge=smoothstep(12.4+mottled*.5+fine*2.2,16.0+fine*.3,abs(world.x));
+ vec3 base=mix(road,mix(dirt,litter,natural*.5),verge*.85);
+ float outside=smoothstep(15.8,16.4,abs(world.x));
+ float tracks=exp(-pow((abs(world.x)-2.4)*2.0,2.0))*natural;
+ // 车辙与通行磨亮：主车道略暗、略光滑，和路肩区分开。
+ float lane=exp(-pow((abs(world.x)-4.6)*1.7,2.0))*(1.0-outside);
+ float damp=smoothstep(.65,.81,noise2(world.xz*2.3))*natural;
+ float canopy=(.84+.16*noise2(world.xz*3.2))*natural+(1.0-natural);
+ base*=.9+broad*.2;
+ base*=.92+mottled*.14;
+ base*=canopy*(1.0-tracks*.18-damp*.1-lane*.06);
+ vec3 outside_color=mix(texture(rock,world.xz*.12,1.0).rgb*.6,litter,land);
+ ALBEDO=mix(base,outside_color,outside);
+ ROUGHNESS=mix(clamp(detail.b*.92+fine*.14,.7,.98),.94,outside);
+ ROUGHNESS=mix(ROUGHNESS,.72,lane*.35);
+ // 水洼压暗、降粗糙度并压平法线，给路面一点雨后的反光层次。
+ float puddle=wet*(1.0-outside);
+ // 第三章夜间：积水范围扩大，路面去饱和压暗，火把与月光在水面上反光。
+ if(night==1){
+  puddle=max(puddle,smoothstep(.05,.62,macro.b)*(1.0-outside));
+  ALBEDO=mix(ALBEDO,vec3(dot(ALBEDO,vec3(.299,.587,.114))),.35)*.8;
+ }
+ ALBEDO=mix(ALBEDO,ALBEDO*vec3(.62,.64,.68),puddle*.85);
+ ROUGHNESS=mix(ROUGHNESS,.30,puddle*.8);
+ // 两条矿车轨道（轨距 1.1 米）贯穿第三章路面：钢轨金属反光，枕木压暗。只是表现层。
+ float rail=0.0;
+ if(night==1){
+  float track=abs(abs(world.x)-7.2);
+  rail=(1.0-smoothstep(.025,.05,abs(track-.55)))*(1.0-outside);
+  float tie=(1.0-smoothstep(.75,.8,track))*step(fract(meters/.82),.3)*(1.0-rail)*(1.0-outside);
+  ALBEDO=mix(ALBEDO,vec3(.20,.15,.11),tie*.85);
+  ALBEDO=mix(ALBEDO,vec3(.34,.32,.31),rail);
+  ROUGHNESS=mix(ROUGHNESS,.42,rail);
+  METALLIC=rail*.55;
+ }
+ AO=1.0-tracks*.08-puddle*.12;
+ vec2 slopes=detail.rg*.7*(1.0-verge*.6)*(1.0-rail);
+ vec3 n=normalize(vec3(slopes.x,sqrt(max(.1,1.0-dot(slopes,slopes))),slopes.y));
+ vec3 terrain_detail=mix(texture(stone_normal,world.xz*.22,1.0).rgb,texture(soil_normal,world.xz*.22,1.5).rgb,land);
+ vec3 terrain_n=normalize(vec3((terrain_detail.r-.5)*.35,1.0,(terrain_detail.g-.5)*.35));
+ vec3 surface_n=normalize(mix(n,terrain_n,outside));
+ surface_n=normalize(mix(surface_n,vec3(0.0,1.0,0.0),puddle*.7));
+ NORMAL=normalize((VIEW_MATRIX*vec4(surface_n,0.0)).xyz);
+}

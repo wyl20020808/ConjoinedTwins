@@ -1,0 +1,17 @@
+{
+  "generated": "2026-10-21",
+  "source": "Tripo Studio 文生 3D（用户账号），H3.1 高精度模型、关闭超清几何、开启纹理与去光处理、PBR、2K 贴图、三角面、面数上限 20000",
+  "license": "待用户在 Tripo 账号中按套餐确认；正式发布前补充署名（如需要）",
+  "pipeline": "原始 GLB → build-tools/journey/process_tripo_weapons.py（Blender 规整朝向/缩放/握点，写入标记点，冲锋枪拆出弹匣网格）→ build-tools/shrink_glb.py 贴图缩到 1024",
+  "raw_dir": "/Users/apple/ConjoinedTwins-art-assets/tripo-weapons-20261021/raw",
+  "assets": [
+    {"file": "assets/weapons/tripo_smg.glb", "tripo_task": "9fdf2c87-42ff-4eb1-b3ab-8731842935b0", "prompt": "Compact modern submachine gun, game-ready stylized realistic weapon prop, matte black steel receiver, worn olive green polymer handguard, short straight box magazine, folding skeleton stock, small red dot sight, clean hard-surface details, horizontal side view, single isolated object, no hands, no stand, no base", "triangles": 19222, "raw_sha256": "9a8bece3d3e324a7c8e58b1735218a2316275f7c9aee43b7258a6d54855f89dd", "raw_bytes": 3589796, "sha256": "b0a5ae67ebf525ee595d4d406f73d6742c9dff1aae21e47f2cd5ca1e811a7d4a", "bytes": 1739100},
+    {"file": "assets/weapons/tripo_shotgun.glb", "tripo_task": "47b29098-c522-44d5-b842-fb8f8b819325", "prompt": "Pump-action combat shotgun, game-ready stylized realistic weapon prop, dark blued steel barrel with tube magazine underneath, worn walnut wood pump forearm and wooden stock, ghost ring sights, side shell holder with red shells, clean hard-surface details, horizontal side view, single isolated object, no hands, no stand, no base", "triangles": 18996, "raw_sha256": "065bd1ab58368a0bc6c2ebd8c23d21af29359dac394e5ee2961cffc66e662f33", "raw_bytes": 4049688, "sha256": "4645d81c5a223bd8cd84b95899a71aa5f5f39d0350e863706140c3c9eebdaed3", "bytes": 1936336},
+    {"file": "assets/weapons/tripo_flamer.glb", "tripo_task": "3726ac7a-f614-4e1a-94bb-21f1fc4a06ee", "prompt": "Handheld military flamethrower weapon, game-ready stylized realistic prop, long steel nozzle tube with pilot light at the tip, red cylindrical fuel tank mounted under the barrel, brass valves and gauge, rubber hose, rear pistol grip and front handle, clean hard-surface details, horizontal side view, single isolated object, no hands, no stand, no base", "triangles": 18968, "raw_sha256": "4603be72952253eef54c3517ed44dd75424933641290266ac4e32a07d30cbcbe", "raw_bytes": 3151396, "sha256": "515bc033e4fcce947f1f53c9b02db18835354cde1e5a6649eeeb29252d3c29a6", "bytes": 1633732},
+    {"file": "assets/weapons/tripo_launcher.glb", "tripo_task": "f4172741-3747-42c5-8f6c-7cad6665c811", "prompt": "Military six-shot revolving grenade launcher long gun, large rotating cylinder drum magazine with six wide chambers, short very wide 40mm barrel tube, collapsible metal shoulder stock, pistol grip with trigger, forward vertical foregrip under the barrel, olive drab and black, game-ready stylized realistic weapon prop, horizontal side view, single isolated object, no stand, no base, no display", "triangles": 18650, "raw_sha256": "f1a6af131edfbc4bd203b938d1e068b94a86c534cb7cd205a049f9cd66e6065b", "raw_bytes": 3338856, "sha256": "acda6bcc86cb97de65fb5ad301902f81dade4242491de3a0123732b60d728f72", "bytes": 1671504}
+  ],
+  "discarded": [
+    {"tripo_task": "d26cc4d2-1f54-4804-986e-aaa6dbd5a451", "reason": "误用账号里保存的旧设置（超清几何、无纹理、200 万面），未下载"},
+    {"tripo_task": "5acf6a32-c812-4dcb-a711-31cba075fafe", "reason": "生成成带展示架的大号左轮手枪，不像榴弹发射器，已重新生成", "raw_sha256": "cdb899074882ddd022ba199da4e38d7fe4b4854a8b6f678ee15047d139813941"}
+  ]
+}
